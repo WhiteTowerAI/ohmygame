@@ -398,7 +398,6 @@ export function CodingWorkspace({
   // Only the icon in the title bar, which Windows shares with its window buttons; the label names it.
   const playButton = supportsPreview ? <IconButton
     size="sm"
-    className="preview-play-button"
     active={player.open}
     label={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
     disabled={player.pending || (player.checking && !player.error) || canPlay}
@@ -1307,24 +1306,25 @@ export function WorkspaceFileBrowser({
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
-  const fileHeader = openFile && !showChanges ? <>
-    <span className="file-content-path" title={openFile.path}>
-      {openFile.path.split("/").map((part, index, parts) => index === parts.length - 1
+  const shownFile = openFile && !showChanges ? openFile : undefined;
+  const fileTools = shownFile ? <>
+    {fileActions}
+    {onOpenExternal ? <FileOpenActions path={shownFile.path} onOpen={onOpenExternal} /> : null}
+  </> : null;
+  const fileHeader = shownFile ? <>
+    <span className="file-content-path" title={shownFile.path}>
+      {shownFile.path.split("/").map((part, index, parts) => index === parts.length - 1
         ? <span key={index} className="file-content-name">{part}</span>
         : <span key={index}>{part}<span className="file-content-separator">/</span></span>)}
-      {openFile.truncated ? ` ${t("workspace.truncated")}` : ""}
+      {shownFile.truncated ? ` ${t("workspace.truncated")}` : ""}
     </span>
-    {fileActions}
-    {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
+    {fileTools}
   </> : null;
   // In a panel's tab strip the file tree already marks the open file, so the
   // strip holds only its actions, and says when the file is cut short.
   const toolbar = toolbarTarget ? createPortal(<>
-    <span className="file-content-note">{openFile?.truncated && !showChanges ? t("workspace.truncated") : null}</span>
-    {openFile && !showChanges ? <>
-      {fileActions}
-      {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
-    </> : null}
+    <span className="file-content-note">{shownFile?.truncated ? t("workspace.truncated") : null}</span>
+    {fileTools}
   </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath && files.length === 0) return <WorkspaceState error={error} />;
@@ -1420,7 +1420,7 @@ export function WorkspaceFileBrowser({
         onPointerCancel={finishExplorerResize}
         onLostPointerCapture={finishExplorerResize}
       />
-      <div className="file-content" aria-label={openFile && !showChanges ? openFile.path : undefined}>
+      <div className="file-content" aria-label={shownFile?.path}>
         {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
           // A refresh keeps the open file on screen, also when it fails: the next one tries again.
           : openFile ? (

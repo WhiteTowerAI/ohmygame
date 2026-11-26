@@ -3534,40 +3534,19 @@ select.settings-search-input {
   z-index: 4;
   display: grid;
   width: 108px;
-  padding: 4px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--menu-surface);
 }
 .library-dialog-actions-menu button {
   display: flex;
-  height: 32px;
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
   border: 0;
-  border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
   font: inherit;
-  font-size: 11px;
   font-weight: 500;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
 }
-.library-dialog-actions-menu button:hover,
-.library-dialog-actions-menu button:focus-visible {
-  background: var(--menu-hover);
-  color: var(--text);
-  outline: 0;
-}
-.library-dialog-actions-menu .library-action-delete {
-  color: #ff6b62;
-}
-.library-dialog-actions-menu .library-action-delete:is(:hover, :focus-visible) {
-  color: #ff938c;
-}
+
 .library-dialog-backdrop {
   position: fixed;
   z-index: 80;
@@ -5770,11 +5749,7 @@ button {
   max-width: 280px;
   max-height: min(360px, calc(100vh - 16px));
   flex-direction: column;
-  padding: 4px;
   overflow: hidden;
-  border-radius: 8px;
-  background: var(--menu-surface);
-  box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border);
 }
 
 .canvas-chip-menu-search {
@@ -7042,11 +7017,6 @@ button {
 .story-canvas-context-submenu,
 .story-canvas-context-branch-menu {
   width: 196px;
-  padding: 4px;
-  border: 1px solid var(--menu-border);
-  border-radius: 7px;
-  background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .story-canvas-context-menu {
@@ -7058,17 +7028,11 @@ button {
 .story-canvas-context-menu button {
   display: grid;
   width: 100%;
-  min-height: 34px;
   grid-template-columns: 18px minmax(0, 1fr) minmax(14px, auto);
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
   border: 0;
-  border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
   font: inherit;
-  font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
@@ -7093,22 +7057,10 @@ button {
   font: inherit;
   font-size: 10px;
 }
-.story-canvas-context-menu button:hover:not(:disabled),
-.story-canvas-context-menu button:focus-visible {
-  outline: 0;
-  background: var(--surface-hover);
-  color: var(--text);
-}
+
 .story-canvas-context-menu button:disabled {
   cursor: default;
   opacity: 0.38;
-}
-.story-canvas-context-menu button.is-danger:not(:disabled) {
-  color: var(--danger);
-}
-.story-canvas-context-menu button.is-danger:hover:not(:disabled),
-.story-canvas-context-menu button.is-danger:focus-visible {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .story-canvas-context-menu-label {
@@ -7174,11 +7126,6 @@ button {
 .story-add-node-submenu {
   max-height: calc(100vh - 72px);
   overflow-y: auto;
-  padding: 5px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--menu-surface);
-  box-shadow: var(--menu-shadow), var(--shadow-hairline);
 }
 
 .story-add-node-submenu {
@@ -7191,12 +7138,7 @@ button {
 .story-canvas-toolbar .story-add-node-submenu button {
   display: flex;
   width: 100%;
-  height: 30px;
   align-items: center;
-  gap: 10px;
-  padding: 0 8px;
-  color: var(--text);
-  font-size: 12px;
   text-align: left;
 }
 
@@ -7903,9 +7845,6 @@ button {
   position: fixed;
   z-index: 30;
   overflow: hidden;
-  border: 0;
-  border-radius: 8px;
-  background: var(--menu-surface);
   transform: translateX(-50%);
 }
 
@@ -9165,7 +9104,6 @@ summary.work-summary:hover {
   background: rgb(0 0 0 / 55%);
   color: #fff;
 }
-
 
 .tool-result-video {
   display: block;
@@ -11416,10 +11354,6 @@ summary.work-summary:hover {
   min-width: 170px;
   max-width: 280px;
   flex-direction: column;
-  padding: 4px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--menu-surface);
 }
 
 .viewport-option {
@@ -11874,7 +11808,6 @@ summary.work-summary:hover {
   inset: 0;
 }
 
-.preview-play-button.is-active { color: var(--text); background: var(--surface-hover); }
 .preview-record-button.is-recording, .preview-record-button.is-recording:not(:disabled):hover { color: var(--danger); font-variant-numeric: tabular-nums; }
 
 .preview-player-error {
@@ -12328,33 +12261,17 @@ summary.work-summary:hover {
   right: 0;
   display: grid;
   width: 176px;
-  padding: var(--space-1);
-  border-radius: var(--radius-md);
-  background: var(--menu-surface);
-  box-shadow: var(--shadow-float);
 }
 
 .file-open-menu > button {
   display: grid;
-  height: 30px;
   grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2);
   border: 0;
-  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary);
   font: inherit;
-  font-size: var(--text-md);
   text-align: left;
   cursor: pointer;
-}
-
-.file-open-menu > button:hover,
-.file-open-menu > button:focus-visible {
-  background: var(--menu-hover);
-  color: var(--text);
 }
 
 .file-open-menu > button:disabled {
@@ -12377,28 +12294,17 @@ summary.work-summary:hover {
   z-index: 1200;
   display: grid;
   width: 196px;
-  padding: 4px;
-  border: 1px solid var(--menu-border);
-  border-radius: 7px;
   outline: 0;
-  background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .workspace-tree-context-menu > button {
   display: grid;
   width: 100%;
-  min-height: 34px;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
   border: 0;
-  border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
   font: inherit;
-  font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
@@ -12413,13 +12319,6 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
-.workspace-tree-context-menu > button:hover:not(:disabled),
-.workspace-tree-context-menu > button:focus-visible {
-  outline: 0;
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .workspace-tree-context-menu > button:disabled {
   cursor: default;
   opacity: 0.5;
@@ -12427,11 +12326,8 @@ summary.work-summary:hover {
 
 .workspace-tree-context-menu > hr {
   width: 100%;
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid var(--menu-border);
 }
-.workspace-tree-context-menu > .workspace-file-delete { color: var(--danger); }
+
 .file-action-error {
   margin: 8px 12px;
   color: var(--danger);
@@ -12702,7 +12598,6 @@ summary.work-summary:hover {
 :root[data-appearance="light"] .settings-provider-mark.is-monochrome {
   background: #2d2d2d;
 }
-
 
 :root[data-appearance="light"] .settings-account-avatar {
   background: var(--surface-hover);
@@ -13392,30 +13287,16 @@ summary.work-summary:hover {
   display: flex;
   min-width: 200px;
   flex-direction: column;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .playable-playtest-menu > button {
   display: flex;
-  min-height: 32px;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
   border: 0;
-  border-radius: 4px;
   background: transparent;
-  color: var(--text);
   font: inherit;
-  font-size: 12px;
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-}
-.playable-playtest-menu > button:is(:hover, :focus-visible) {
-  background: var(--menu-hover);
 }
 
 /* Over the Playtest game: a note only when something breaks. Always dark. */
@@ -13567,7 +13448,7 @@ summary.work-summary:hover {
 .project-media-defaults .canvas-chip[aria-expanded="true"] { background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
 .project-media-defaults .canvas-chip:disabled { background: none; box-shadow: none; color: var(--color-text-tertiary); opacity: 1; }
 .project-media-defaults .canvas-chip > svg { color: var(--color-text-tertiary); }
-.project-media-defaults .canvas-chip-menu { border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
+
 .project-media-defaults > .settings-error { margin: 0; padding: 6px var(--space-2); font-size: var(--text-sm); }
 .custom-provider-capabilities label { display: flex; align-items: center; gap: 7px; }
 .custom-provider-capabilities input { width: 14px; height: 14px; padding: 0; accent-color: var(--theme-accent); }
@@ -13834,7 +13715,6 @@ summary.work-summary:hover {
 .agent-account-profile-form > input,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: 12px; }
 .chat-account-selector { min-width: 0; }
-
 
 /* The chat header's account menu (agent-account-menu.tsx). */
 .agent-account-trigger {
@@ -14198,8 +14078,8 @@ summary.work-summary:hover {
 /*
  * Menus made by hand before the UI kit draw as its menus do (ui/overlay.css):
  * the raised surface with its float shadow and no border, 30px items in the
- * body's size and colour, the kit's hover and hairline separators. Only the
- * look is shared; each keeps its own placement and behaviour.
+ * body's size and colour, the kit's hover and hairline separators. Their own
+ * rules above keep only placement, size and behaviour; the look is set here.
  */
 :is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover, .selected-text-menu, .canvas-chip-menu) {
   padding: var(--space-1);
@@ -14211,7 +14091,7 @@ summary.work-summary:hover {
 
 .selected-text-menu { padding: 0; }
 
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type] {
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"] {
   min-height: 30px;
   gap: var(--space-2);
   padding: 0 var(--space-2);
@@ -14220,23 +14100,23 @@ summary.work-summary:hover {
   font-size: var(--text-md);
 }
 
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type]:is(:hover, :focus-visible):not(:disabled) {
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"]:is(:hover, :focus-visible):not(:disabled) {
   outline: 0;
   background: var(--color-hover);
   color: var(--color-text);
 }
 
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"][type] > svg {
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role^="menuitem"] > svg {
   color: var(--color-text-secondary);
 }
 
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled),
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible),
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled) > svg {
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled),
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible),
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled) > svg {
   color: var(--danger);
 }
 
-:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"][type]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible) {
+:is(.workspace-tree-context-menu, .file-open-menu, .story-canvas-context-menu, .story-canvas-context-submenu, .story-canvas-context-branch-menu, .playable-playtest-menu, .library-dialog-actions-menu, .story-add-node-menu, .story-add-node-submenu, .viewport-menu-popover) [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 

@@ -261,7 +261,7 @@ describe("coding workspace", () => {
     expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
     // Play is an icon in the title bar, named by its label.
-    expect(runnable).toMatch(/preview-play-button[^>]*aria-label="Play in a new window"|aria-label="Play in a new window"[^>]*preview-play-button/);
+    expect(runnable).toContain('aria-label="Play in a new window"');
     expect(runnable).not.toContain("Publishing requires a Web build");
   });
 

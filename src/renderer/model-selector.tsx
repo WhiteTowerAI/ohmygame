@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -250,6 +250,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
 export { useAgentModels, type AgentModelCatalogState, type AgentModelCatalogStatus } from "./agent-model-catalog.js";
 
 /** A provider's logo, or its initial when it has none (custom providers). */
+/** A model's provider logo at the size canvas chips and their group headings use. */
+export function chipMark(model: { provider: string; providerName?: string }): ReactNode {
+  return <ProviderMark provider={model.provider} name={model.providerName} size={12} />;
+}
+
 export function ProviderMark({ provider, name, size = 14 }: { provider?: string; name?: string; size?: number }) {
   const pluginIcon = usePluginIcon(isPluginMarkId(provider) ? provider : undefined);
   const icon = (provider ? PROVIDER_ICONS[provider] : undefined) ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);
