@@ -263,7 +263,12 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     place(titleEnd, titlebar.end);
     return () => titlebar.release();
   }, [titlebar, titleStart, titleEnd]);
-  const style: CSSProperties = stacked ? {
+  // A maximized area is the only cell; the others keep no column or row.
+  const style: CSSProperties = max ? {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
+    gridTemplateAreas: `"${max}"`,
+  } : stacked ? {
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: order.map((area) => area === "center" ? "minmax(320px, 2fr)" : "minmax(240px, 1fr)").join(" "),
     gridTemplateAreas: order.map((area) => `"${area}"`).join(" "),
@@ -434,7 +439,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               {ids.length ? null : empty}
               {area === "center" ? overlay : null}
             </div>
-            {area === "center" || stacked ? null : (
+            {area === "center" || stacked || max ? null : (
               <div className={`dock-resizer dock-resizer-${area}`} role="separator" tabIndex={0}
                 aria-orientation={area === "bottom" ? "horizontal" : "vertical"} aria-label={t("panels.resize", { area: areaLabel(area) })}
                 aria-valuenow={layout[area].size}

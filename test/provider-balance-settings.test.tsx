@@ -13,7 +13,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: ({ providerId }: { providerId: string }) => <div data-model-provider={providerId}>Models</div> }));
 vi.doMock(path.resolve("src/renderer/plugin-media-models.tsx"), () => ({ PluginMediaModels: () => <div>Plugin models</div> }));
-vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => <section aria-label="Default models" /> }));
+vi.doMock(path.resolve("src/renderer/media-model-defaults.tsx"), () => ({ GlobalMediaModelDefaults: () => <section aria-label="Default models" />, ChatModelDefaultRow: () => null }));
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 
 let container: HTMLDivElement;

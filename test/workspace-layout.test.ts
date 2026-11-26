@@ -287,6 +287,17 @@ describe("the panel layout", () => {
     expect([...document.querySelectorAll('[role="menu"] button')].map((item) => item.textContent)).toEqual(["Grid", "Export"]);
   });
 
+  it("gives a maximized side area the whole layout", async () => {
+    await render(layout);
+    const dock = container.querySelector<HTMLElement>(".dock")!;
+    await act(async () => container.querySelector<HTMLButtonElement>(".dock-area-left .dock-maximize")!.click());
+    expect(dock.style.gridTemplateAreas).toBe('"left"');
+    expect(dock.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
+    expect(container.querySelector(".dock-resizer")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".dock-area-left .dock-maximize")!.click());
+    expect(dock.style.gridTemplateAreas).not.toBe('"left"');
+  });
+
   it("handles its tabs as a browser does: arrows, middle click, double click and Close others", async () => {
     let current: Layout = { ...layout, center: { panels: ["game", "code"], active: "game", size: 0 }, right: { panels: [], size: 280 } };
     const show = () => act(async () => root.render(createElement(PanelLayout, {

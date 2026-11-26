@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { GameIcon } from "./game-icon.js";
-import { Check, Copy, ExternalLink, Gamepad2, Spinner, Maximize, RotateCcw, Search, Share2 } from "./icons.js";
+import { Check, Copy, Gamepad2, Spinner, Maximize, Play, Search, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
@@ -300,7 +300,8 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
 /** The player, then the title, creator and actions. Opening the page starts
  * the game; until it is known the player shows its loading screen and the
  * details their shapes, and the loading screen stays until the game has
- * loaded. Restart, share and fullscreen sit with the game's stats. */
+ * loaded. Share, a new window and fullscreen sit with the game's stats;
+ * reloading the app (⌘R) starts the game again. */
 function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onStatsChange }: {
   game?: CommunityGame;
   relatedGames: CommunityGame[];
@@ -312,13 +313,12 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
   const playerRef = useRef<HTMLDivElement>(null);
   const [sharing, setSharing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [restarts, setRestarts] = useState(0);
   // The desktop app can play the game in a window of its own; the page then stops its copy.
   const gameWindow = window.ohMyGameDesktop?.communityGameWindow;
   const [away, setAway] = useState<string>();
   const isAway = game !== undefined && away === game.id;
   // A new deployment starts the game again; the owner's dialogs stay open.
-  const frameKey = game ? `${game.id}:${game.deploymentId}:${restarts}` : undefined;
+  const frameKey = game ? `${game.id}:${game.deploymentId}` : undefined;
   const [loadedFrame, setLoadedFrame] = useState<string>();
   const loaded = frameKey !== undefined && loadedFrame === frameKey;
 
@@ -408,9 +408,8 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
           <span className="community-spacer" />
           <div className="community-game-actions">
             <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
-            <IconButton label={t("community.restart")} disabled={isAway} onClick={() => setRestarts(count => count + 1)}><RotateCcw size="sm" /></IconButton>
             <IconButton label={t("community.shareButton")} aria-haspopup="dialog" onClick={share}><Share2 size="sm" /></IconButton>
-            {gameWindow ? <IconButton label={t("community.openWindow")} onClick={() => void popOut()}><ExternalLink size="sm" /></IconButton> : null}
+            {gameWindow ? <IconButton label={t("community.openWindow")} onClick={() => void popOut()}><Play size="sm" /></IconButton> : null}
             <IconButton label={`${t("common.fullscreen")} (F)`} disabled={isAway} onClick={() => void toggleFullscreen()}><Maximize size="sm" /></IconButton>
             {actions}
           </div>

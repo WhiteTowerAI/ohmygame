@@ -2,13 +2,15 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from "react-dom";
 import { AUDIO_KINDS, type AudioKind, type AudioModelCatalog } from "../shared/audio.js";
 import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState } from "../shared/contracts.js";
-import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
+import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
+import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, notifyAgentModelsChanged, setDefaultMediaModel, updateAgentDefaults, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
 import { Spinner, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
-import { chipMark, ProviderMark } from "./model-selector.js";
+import { chipMark, ProviderMark, useAgentModels } from "./model-selector.js";
 import { Select } from "./ui/index.js";
 
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
@@ -109,6 +111,47 @@ function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: 
   </SettingsRow>;
 }
 
+/**
+ * The model new conversations start on, chosen from OhMyGame's own models like
+ * the generation defaults. A conversation that switches model moves it too.
+ * A coding agent's model chosen elsewhere stays listed while it is the default.
+ */
+export function ChatModelDefaultRow({ title = t("settings.providers.chatUsage"), description }: { title?: string; description?: string }) {
+  const catalog = useAgentModels({ agentRuntimes: true });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const own = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
+  const chosen = catalog.defaultModel;
+  const current = chosen && catalog.models.find((model) => modelKey(model) === modelKey(chosen));
+  // Without a default, a new conversation starts on the first of OhMyGame's models.
+  const first = own[0];
+  const options = [
+    ...(!current && first ? [{ value: "", label: t("mediaDefaults.automatic", { label: first.name }), icon: <ProviderMark provider={first.provider} name={first.providerName} /> }] : []),
+    ...(current && isAgentRuntimeId(current.provider) ? [current] : []).concat(own).map((model) => ({
+      value: modelKey(model), label: model.name, description: model.providerName, icon: <ProviderMark provider={model.provider} name={model.providerName} />,
+    })),
+  ];
+  async function choose(value: string) {
+    const model = catalog.models.find((item) => modelKey(item) === value);
+    if (!model || saving || (current && modelKey(current) === value)) return;
+    setSaving(true); setError(undefined);
+    try {
+      await updateAgentDefaults(isAgentRuntimeId(model.provider)
+        ? { model, nativeReasoningLevel: nativeEffort(model, catalog.defaultNativeReasoningLevel) }
+        : { model, reasoningLevel: clampReasoningLevel(catalog.defaultReasoningLevel, model.reasoningLevels) });
+      notifyAgentModelsChanged();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  return <SettingsRow className="is-compact" title={title} description={error ?? description}>
+    {catalog.status === "loading" && !catalog.models.length ? <span className="settings-muted">{t("common.loading")}</span>
+      : !own.length && !current ? <span className="settings-muted">{t("mediaDefaults.connectFirst")}</span>
+      : <span className={saving ? "settings-select-busy" : undefined}>
+        <Select size="sm" label={title} value={current ? modelKey(current) : ""} options={options} onChange={(value) => void choose(value)} />
+      </span>}
+  </SettingsRow>;
+}
+
 /** A kind has a choice once a connected provider makes it, or a default is saved for it. */
 function hasChoice(catalog: Catalog | undefined): boolean {
   return Boolean(catalog && (catalog.models.length || catalog.defaultModel));
@@ -117,7 +160,7 @@ function hasChoice(catalog: Catalog | undefined): boolean {
 /**
  * The default model per kind, one line each, for the kinds a connection makes.
  * The others stay out of the list until a provider makes them.
- * `leading` rows come first, such as the chat model, which Agents sets.
+ * `leading` rows come first, such as the chat model.
  */
 export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();

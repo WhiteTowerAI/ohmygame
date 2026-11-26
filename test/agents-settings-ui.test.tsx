@@ -58,6 +58,7 @@ const api = {
     agent("claude-code-cli", "Claude Code", true),
     agent("codex-cli", "Codex", false),
   ]),
+  updateAgentDefaults: vi.fn(async (_input: unknown) => {}),
   getAgentInstructions: vi.fn(async (): Promise<AgentInstructionsView> => instructions),
   setAgentInstructions: vi.fn(async (custom: string): Promise<AgentInstructionsView> => ({ ...instructions, custom: custom.trim() })),
 };
@@ -118,7 +119,6 @@ async function render(props: Partial<Props> = {}): Promise<void> {
         onOpen={vi.fn()}
         onBack={vi.fn()}
         onOpenSection={vi.fn()}
-        onOpenPlugins={vi.fn()}
         {...props}
       />,
     ),
@@ -160,29 +160,32 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   expect(onOpen).toHaveBeenCalledWith("ohmygame");
 });
 
-it("gives OhMyGame's own agent a page that leads to its models, skills and MCP server", async () => {
+it("gives OhMyGame's own agent a page that chooses the model new conversations start on", async () => {
+  const gpt4 = { ...gpt, id: "gpt-4.1", name: "GPT-4.1", reasoningLevels: ["low", "medium"] as ("low" | "medium")[] };
   catalog = {
-    models: [gpt, sonnet],
+    models: [gpt, gpt4, sonnet],
     defaultModel: { provider: "openai", id: "gpt-5" },
-    defaultReasoningLevel: "medium",
+    defaultReasoningLevel: "high",
   };
   const onOpenSection = vi.fn();
-  const onOpenPlugins = vi.fn();
   const onBack = vi.fn();
-  await render({ agent: "ohmygame", onOpenSection, onOpenPlugins, onBack });
+  await render({ agent: "ohmygame", onOpenSection, onBack });
   expect(host.querySelector(".settings-detail-head h1")?.textContent).toBe("OhMyGame");
-  expect(row("Chat model")!.textContent).toContain("GPT-5 · OpenAI");
-  expect(row("Chat model")!.textContent).not.toContain("Sonnet");
+  // Only the chat model: plugins and the MCP server have pages of their own.
+  expect([...host.querySelectorAll(".settings-row")].map(nameOf)).toEqual(["Chat model"]);
+  const picker = row("Chat model")!.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+  expect(picker.textContent).toContain("GPT-5");
+  await act(async () => picker.click());
+  // OhMyGame's own models; a coding agent's only while it is the default.
+  expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(["GPT-5OpenAI", "GPT-4.1OpenAI"]);
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent!.startsWith("GPT-4.1"))!.click());
+  expect(api.updateAgentDefaults).toHaveBeenCalledWith({ model: gpt4, reasoningLevel: "medium" });
   await act(async () =>
     [...host.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent === "Manage models")!
       .click(),
   );
   expect(onOpenSection).toHaveBeenCalledWith("providers");
-  await act(async () => row("MCP Server")!.querySelector<HTMLButtonElement>("button")!.click());
-  expect(onOpenSection).toHaveBeenCalledWith("mcp-server");
-  await act(async () => row("Skills from plugins")!.querySelector<HTMLButtonElement>("button")!.click());
-  expect(onOpenPlugins).toHaveBeenCalled();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Back to Agents"]')!.click());
   expect(onBack).toHaveBeenCalled();
 });

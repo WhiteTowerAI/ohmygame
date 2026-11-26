@@ -4235,12 +4235,13 @@ button {
   outline: 0;
 }
 
-/* A chat in the middle of the workspace reads in one centered column. */
-.dock-area-center .agent-pane {
+/* A wide chat (in the middle of the workspace, or maximized) reads in one
+   centered column; a narrow one keeps its usual inset. */
+.agent-pane {
   --agent-content-column-width: 720px;
 }
 
-.dock-area-center .agent-pane :is(.timeline, .composer) {
+.agent-pane :is(.timeline, .composer) {
   padding-right: max(
     var(--chat-inset),
     calc((100% - var(--agent-content-column-width)) / 2)
@@ -4251,7 +4252,7 @@ button {
   );
 }
 
-.dock-area-center .agent-body > .chat-input > .questionnaire-card {
+.agent-pane .agent-body > .chat-input > .questionnaire-card {
   width: min(
     calc(100% - 2 * var(--chat-inset)),
     var(--agent-content-column-width)

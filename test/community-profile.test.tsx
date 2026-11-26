@@ -793,7 +793,7 @@ describe("Community player", () => {
     );
   }
 
-  it("starts the game as its page opens, with restart, share and fullscreen beside its stats", async () => {
+  it("starts the game as its page opens, with share and fullscreen beside its stats", async () => {
     const open = vi.fn();
     await act(async () => root.render(<GamesPage onNavigate={() => undefined} onOhMyGame={open} />));
     // The list has no heading of its own, and a card has no Play: it opens the game's page.
@@ -808,13 +808,10 @@ describe("Community player", () => {
     expect(container.querySelector(".community-player-bar")).toBeNull();
     expect(button("Play in a new window")).toBeUndefined();
     const actions = container.querySelector(".community-game-actions")!;
-    expect(actions.querySelector('[aria-label="Restart"]')).not.toBeNull();
+    // Reloading the app starts the game again, so there is no Restart of its own.
+    expect(actions.querySelector('[aria-label="Restart"]')).toBeNull();
     expect(actions.querySelector('[aria-label="Share"]')).not.toBeNull();
     expect(actions.querySelector('[aria-label="Fullscreen (F)"]')).not.toBeNull();
-    // Restarting loads the game again in a new frame.
-    const frame = container.querySelector("iframe");
-    await act(async () => button("Restart")!.click());
-    expect(container.querySelector("iframe")).not.toBe(frame);
   });
 
   it("moves the game to a desktop window of its own and back", async () => {

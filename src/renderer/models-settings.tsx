@@ -47,11 +47,10 @@ import { OpenAIImageModels } from "./openai-image-models.js";
 import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
-import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
+import { ChatModelDefaultRow, GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { useModelProviderAuth } from "./use-model-provider-auth.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Dialog, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
-import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
@@ -85,13 +84,13 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
-export function ModelsSettings({ view, onViewChange, onOpenAgents, onOpenChatModel }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void; onOpenChatModel?: () => void }) {
+export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenChatModel={onOpenChatModel} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -174,7 +173,7 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       }} /> : null}
       {connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
       {pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
-      {hasConnections ? <GlobalMediaModelDefaults leading={onOpenChatModel ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
+      {hasConnections ? <GlobalMediaModelDefaults leading={<ChatModelDefaultRow />} /> : null}
       <section className="settings-catalogue" aria-label={t("providers.catalogue")}>
         <header className="settings-catalogue-head">
           <div>
@@ -206,20 +205,6 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       </section>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
-  );
-}
-
-/** The chat model belongs to the agent; this row shows it and leads there. */
-function ChatModelRow({ onOpen }: { onOpen: () => void }) {
-  const catalog = useAgentModels({ agentRuntimes: true });
-  const chosen = catalog.defaultModel;
-  const model = chosen ? catalog.models.find((item) => item.provider === chosen.provider && item.id === chosen.id) : undefined;
-  // One line like the other kinds: the model on the right, chosen in Agents.
-  return (
-    <SettingsRow className="is-compact" title={t("settings.providers.chatUsage")} onClick={onOpen}>
-      <span className="settings-muted settings-chat-model" title={t("settings.providers.chatModelHint")}>{model ? model.name : t("settings.providers.chatModelNone")}</span>
-      <IconButton size="sm" label={t("settings.providers.chatModelOpen")} onClick={onOpen}><ChevronRight size="md" /></IconButton>
-    </SettingsRow>
   );
 }
 

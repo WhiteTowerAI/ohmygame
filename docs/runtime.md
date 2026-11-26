@@ -1018,7 +1018,8 @@ crowded strip scrolls sideways with the wheel and keeps the selected tab in
 view. An area's **+** reopens a closed panel there; it shows only while a panel
 is closed. An area's **Maximize**, or a double click on one of its tabs, lets it
 fill the project, chat included, until **Restore** or another double click; it
-isn't saved, and dragging a tab restores the layout first. Area edges drag to
+isn't saved, and dragging a tab restores the layout first. A chat wider than
+its column, maximized or in the middle area, reads in one centered column. Area edges drag to
 resize. A moved or closed panel keeps its state, such as the open file, the
 design canvas or a running game, until the project closes: a closed panel's
 view waits hidden in the page, and views move with `moveBefore`, which keeps an
@@ -1410,8 +1411,11 @@ game opened by link shows placeholder details until then.
 A game page starts its game as it opens, in the page and nowhere else: the
 player is black with the controller's halftone loading animation (the website's
 player loader) until the game's page loads, and stays at least long enough not
-to flash. Beside the game's views and likes, under the player, are restart,
-share, a new window (desktop app only) and fullscreen (also with F). The new
+to flash. The player is as tall as the window allows with the game's title
+row still in view (at least 360px, at most 4:3), since most games fill their
+page and would scroll in a short frame. Beside the game's views and likes,
+under the player, are share, a new window (desktop app only) and fullscreen
+(also with F); reloading the app starts the game again. The new
 window is a sandboxed window of the game's own, one per game, without the app's
 preload; it shows the published address (HTTPS, or loopback from local
 publishing) and nothing else: other sites open in the browser and only the

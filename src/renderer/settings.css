@@ -260,13 +260,6 @@
   max-width: 100%;
 }
 
-.settings-chat-model {
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* The kinds no connection makes yet, on one quiet line under the defaults. */
 .settings-defaults-waiting {
   display: flex;
