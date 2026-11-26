@@ -28,8 +28,6 @@ export interface FirstMessage {
   mode: PromptMode;
   /** The type chosen on Home: one of the app's, or a plugin's `publisher/name:type`. */
   type?: string;
-  /** A plugin's template chosen on Home instead of a type, `publisher/name:template`. */
-  template?: string;
   /** Plugins the prompt mentions that are off, whose consent the person gave on Home. */
   turnOn?: ConversationCapabilities["plugins"];
 }
@@ -106,9 +104,9 @@ export function ProjectCreateDialog({
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
   // Plugins' templates are the other way to start: their files are copied in once, and they set the type.
-  const templates = useProjectTemplates() ?? [];
-  const [startFrom, setStartFrom] = useState<"type" | "template">(firstMessage?.template ? "template" : "type");
-  const [templateId, setTemplateId] = useState(firstMessage?.template);
+  const templates = useProjectTemplates();
+  const [startFrom, setStartFrom] = useState<"type" | "template">("type");
+  const [templateId, setTemplateId] = useState<string>();
   const template = startFrom === "template" ? templates.find((item) => item.id === templateId) ?? templates[0] : undefined;
   const preferred = firstMessage?.type ?? initialType;
   // Else the type a mentioned plugin adds, then the first that fits.

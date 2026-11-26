@@ -920,7 +920,6 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   mentions a plugin not on in its project gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
   from `GET /project-types` (with what each type's plugin `asks` for), then
-  plugins' [templates](#project-templates), then
   a link to the plugins that add types (`#/plugins?adds=projectType`). There
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
@@ -952,9 +951,8 @@ starts from, as a packaged example does, without a project type of its own:
   `availableProjectTemplates` in `src/daemon/project-types.ts`), leaving out
   plugins turned off. A chosen template sets the project's type, so the
   dialog doesn't ask for one, and names the project unless the person does:
-  `POST /projects` with `template: "publisher/name:id"`. Home's type menu
-  lists them too, after the types; one chosen there opens the dialog on it.
-  Templates aren't on Home's Explore, which holds games to play.
+  `POST /projects` with `template: "publisher/name:id"`. Templates aren't on
+  Home's Explore, which holds games to play.
 - As an example, a template needs an empty folder. Its files are copied once
   (`createTemplateProject` in `src/daemon/examples.ts`, with `copyTemplate`),
   except an `ohmygame.json`, which the app writes. From then on the project is
