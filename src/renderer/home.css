@@ -253,130 +253,23 @@ kbd.home-shortcut {
   font-size: var(--text-xs);
 }
 
-/* 继续: the latest project as a large card, the next ones as rows beside it. */
+/* 继续: one row of project cards, the same grid as 探索 below it. */
 .home-continue-body {
+  --project-shelf-columns: 4;
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: var(--space-4);
+  grid-template-columns: repeat(var(--project-shelf-columns), minmax(0, 1fr));
+  gap: var(--space-6) var(--space-4);
 }
 
-/* Both halves are panels of the same height: the latest project as a card,
-   the next ones as rows sharing the other panel. */
-.home-continue-feature,
-.home-continue-list {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
+@container project-shelf (max-width: 760px) {
+  .home-continue-body {
+    --project-shelf-columns: 3;
+  }
 }
 
-.home-continue-feature {
-  position: relative;
-  overflow: hidden;
-}
-
-.home-continue-feature .project-card-preview {
-  aspect-ratio: 16 / 6;
-  border-radius: 0;
-}
-
-.home-continue-feature .project-card-meta {
-  padding: var(--space-3) calc(var(--space-6) * 3) var(--space-3) var(--space-4);
-}
-
-.home-continue-feature .project-card-name {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
-/* 打开 sits at the end of the latest project's name line. */
-.home-continue-open {
-  position: absolute;
-  right: var(--space-4);
-  bottom: var(--space-4);
-}
-
-.home-continue-list {
-  display: grid;
-  grid-auto-rows: 1fr;
-  padding: var(--space-2);
-}
-
-/* Up to three projects, each gets a card of its own and the row stays full:
-   one or two as wide cards (cover left, name beside it), three side by side.
-   The latest one's 打开 sits at its right end. */
-.home-continue-body.is-wide {
-  grid-template-columns: repeat(var(--continue-columns, 1), minmax(0, 1fr));
-}
-
-.home-continue-body.is-count-2 {
-  --continue-columns: 2;
-}
-
-.home-continue-body.is-count-3 {
-  --continue-columns: 3;
-}
-
-.home-continue-body.is-count-1 .project-card-open,
-.home-continue-body.is-count-2 .project-card-open {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3);
-}
-
-.home-continue-body.is-count-1 .home-continue-feature .project-card-preview,
-.home-continue-body.is-count-2 .home-continue-feature .project-card-preview {
-  flex: none;
-  width: 176px;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-md);
-}
-
-.home-continue-body.is-count-1 .home-continue-feature .project-card-meta,
-.home-continue-body.is-count-2 .home-continue-feature .project-card-meta {
-  flex: 1;
-  align-self: center;
-  padding: 0 var(--space-6) 0 0;
-}
-
-.home-continue-body.is-wide .home-continue-feature:first-child .project-card-meta {
-  padding-right: calc(var(--space-6) * 4);
-}
-
-.home-continue-body.is-count-1 .home-continue-open,
-.home-continue-body.is-count-2 .home-continue-open {
-  top: 50%;
-  bottom: auto;
-  transform: translateY(-50%);
-}
-
-.home-continue-body.is-count-1 .project-card-actions,
-.home-continue-body.is-count-2 .project-card-actions {
-  top: var(--space-2);
-  right: var(--space-2);
-  bottom: auto;
-}
-
-.home-continue-body.is-count-3 .home-continue-feature .project-card-preview {
-  aspect-ratio: 2 / 1;
-}
-
-.home-continue-body.is-count-3 .home-continue-feature .project-card-name {
-  font-size: var(--text-md);
-}
-
-.home-continue-body.is-count-3 .home-continue-feature .project-card-actions {
-  right: var(--space-2);
-}
-
-.home-continue-body.is-count-3 .home-continue-feature:not(:first-child) .project-card-meta {
-  padding-right: calc(var(--space-6) + var(--space-4));
-}
-
-@container project-shelf (max-width: 640px) {
-  .home-continue-body,
-  .home-continue-body.is-wide {
-    grid-template-columns: minmax(0, 1fr);
+@container project-shelf (max-width: 520px) {
+  .home-continue-body {
+    --project-shelf-columns: 2;
   }
 }
 
@@ -419,36 +312,4 @@ kbd.home-shortcut {
   .home-new-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-
-/* 继续's rows are narrow: the cover, then the name with its time under it,
-   so a long name keeps the row's width; the menu follows. */
-.home-continue-list .project-row-open {
-  grid-template-columns: 112px minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  align-content: center;
-  row-gap: var(--space-1);
-  height: 100%;
-}
-
-.home-continue-list .project-row-open > .project-card-preview {
-  grid-row: 1 / span 2;
-}
-
-.home-continue-list .project-row-open > .project-card-title {
-  align-self: end;
-}
-
-.home-continue-list .project-row-open > .project-row-time {
-  grid-column: 2;
-  align-self: start;
-}
-
-.home-continue-list .project-row .project-card-preview {
-  width: 112px;
-  border-radius: var(--radius-md);
-}
-
-.home-continue-list .project-row-type {
-  display: none;
 }

@@ -160,7 +160,7 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(button("Choose project")).toBeUndefined();
 });
 
-it("shows Continue to returning people, sized to how many projects they have, and folds it to a line", async () => {
+it("shows Continue to returning people as one row of cards, and folds it to a line", async () => {
   projects = ["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl", "Cat Cafe"].map((name, index) => ({ ...created, id: `p${index}`, name }));
   const onOpen = vi.fn();
   await renderHome({ onOpen });
@@ -172,10 +172,9 @@ it("shows Continue to returning people, sized to how many projects they have, an
   await act(async () => [...head.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "More types")!.click());
   expect(window.location.hash).toBe("#/plugins?adds=projectType");
   window.location.hash = "";
-  // The latest project leads, with the next three beside it.
-  expect(section()?.querySelector(".home-continue-feature .project-card-name")?.textContent).toBe("Storm Ruins");
-  expect(section()!.querySelectorAll(".home-continue-list > *")).toHaveLength(3);
-  await act(async () => section()!.querySelector<HTMLButtonElement>(".home-continue-open")!.click());
+  // One row of cards, as many as the shelf fits (four here), latest first.
+  expect([...section()!.querySelectorAll(".home-continue-body .project-card-name")].map((name) => name.textContent)).toEqual(["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl"]);
+  await act(async () => section()!.querySelector<HTMLButtonElement>(".project-card-open")!.click());
   expect(onOpen).toHaveBeenCalledWith("p0");
 
   // Folded, it is one line that still opens the latest project.
@@ -192,21 +191,18 @@ it("shows Continue to returning people, sized to how many projects they have, an
 });
 
 it.each([
-  [1, "is-count-1", false],
-  [2, "is-count-2", true],
-  [3, "is-count-3", true],
-])("gives each of %i projects its own Continue card", async (count, layout, allProjects) => {
+  [1, false],
+  [2, true],
+  [3, true],
+])("gives each of %i projects a card in Continue's row", async (count, allProjects) => {
   projects = ["Storm Ruins", "Ghost Courier", "Cloud Run"].slice(0, count).map((name, index) => ({ ...created, id: `p${index}`, name }));
   const onOpen = vi.fn();
   await renderHome({ onOpen });
   const section = container!.querySelector<HTMLElement>(".home-continue")!;
-  expect(section.querySelector(".home-continue-body")?.classList.contains(layout)).toBe(true);
-  expect(section.querySelector(".home-continue-list")).toBeNull();
-  expect([...section.querySelectorAll(".home-continue-feature .project-card-name")].map((name) => name.textContent)).toHaveLength(count);
-  // Only the latest has 打开, and All projects shows once there is more than one.
-  expect(section.querySelectorAll(".home-continue-open")).toHaveLength(1);
+  expect(section.querySelectorAll(".home-continue-body .project-card-name")).toHaveLength(count);
+  // All projects shows once there is more than one.
   expect([...section.querySelectorAll("button")].some((item) => item.textContent === "All projects")).toBe(allProjects);
-  await act(async () => section.querySelector<HTMLButtonElement>(".home-continue-open")!.click());
+  await act(async () => section.querySelector<HTMLButtonElement>(".project-card-open")!.click());
   expect(onOpen).toHaveBeenCalledWith("p0");
 });
 

@@ -10,7 +10,7 @@ import { commandPrompt, PluginPanelToolbar } from "./project-plugin-contribution
 import { ExampleShelf, useExamples } from "./examples.js";
 import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
-import { ProjectCard, ProjectRow, projectTime, useProjectActions } from "./project-card.js";
+import { ProjectCard, projectTime, useProjectActions } from "./project-card.js";
 import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
 import { openMoreProjectTypes } from "./project-type-choices.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
@@ -49,11 +49,6 @@ interface HomeProps {
   /** Opens an Asset Canvas project on the node a creation template starts from. */
   onOpenAssetCanvas: (projectId: string, nodeId?: string) => void;
 }
-
-/** The projects 继续 lists beside the latest one. */
-const CONTINUE_ROWS = 3;
-/** Up to this many projects, 继续 gives each a card; more put the latest beside a list. */
-const CONTINUE_WIDE = 3;
 
 // Home is where projects start and continue: 继续 reopens the latest ones, and
 // 新建游戏's type cards open the new game dialog (new-game.tsx) on their type.
@@ -172,6 +167,7 @@ export function Home({ onNavigate, onOpen, onOpenAssetCanvas, inert = false, sta
           {phase === "ready" && projects.length > 0 ? <ContinueSection
             projects={projects}
             mode={continueMode}
+            columns={columns}
             activity={activity}
             actionsFor={projectActions.actionsFor}
             onOpen={onOpen}
@@ -277,21 +273,20 @@ function useHomeContinue(): HomeContinue {
   }, () => readGeneralPreferences().homeContinue);
 }
 
-function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }: {
+function ContinueSection({ projects, mode, columns, activity, actionsFor, onOpen, onAll }: {
   projects: ProjectState[];
   mode: HomeContinue;
+  /** How many cards fit a row of the shelf below, so 继续 lines up with it. */
+  columns: number;
   activity: ReturnType<typeof useProjectActivity>;
   actionsFor: ReturnType<typeof useProjectActions>["actionsFor"];
   onOpen: (projectId: string) => void;
   onAll: () => void;
 }) {
-  const [latest, ...others] = projects;
+  const [latest] = projects;
   const collapsed = mode === "collapsed";
   const toggle = () => setGeneralPreference("homeContinue", collapsed ? "shown" : "collapsed");
   const latestStatus = activity.get(latest.id);
-  // Up to three projects get a card each, so nothing sits half empty; more
-  // put the latest beside a list of the next ones.
-  const wide = projects.length <= CONTINUE_WIDE;
   return (
     <section className={`home-section home-continue${collapsed ? " is-collapsed" : ""}`} aria-labelledby="home-continue-heading">
       <header className="home-section-head">
@@ -308,23 +303,12 @@ function ContinueSection({ projects, mode, activity, actionsFor, onOpen, onAll }
           </IconButton>
         </span>
       </header>
-      {collapsed ? null : wide ? <div className={`home-continue-body is-wide is-count-${projects.length}`}>
-        {projects.map((project, index) => (
-          <div key={project.id} className="home-continue-feature">
-            <ProjectCard project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
-            {index === 0 ? <Button className="home-continue-open" size="sm" variant="primary" onClick={() => onOpen(project.id)}>{t("home.open")}</Button> : null}
-          </div>
+      {/* One row of cards the size of 探索's, so a single project sits at the
+          row's start like any shelf instead of stretching across it. */}
+      {collapsed ? null : <div className="home-continue-body">
+        {projects.slice(0, columns).map((project) => (
+          <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
         ))}
-      </div> : <div className="home-continue-body">
-        <div className="home-continue-feature">
-          <ProjectCard project={latest} agentStatus={latestStatus} onOpen={() => onOpen(latest.id)} actions={actionsFor(latest)} />
-          <Button className="home-continue-open" size="sm" variant="primary" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
-        </div>
-        <div className="home-continue-list">
-          {others.slice(0, CONTINUE_ROWS).map((project) => (
-            <ProjectRow key={project.id} project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
-          ))}
-        </div>
       </div>}
     </section>
   );
