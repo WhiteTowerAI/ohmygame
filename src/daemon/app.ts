@@ -18,7 +18,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PANEL_CAPTURE_SCHEMA, PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { readPluginIconAsset, readPluginScreenshot, readPluginTypeArt, registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, readPluginScreenshot, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginMediaProviders } from "./plugin-media-providers.js";
 import { PluginModelProviders } from "./plugin-model-providers.js";
 import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js";
@@ -1746,8 +1746,8 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const entry = pluginServices.index.get(id);
     if (!entry || pluginServices.grants.plugin(entry.id)?.enabled === false) return undefined;
-    const art = entry.manifest.contributes?.projectTypes?.find((type) => type.id === typeId)?.art;
-    return art ? readPluginTypeArt(entry.root, art) : undefined;
+    const cover = entry.manifest.contributes?.projectTypes?.find((type) => type.id === typeId)?.cover;
+    return cover ? readPluginScreenshot(entry.root, cover) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {

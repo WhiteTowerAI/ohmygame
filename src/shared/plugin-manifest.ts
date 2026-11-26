@@ -102,8 +102,6 @@ export const PLUGIN_KEYWORD_MAX_LENGTH = 30;
 
 /** How many screenshots a plugin may show, and how large each file may be. */
 export const PLUGIN_SCREENSHOTS_MAX = 6;
-/** A project type's `art` drawing: a static SVG up to 256 KB. */
-export const PLUGIN_TYPE_ART_MAX_BYTES = 256 * 1024;
 export const PLUGIN_SCREENSHOT_MAX_BYTES = 1024 * 1024;
 
 export const PLUGIN_SLOTS = [
@@ -237,13 +235,11 @@ const ProjectType = Type.Object(
     description: Type.Optional(Text(500)),
     icon: Type.Optional(Icon),
     /**
-     * The type's drawing on its Home card and the new project dialog's banner
-     * (API 2.38.0): a static SVG up to PLUGIN_TYPE_ART_MAX_BYTES, drawn in a
-     * 2:1 box. The app redraws every shape as an outline in its own line
-     * colour, like its own types' drawings. Without one, a plain drawing
-     * stands in.
+     * The type's picture on its Home card and the new project dialog's banner
+     * (API 2.38.0): a PNG, JPEG or WebP up to the screenshot size limit, shown
+     * 2:1 and cropped to fill. Without one, the plugin's icon stands in.
      */
-    art: Type.Optional(RelativePath("\\.svg")),
+    cover: Type.Optional(RelativePath("\\.(?:png|jpe?g|webp)")),
     template: Type.Optional(RelativePath("/?")),
     recognize: Type.Optional(
       Type.Object(

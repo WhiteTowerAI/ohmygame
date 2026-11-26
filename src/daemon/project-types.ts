@@ -53,8 +53,8 @@ export interface AvailableProjectType {
   preview?: ProjectTypeContribution["preview"];
   /** For plugin types: the plugin and the version new projects use, with its icon and package digest. */
   plugin?: { id: string; version: string; icon?: string; revision?: string };
-  /** The type brings a drawing for its card, served as line art at /plugins/:id/project-types/:type/art. */
-  art?: boolean;
+  /** The type brings a picture for its card, served at /plugins/:id/project-types/:type/cover. */
+  cover?: boolean;
   /** Whether new projects of it start from files or from the plugin's hook. */
   creates?: "template" | "hook";
   /** What the type's plugin asks for that the person hasn't allowed; creating a project of it allows that. */
@@ -124,7 +124,7 @@ export async function availableProjectTypes(
           : {}),
         preview: type.preview,
         plugin: { id: newest.id, version: newest.version, ...(newest.manifest.icon ? { icon: newest.manifest.icon } : {}), revision: newest.digest },
-        ...(type.art ? { art: true } : {}),
+        ...(type.cover ? { cover: true } : {}),
         creates: type.template ? "template" : hasCreate ? "hook" : "template",
         ...(asks.length ? { asks } : {}),
       });

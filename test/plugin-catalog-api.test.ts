@@ -195,35 +195,35 @@ describe("plugin catalog API", () => {
       expect((await app.inject({ method: "GET", url: `/plugins/${id}/screenshots/${index}` })).statusCode).toBe(404);
   });
 
-  it("lists a plugin project type's art and serves it redrawn as lines, and leaves it out for a type without one", async () => {
-    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-type-art-"));
+  it("lists a plugin project type's cover and serves it, and leaves it out for a type without one", async () => {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-type-cover-"));
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(source, "art"));
     await mkdir(path.join(source, "template"));
     await writeFile(path.join(source, "template", "index.html"), "<!doctype html>");
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      id: "acme/drawings", version: "1.0.0", engines: { "ohmygame-api": "^2.38.0" }, displayName: "Drawings", description: "Drawings",
+      id: "acme/covers", version: "1.0.0", engines: { "ohmygame-api": "^2.38.0" }, displayName: "Covers", description: "Covers",
       contributes: { projectTypes: [
-        { id: "drawn", title: "Drawn", template: "./template", preview: "web", art: "./art/drawn.svg" },
+        { id: "drawn", title: "Drawn", template: "./template", preview: "web", cover: "./art/cover.png" },
         { id: "plain", title: "Plain", template: "./template", preview: "web" },
       ] },
     }));
-    await writeFile(path.join(source, "art", "drawn.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><g fill="#f00"><rect x="10" y="10" width="80" height="40" stroke-width="8"/></g></svg>`);
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-type-art-data-")) });
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    await writeFile(path.join(source, "art", "cover.png"), png);
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-type-cover-data-")) });
     apps.push(app);
     await app.ready();
     await addPlugin(app, source);
-    const types = (await app.inject({ method: "GET", url: "/project-types?locale=en" })).json() as { id: string; art?: boolean; plugin?: { revision?: string } }[];
-    expect(types.find((type) => type.id === "acme/drawings:drawn")).toMatchObject({ art: true, plugin: { id: "acme/drawings", revision: expect.any(String) } });
-    expect(types.find((type) => type.id === "acme/drawings:plain")?.art).toBeUndefined();
-    const id = encodeURIComponent("acme/drawings");
-    const art = await app.inject({ method: "GET", url: `/plugins/${id}/project-types/drawn/art` });
-    expect(art.statusCode).toBe(200);
-    expect(art.headers["content-type"]).toBe("image/svg+xml");
-    expect(art.body).toContain(`<rect x="10" y="10" width="80" height="40" fill="none" stroke="#000" stroke-width="1.25"`);
-    expect(art.body).not.toContain("#f00");
+    const types = (await app.inject({ method: "GET", url: "/project-types?locale=en" })).json() as { id: string; cover?: boolean; plugin?: { revision?: string } }[];
+    expect(types.find((type) => type.id === "acme/covers:drawn")).toMatchObject({ cover: true, plugin: { id: "acme/covers", revision: expect.any(String) } });
+    expect(types.find((type) => type.id === "acme/covers:plain")?.cover).toBeUndefined();
+    const id = encodeURIComponent("acme/covers");
+    const cover = await app.inject({ method: "GET", url: `/plugins/${id}/project-types/drawn/cover` });
+    expect(cover.statusCode).toBe(200);
+    expect(cover.headers["content-type"]).toBe("image/png");
+    expect(cover.rawPayload).toEqual(png);
     for (const type of ["plain", "missing"])
-      expect((await app.inject({ method: "GET", url: `/plugins/${id}/project-types/${type}/art` })).statusCode).toBe(404);
+      expect((await app.inject({ method: "GET", url: `/plugins/${id}/project-types/${type}/cover` })).statusCode).toBe(404);
   });
 
   it("finishes indexing the bundled plugins before it closes the plugin store", async () => {

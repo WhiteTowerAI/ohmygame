@@ -1530,26 +1530,22 @@ describe("plugin check", () => {
     expect(await messages(root, "warning")).toContainEqual(expect.stringContaining("There is no package.json"));
   });
 
-  it("warns about fields this app would leave out, and checks screenshots and type art are in the package, small and plain SVG", async () => {
+  it("warns about fields this app would leave out, and checks screenshots and type covers are in the package and small", async () => {
     const root = await plugin({ "index.html": load }, { major: 1 }, {
       categories: ["art", "hologram"], homepage: "https://example.com",
       screenshots: [{ path: "./shots/one.png" }, { path: "./shots/big.png" }, { path: "./shots/gone.png" }],
       contributes: {
         panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }],
         projectTypes: [
-          { id: "fine", title: "Fine", template: "./panel", preview: "web", art: "./shots/fine.svg" },
-          { id: "big", title: "Big", template: "./panel", preview: "web", art: "./shots/big.svg" },
-          { id: "gone", title: "Gone", template: "./panel", preview: "web", art: "./shots/gone.svg" },
-          { id: "script", title: "Script", template: "./panel", preview: "web", art: "./shots/script.svg" },
+          { id: "fine", title: "Fine", template: "./panel", preview: "web", cover: "./shots/one.png" },
+          { id: "big", title: "Big", template: "./panel", preview: "web", cover: "./shots/big.png" },
+          { id: "gone", title: "Gone", template: "./panel", preview: "web", cover: "./shots/gone.png" },
         ],
       },
     });
     await mkdir(path.join(root, "shots"));
     await writeFile(path.join(root, "shots", "one.png"), Buffer.from("89504e470d0a1a0a", "hex"));
     await writeFile(path.join(root, "shots", "big.png"), Buffer.alloc(1024 * 1024 + 1));
-    await writeFile(path.join(root, "shots", "fine.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 1"><path d="M0 0h2"/></svg>`);
-    await writeFile(path.join(root, "shots", "big.svg"), Buffer.alloc(256 * 1024 + 1));
-    await writeFile(path.join(root, "shots", "script.svg"), `<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>`);
     expect(await messages(root, "warning")).toEqual([
       "/categories/1 \"hologram\" isn't known to this version of OhMyGame, so it's ignored",
       "/homepage isn't known to this version of OhMyGame, so it's ignored",
@@ -1562,9 +1558,8 @@ describe("plugin check", () => {
     expect(await messages(root, "error")).toEqual([
       "/screenshots/1/path ./shots/big.png is larger than 1 MB",
       "/screenshots/2/path ./shots/gone.png is not in the package",
-      "/contributes/projectTypes/1/art ./shots/big.svg is larger than 256 KB",
-      "/contributes/projectTypes/2/art ./shots/gone.svg is not in the package",
-      expect.stringMatching(/^\/contributes\/projectTypes\/3\/art /),
+      "/contributes/projectTypes/1/cover ./shots/big.png is larger than 1 MB",
+      "/contributes/projectTypes/2/cover ./shots/gone.png is not in the package",
     ]);
   });
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { validatePluginIconImage } from "../src/daemon/plugin-icons.js";
-import { pluginSvgAsLineArt } from "../src/daemon/plugin-svg.js";
 
 const svg = (body: string, attributes = "") =>
   Buffer.from(
@@ -79,29 +78,5 @@ describe("static SVG plugin icons", () => {
     await expect(
       validatePluginIconImage(svg('<path d="M0 0Z"/>'.repeat(2048))),
     ).rejects.toThrow();
-  });
-});
-
-describe("plugin project type art", () => {
-  it("redraws every shape as a thin line and keeps clipping and gradients' own paint", () => {
-    const art = pluginSvgAsLineArt(svg(`<defs><linearGradient id="g"><stop stop-color="#f00"/></linearGradient>
-      <clipPath id="c"><rect width="16" height="16" fill="#0f0"/></clipPath></defs>
-      <g fill="url(#g)" stroke="#00f" stroke-width="6" clip-path="url(#c)"><circle cx="8" cy="8" r="4" fill-opacity="0.5"/><path d="M0 0h32"/></g>`, 'fill="#333"')).toString();
-    const line = 'fill="none" stroke="#000" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"';
-    expect(art).toContain(`<circle cx="8" cy="8" r="4" ${line}/>`);
-    expect(art).toContain(`<path d="M0 0h32" ${line}/>`);
-    expect(art).toMatch(/<g clip-path="url\(#c\)">/);
-    expect(art).toContain('<rect width="16" height="16" fill="#0f0"/>');
-    expect(art).toMatch(/^<svg [^>]*fill="none"/);
-  });
-
-  it("drops a backdrop that fills the whole drawing, which would draw a frame", () => {
-    const art = pluginSvgAsLineArt(svg('<rect width="32" height="32" fill="#eef"/><rect x="0" y="0" width="100%" height="100%"/><rect x="4" y="4" width="8" height="8"/>')).toString();
-    expect(art.match(/<rect /g)).toHaveLength(1);
-    expect(art).toContain('<rect x="4" y="4" width="8" height="8"');
-  });
-
-  it("refuses what the icon check refuses", () => {
-    expect(() => pluginSvgAsLineArt(svg("<script>1</script>"))).toThrow();
   });
 });

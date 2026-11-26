@@ -7,10 +7,10 @@ import {
   PLUGIN_ICON_MAX_BYTES,
   PLUGIN_ICON_MAX_DIMENSION,
 } from "../shared/plugin-icons.js";
-import { PLUGIN_SCREENSHOT_MAX_BYTES, PLUGIN_TYPE_ART_MAX_BYTES } from "../shared/plugin-manifest.js";
+import { PLUGIN_SCREENSHOT_MAX_BYTES } from "../shared/plugin-manifest.js";
 import { isPluginIcon, type PluginIcon } from "../shared/plugins.js";
 import { sniffImageType } from "./image-format.js";
-import { pluginSvgAsLineArt, validatePluginSvg } from "./plugin-svg.js";
+import { validatePluginSvg } from "./plugin-svg.js";
 
 // Cache successful validation by content. Reads still check paths and current bytes.
 const validatedIcons = new Set<string>();
@@ -96,22 +96,12 @@ export async function readPluginIconAsset(
   );
 }
 
-/** A screenshot the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
+/** A screenshot or project type cover the manifest names: a PNG, JPEG or WebP, by its bytes. SVG isn't one, so nothing in it runs. */
 export async function readPluginScreenshot(root: string, relative: string) {
   const bytes = await packageFile(root, relative, PLUGIN_SCREENSHOT_MAX_BYTES);
   const mediaType = sniffImageType(bytes);
   if (!mediaType) throw new Error("Plugin screenshots must be PNG, JPEG or WebP");
   return { bytes, mediaType, revision: createHash("sha256").update(bytes).digest("hex") };
-}
-
-/**
- * A project type's `art`: a static SVG from the package, redrawn as line art
- * (plugin-svg.ts) so it takes the app's line style. It is served under the
- * same no-script policy as icons and shown only as a mask.
- */
-export async function readPluginTypeArt(root: string, relative: string) {
-  const bytes = pluginSvgAsLineArt(await packageFile(root, relative, PLUGIN_TYPE_ART_MAX_BYTES));
-  return { bytes, mediaType: "image/svg+xml", revision: createHash("sha256").update(bytes).digest("hex") };
 }
 
 export function registerPluginIconRoutes(
@@ -120,17 +110,17 @@ export function registerPluginIconRoutes(
   readScreenshot: (id: string, index: number) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined>,
   readProviderIcon: (providerId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
   readAgentIcon: (agentId: string) => Promise<Awaited<ReturnType<typeof readPluginIconAsset>> | undefined> = async () => undefined,
-  readTypeArt: (id: string, typeId: string) => Promise<Awaited<ReturnType<typeof readPluginTypeArt>> | undefined> = async () => undefined,
+  readTypeCover: (id: string, typeId: string) => Promise<Awaited<ReturnType<typeof readPluginScreenshot>> | undefined> = async () => undefined,
 ) {
   app.get<{ Params: { pluginId: string; typeId: string } }>(
-    "/plugins/:pluginId/project-types/:typeId/art",
+    "/plugins/:pluginId/project-types/:typeId/cover",
     async (request, reply) => {
       try {
-        const image = await readTypeArt(request.params.pluginId, request.params.typeId);
-        if (!image) return reply.code(404).send({ error: "Project type art not found" });
+        const image = await readTypeCover(request.params.pluginId, request.params.typeId);
+        if (!image) return reply.code(404).send({ error: "Project type cover not found" });
         return sendImage(request.headers["if-none-match"], reply, image);
       } catch {
-        return reply.code(404).send({ error: "Project type art not found" });
+        return reply.code(404).send({ error: "Project type cover not found" });
       }
     },
   );

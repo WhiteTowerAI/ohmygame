@@ -19,7 +19,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects: async () => projects,
   listProjectTypes: async () => projectTypes,
-  readProjectTypeArt: async () => new Blob(["<svg/>"], { type: "image/svg+xml" }),
+  readProjectTypeCover: async () => new Blob(["png"], { type: "image/png" }),
   readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,
   getExampleCover: async () => undefined,
@@ -51,6 +51,7 @@ vi.doMock(path.resolve("src/renderer/asset-canvas-template-project.ts"), () => (
 const { Home } = await import("../src/renderer/home.js");
 const { NewGameHost } = await import("../src/renderer/new-game.js");
 const { pixelAssetTemplateCategories } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
+const { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } = await import("../src/renderer/project-type-images.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
 
@@ -100,25 +101,23 @@ it("leaves no example alone on a row: five examples show the first four", async 
   }
 });
 
-it("draws every type as line art: the app's own, a plugin's redrawn SVG, and a plain drawing for the rest", async () => {
-  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:art", revokeObjectURL: () => {} }));
+it("pictures every type: the app's own, a plugin type's cover, and the plugin picture for the rest", async () => {
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:cover", revokeObjectURL: () => {} }));
   projectTypes = [
-    { id: "acme/art:drawn", title: "Drawn", plugin: { id: "acme/art", version: "1.0.0", revision: "a" }, art: true },
+    { id: "acme/covers:drawn", title: "Drawn", plugin: { id: "acme/covers", version: "1.0.0", revision: "a" }, cover: true },
     { id: "acme/plain:game", title: "Plain", plugin: { id: "acme/plain", version: "1.0.0", revision: "b" } },
   ];
   await renderHome();
   await act(async () => {});
   const card = (name: string) => [...container!.querySelectorAll(".new-game-card")].find((item) => item.querySelector(".new-game-card-name")?.textContent === name)!;
-  // App types draw inline, so the theme's line colour reaches every shape.
-  expect(card("Web Game").querySelector(".new-game-art.is-web-game svg.project-type-art")).not.toBeNull();
-  expect(card("Web Game").querySelector("img")).toBeNull();
-  // A plugin's art paints as a mask in the same line colour.
-  expect(card("Drawn").querySelector<HTMLElement>(".new-game-art.is-plugin .new-game-art-lines")?.style.maskImage).toBe('url("blob:art")');
-  // Without art, a plain plugin drawing, and the plugin's own mark by its name.
-  expect(card("Plain").querySelector(".new-game-art.is-plugin svg.project-type-art")).not.toBeNull();
-  // Without an icon of its own, the type gets the plug rather than a lone letter.
+  const picture = (name: string) => card(name).querySelector(".new-game-art img")?.getAttribute("src");
+  expect(picture("Web Game")).toBe(TYPE_IMAGES["web-game"]);
+  expect(picture("Drawn")).toBe("blob:cover");
+  expect(picture("Plain")).toBe(PLUGIN_TYPE_IMAGE);
+  // Each type's own small icon sits over its name; a plugin without an icon gets the plug, not a lone letter.
+  expect(card("Web Game").querySelector(".new-game-card-copy > .new-game-glyph svg")).not.toBeNull();
   expect(card("Plain").querySelector(".new-game-glyph svg")).not.toBeNull();
-  expect(card("Plain").querySelector(".new-game-glyph .plugin-monogram")).toBeNull();
+  expect(card("Plain").querySelector(".plugin-monogram")).toBeNull();
 });
 
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {

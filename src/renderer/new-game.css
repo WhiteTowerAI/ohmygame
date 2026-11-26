@@ -1,95 +1,25 @@
 /* Starting a project: the type cards on Home and the new game dialog they open. */
 
 /*
- * A type's line drawing. Every shape is a 1.25px outline in the line colour,
- * the weight of the app's icons, whatever it was drawn with: app types draw
- * inline (project-type-art.tsx); a plugin's own SVG comes redrawn as outlines
- * from the daemon and paints as a mask. Pointing at a card tints the lines
- * with the type's hue. Themes reach it through the text colours.
+ * A type's picture sits on the right and fades into the card from its left,
+ * so the words on the left stay on the plain surface in light and dark.
  */
 .new-game-art {
-  --art-hue: var(--color-text-secondary);
-  --art-line: var(--color-text-tertiary);
   position: relative;
   display: block;
   overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, black 45%);
 }
 
-.new-game-art.is-web-game { --art-hue: var(--hue-doc); }
-.new-game-art.is-godot-game { --art-hue: var(--hue-audio); }
-.new-game-art.is-interactive-story { --art-hue: var(--hue-data); }
-.new-game-art.is-general { --art-hue: var(--hue-video); }
-.new-game-art.is-asset-canvas { --art-hue: var(--hue-model); }
-
-.project-type-art,
-.new-game-art-lines {
-  position: absolute;
-  inset: 0;
+.new-game-art img {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.project-type-art * {
-  fill: none;
-  stroke: var(--art-line);
-  stroke-width: 1.25;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-  transition: stroke var(--duration-base) var(--ease-out);
-}
-
-.project-type-art .art-glow {
-  display: none;
-}
-
-.art-dash {
-  stroke-dasharray: 2 5;
-}
-
-/* A plugin's redrawn SVG: its outlines are the mask, the line colour fills them. */
-.new-game-art-lines {
-  background: var(--art-line);
-  mask-position: right center;
-  mask-repeat: no-repeat;
-  mask-size: cover;
-  transition: background-color var(--duration-base) var(--ease-out);
-}
-
-.new-game-art.is-contain .new-game-art-lines {
-  mask-size: contain;
-}
-
-.new-game-card:hover .new-game-art {
-  --art-line: var(--art-hue);
-}
-
-/* Pointing at a card lifts its drawing a little, and one piece of it a little more. */
-.art-lift,
-.art-hop {
+  object-fit: cover;
   transition: transform var(--duration-base) var(--ease-out);
 }
 
-.new-game-card:hover .art-lift {
-  transform: translateY(-2px);
-}
-
-.new-game-card:hover .art-hop {
-  transform: translateY(-4px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .art-lift,
-  .art-hop {
-    transition: none;
-  }
-
-  .new-game-card:hover :is(.art-lift, .art-hop) {
-    transform: none;
-  }
-}
-
+/* The cards: the words on the left, the picture behind them on the right. */
 .new-game-card {
   position: relative;
   display: flex;
@@ -106,11 +36,21 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--duration-fast), background-color var(--duration-fast);
+  transition: border-color var(--duration-fast);
 }
 
 .new-game-card:hover {
   border-color: var(--color-border-strong);
+}
+
+.new-game-card:hover .new-game-art img {
+  transform: scale(1.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-game-card:hover .new-game-art img {
+    transform: none;
+  }
 }
 
 .new-game-card:focus-visible {
@@ -118,11 +58,9 @@
   outline-offset: 2px;
 }
 
-/* The drawing keeps to the right half and fades in from its left edge, clear of the words. */
 .new-game-card > .new-game-art {
   position: absolute;
-  inset: 0 0 0 46%;
-  mask-image: linear-gradient(to right, transparent, black 28%);
+  inset: 0 0 0 36%;
 }
 
 .new-game-card-copy {
@@ -131,7 +69,7 @@
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
-  max-width: 54%;
+  max-width: 56%;
   padding: var(--space-3) var(--space-4);
 }
 
@@ -163,14 +101,14 @@
   height: calc(var(--space-6) * 6);
 }
 
+/* The banner's picture fades out to the left and at its foot, where the name sits. */
 .new-game-dialog .ui-dialog-media .new-game-art {
-  width: 100%;
-  height: 100%;
-}
-
-/* The banner's drawing stops short of the close button at its right. */
-.new-game-dialog :is(.project-type-art, .new-game-art-lines) {
-  width: calc(100% - var(--space-6) * 2);
+  position: absolute;
+  inset: 0 0 0 30%;
+  mask-image:
+    linear-gradient(to right, transparent, black 45%),
+    linear-gradient(to top, transparent, black 50%);
+  mask-composite: intersect;
 }
 
 /* The type's name and line sit on the banner's foot, with the close button. */
@@ -237,19 +175,8 @@
   opacity: 0.6;
 }
 
-.new-game-type svg {
-  width: 14px;
-  height: 14px;
-}
-
 .new-game-type .new-game-glyph {
   margin: 0;
-  color: inherit;
-}
-
-/* In the switcher a type's icon is just its glyph, like the other chrome. */
-.new-game-type .game-icon {
-  background: none;
   color: inherit;
 }
 

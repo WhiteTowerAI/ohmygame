@@ -501,9 +501,9 @@
                 "minLength": 3,
                 "maxLength": 500
               },
-              "art": {
+              "cover": {
                 "type": "string",
-                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.svg$",
+                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|jpe?g|webp)$",
                 "minLength": 3,
                 "maxLength": 500
               },

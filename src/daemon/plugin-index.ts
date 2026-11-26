@@ -29,14 +29,12 @@ import {
   toolSchemaIssues,
   PLUGIN_MEDIA_ADAPTER_MAX_BYTES,
   PLUGIN_SCREENSHOT_MAX_BYTES,
-  PLUGIN_TYPE_ART_MAX_BYTES,
   validatePluginManifest,
   type PluginContributions,
   type PluginManifestIssue,
   type PluginManifestV2,
 } from "../shared/plugin-manifest.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
-import { validatePluginSvg } from "./plugin-svg.js";
 
 // The plugin index: what every installed plugin offers, worked out
 // once at install and kept in one file, so startup reads that file and
@@ -290,17 +288,9 @@ function checkPackage(
   file("/entrypoints/native", manifest.entrypoints?.native);
   contributes.projectTypes?.forEach((type, index) => {
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
-    const art = type.art ? files.get(type.art) : undefined;
-    const at = `/contributes/projectTypes/${index}/art`;
-    if (type.art && !art) issue(at, `${type.art} is not in the package`);
-    else if (art && art.length > PLUGIN_TYPE_ART_MAX_BYTES) issue(at, `${type.art} is larger than ${PLUGIN_TYPE_ART_MAX_BYTES / 1024} KB`);
-    else if (art) {
-      try {
-        validatePluginSvg(Buffer.from(art));
-      } catch (error) {
-        issue(at, `${type.art}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    const cover = type.cover ? files.get(type.cover) : undefined;
+    if (type.cover && !cover) issue(`/contributes/projectTypes/${index}/cover`, `${type.cover} is not in the package`);
+    else if (cover && cover.length > PLUGIN_SCREENSHOT_MAX_BYTES) issue(`/contributes/projectTypes/${index}/cover`, `${type.cover} is larger than ${PLUGIN_SCREENSHOT_MAX_BYTES / 1024 / 1024} MB`);
     folder(`/contributes/projectTypes/${index}/template`, type.template);
   });
   contributes.templates?.forEach((template, index) => folder(`/contributes/templates/${index}/folder`, template.folder));
