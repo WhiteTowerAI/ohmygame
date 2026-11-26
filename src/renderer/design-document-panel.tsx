@@ -5,7 +5,7 @@ import type { CanvasDocumentsState } from "./use-canvas-documents.js";
 import { CanvasMarkdown } from "./canvas-document-node.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import { ChevronDown, Download, FileText, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
+import { Download, FileText, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
 import { Button, DropdownMenu, Empty, IconButton, Loading, SegmentedControl } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
@@ -93,9 +93,9 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const views: { value: View; label: string }[] = [{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }];
   const toolbar = doc ? <>
     <DropdownMenu placement="bottom-start" trigger={(props) => (
-      <button type="button" {...props} className="design-doc-picker" title={t("designDoc.documents")}>
-        <FileText size="sm" /><span>{doc.title || t("canvasDocs.untitled")}</span><ChevronDown size="xs" />
-      </button>
+      <IconButton {...props} size="sm" label={t("designDoc.switchDocument", { title: doc.title || t("canvasDocs.untitled") })}>
+        <FileText size="sm" />
+      </IconButton>
     )} items={[
       { heading: t("designDoc.documents") },
       ...docs.map((item) => ({
@@ -108,18 +108,14 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
       { label: t("designDoc.newDocument"), icon: <Plus size="sm" />, onSelect: create },
     ]} />
     <span className="design-doc-spacer" />
-    {/* In a narrow area, the view's choices and the reference fold into ···, the reference first. */}
-    <PanelTool id="view" priority={1} menu={[{ heading: t("canvasDoc.view") }, ...views.map((option) => ({
+    <PanelTool id="view" menu={[{ heading: t("canvasDoc.view") }, ...views.map((option) => ({
       label: option.label, radio: true, checked: option.value === view, onSelect: () => setView(option.value),
     }))]}>
       <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView} options={views} />
     </PanelTool>
-    <PanelTool id="reference" menu={[{ label: t("designDoc.reference"), icon: <MessageCircle size="sm" />, checked: referenced === path,
-      onSelect: () => onReference(referenced === path ? undefined : doc) }]}>
-      <IconButton size="sm" label={referenced === path ? t("designDoc.unreference") : t("designDoc.reference")} active={referenced === path}
-        onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size="sm" /></IconButton>
-    </PanelTool>
     <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
+      { label: t("designDoc.reference"), icon: <MessageCircle size="sm" />, checked: referenced === path,
+        onSelect: () => onReference(referenced === path ? undefined : doc) },
       { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Star size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
       { label: t("canvasDoc.download"), icon: <Download size="sm" />, onSelect: () => download(doc) },
     ]} />

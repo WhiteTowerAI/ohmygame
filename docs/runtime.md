@@ -1103,7 +1103,7 @@ with it in the text.
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
 canvas documents, the main one first, and switches between reading it beside its
-outline, editing its Markdown, or both side by side. **Reference in chat**
+outline, editing its Markdown, or both side by side. **Document options → Reference in chat**
 references the document in the next message, as the composer's design reference
 does, and text picked in it can be added to the chat as a quote. Canvas shows the
 same documents as nodes, so the two share one copy: an edit in either shows in the

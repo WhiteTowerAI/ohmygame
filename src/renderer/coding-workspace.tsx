@@ -351,13 +351,9 @@ export function CodingWorkspace({
   }
 
   function refreshPreview(): void {
-    if (preview?.status === "ready") {
-      if (player.open) void player.reload();
-      else if (nativePreview) setReload((value) => value + 1);
-      else { setPreviewPath(actualPreviewPath); setReload((value) => value + 1); }
-    } else if (preview?.status === "error" || preview?.status === "stopped") {
-      onRestart();
-    }
+    if (player.open) void player.reload();
+    else if (nativePreview) setReload((value) => value + 1);
+    else { setPreviewPath(actualPreviewPath); setReload((value) => value + 1); }
   }
 
   function playGame(): void {
@@ -421,8 +417,6 @@ export function CodingWorkspace({
           paths={knownPaths}
           status={preview?.status}
           previewUrl={currentPreviewUrl}
-          refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
-          refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
           devices={previewDevices}
           filters={previewFilters}
@@ -561,8 +555,6 @@ function PreviewControls({
   paths,
   status,
   previewUrl,
-  refreshDisabled,
-  refreshLabel,
   viewport,
   devices,
   filters,
@@ -591,8 +583,6 @@ function PreviewControls({
   paths: string[];
   status?: ProjectState["preview"]["status"];
   previewUrl?: string;
-  refreshDisabled: boolean;
-  refreshLabel: string;
   viewport: PreviewViewport;
   devices: readonly ProjectPreviewDevice[];
   filters: readonly ProjectPreviewFilter[];
@@ -620,14 +610,9 @@ function PreviewControls({
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
   const gameMore = usePluginSlot("game.more");
-  // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      {/* In a narrow area these fold into ···: picking first, reloading last. */}
-      <PanelTool id="viewport" priority={1} menu={viewportMenu({ value: viewport, devices, onChange: onViewportChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange })}>
-        <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
-      </PanelTool>
       <PanelTool id="pick" menu={[{ label: t("workspace.pickElement"), icon: <MousePointer2 size="sm" />, checked: picking, disabled: pickDisabled && !picking, onSelect: onTogglePicking }]}>
         <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
           active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
@@ -642,17 +627,16 @@ function PreviewControls({
             icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
         </PanelTool>
       ) : null}
-      <PanelTool id="refresh" priority={3} menu={[{ label: refreshLabel, icon: <RefreshCw size="sm" />, disabled: refreshDisabled, onSelect: onRefresh }]}>
-        <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size="sm" /></IconButton>
-      </PanelTool>
-      {/* The rest wait in ···: what to do with the running game, then the preview's own. */}
       <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
         ...(onToggleTuning ? [{ label: t("gameTuning.title"), icon: <SlidersHorizontal size="sm" />, checked: tuningOpen, onSelect: onToggleTuning }] : []),
         ...(recordItem ? [recordItem] : []),
         ...(onToggleTuning || recordItem ? ["separator" as const] : []),
+        { label: t("workspace.reloadPreview"), icon: <RefreshCw size="sm" />, disabled: status !== "ready", onSelect: onRefresh },
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size="sm" />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("projectSettings.restartPreview"), icon: <Server size="sm" />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
         { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size="sm" />, onSelect: onLogs },
+        "separator",
+        ...viewportMenu({ value: viewport, devices, onChange: onViewportChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }),
         // The project's plugins' entries for the game, after the app's.
         ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
@@ -795,7 +779,6 @@ interface ViewportChoices {
   inputMaps: readonly ProjectInputMap[]; inputMap?: string; onInputMapChange: (map: string | undefined) => void;
 }
 
-/** The viewport menu's choices, as they read in ··· once it folds there. */
 function viewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: ViewportChoices): MenuEntry[] {
   return [
     { heading: t("workspace.viewportLabel") },
@@ -810,119 +793,6 @@ function viewportMenu({ value, devices, onChange, filters, filter, onFilterChang
       label: item?.title ?? t("workspace.noGamepad"), icon: <Gamepad2 size="sm" />, radio: true, checked: item?.id === inputMap, onSelect: () => onInputMapChange(item?.id),
     }))] : []),
   ];
-}
-
-function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: ViewportChoices) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menuId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-      trigger.current?.focus();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div className="viewport-menu" ref={root}>
-      <button
-        ref={trigger}
-        className="viewport-trigger"
-        type="button"
-        aria-controls={menuId}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label={t("workspace.viewportLabel")}
-        title={viewportLabel(value, devices)}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <ViewportIcon viewport={value} devices={devices} />
-        <ChevronDown size="xs" />
-      </button>
-      {open ? (
-        <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {/* The built-in sizes, then the plugins' devices. */}
-          {[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => (
-            <button
-              className="viewport-option"
-              type="button"
-              role="menuitemradio"
-              aria-checked={viewport === value}
-              key={viewport}
-              onClick={() => {
-                onChange(viewport);
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            >
-              <ViewportIcon viewport={viewport} devices={devices} />
-              <span>{viewportLabel(viewport, devices)}</span>
-              {viewport === value ? <Check size="sm" /> : null}
-            </button>
-          ))}
-          {/* The plugins' colour filters, for what the person sees only. */}
-          {filters.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.filterLabel")}>
-            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.filterLabel")}</span>
-            {[undefined, ...filters].map((item) => (
-              <button
-                className="viewport-option"
-                type="button"
-                role="menuitemradio"
-                aria-checked={item?.id === filter}
-                key={item?.id ?? "none"}
-                title={item?.source}
-                onClick={() => {
-                  onFilterChange(item?.id);
-                  setOpen(false);
-                  trigger.current?.focus();
-                }}
-              >
-                <Palette size="sm" />
-                <span>{item?.title ?? t("workspace.noFilter")}</span>
-                {item?.id === filter ? <Check size="sm" /> : null}
-              </button>
-            ))}
-          </div> : null}
-          {/* The plugins' gamepad maps, which press keys in the person's game. */}
-          {inputMaps.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.gamepadLabel")}>
-            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.gamepadLabel")}</span>
-            {[undefined, ...inputMaps].map((item) => (
-              <button
-                className="viewport-option"
-                type="button"
-                role="menuitemradio"
-                aria-checked={item?.id === inputMap}
-                key={item?.id ?? "none"}
-                onClick={() => {
-                  onInputMapChange(item?.id);
-                  setOpen(false);
-                  trigger.current?.focus();
-                }}
-              >
-                <Gamepad2 size="sm" />
-                <span>{item?.title ?? t("workspace.noGamepad")}</span>
-                {item?.id === inputMap ? <Check size="sm" /> : null}
-              </button>
-            ))}
-          </div> : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function ViewportIcon({ viewport, devices }: { viewport: PreviewViewport; devices: readonly ProjectPreviewDevice[] }) {

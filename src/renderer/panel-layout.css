@@ -315,11 +315,6 @@
   flex: none;
 }
 
-.dock-toolbar .design-doc-picker {
-  flex: 0 1 auto;
-  min-width: 88px;
-}
-
 .dock-toolbar .design-doc-spacer,
 .dock-toolbar .chat-header-spacer {
   flex: 1 1 0;

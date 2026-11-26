@@ -203,11 +203,6 @@
   position: relative;
 }
 
-@container workspace-header (max-width: 380px) {
-  .preview-controls > .viewport-menu {
-    display: none;
-  }
-}
 .game-start-error {
   display: block;
   margin-top: 6px;

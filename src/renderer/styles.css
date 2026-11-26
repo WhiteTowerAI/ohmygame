@@ -10768,91 +10768,10 @@ summary.work-summary:hover {
   flex: 1;
   min-width: 0;
   max-width: 100%;
+  justify-content: flex-end;
   align-items: center;
   gap: 6px;
   font-family: var(--font-sans);
-}
-
-.preview-controls > .viewport-menu {
-  margin-left: auto;
-}
-
-.viewport-menu {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.viewport-trigger {
-  display: flex;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 4px 0 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.viewport-trigger:hover,
-.viewport-trigger[aria-expanded="true"] {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-.viewport-menu-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 8px);
-  right: 0;
-  display: flex;
-  width: max-content;
-  min-width: 170px;
-  max-width: 280px;
-  flex-direction: column;
-}
-
-.viewport-option {
-  display: grid;
-  height: 32px;
-  grid-template-columns: 18px minmax(0, 1fr) 14px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--text-xs);
-  text-align: left;
-}
-
-.viewport-option:hover,
-.viewport-option:focus-visible {
-  outline: 0;
-  background: var(--menu-hover);
-  color: var(--text);
-}
-
-.viewport-option[aria-checked="true"] {
-  color: var(--text);
-}
-
-.viewport-menu-group {
-  display: flex;
-  flex-direction: column;
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
-}
-
-.viewport-menu-heading {
-  padding: 4px 8px 2px;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
 }
 
 /* Holds a plugin filter's definition; draws nothing itself. */
@@ -10862,8 +10781,8 @@ summary.work-summary:hover {
   height: 0;
 }
 
-/* The preview's address, like a browser's: its state, the page, and reload. */
 .preview-location {
+  margin-inline-end: auto;
   position: relative;
   display: flex;
   width: 200px;
@@ -10906,8 +10825,7 @@ summary.work-summary:hover {
   color: var(--color-text);
 }
 
-/* In a narrow area the address shrinks to its state, the page picker's
-   chevron and reload. The path stays the picker's name for screen readers. */
+/* In a narrow area only the chevron shows; the path still names the picker. */
 @container dock-area (max-width: 560px) {
   .preview-location {
     width: auto;
@@ -11138,10 +11056,6 @@ summary.work-summary:hover {
   .preview-controls > .icon-button {
     width: 28px;
     height: 28px;
-  }
-
-  .viewport-trigger {
-    width: 32px;
   }
 
   .preview-location {
@@ -12141,7 +12055,6 @@ summary.work-summary:hover {
 :root[data-appearance="light"]
   :is(
     .quiet-button,
-    .viewport-trigger,
     .preview-location-trigger,
     .preview-location-option,
     .file-tree-node
@@ -12859,7 +12772,7 @@ summary.work-summary:hover {
  * body's size and colour, the kit's hover and hairline separators. Their own
  * rules above keep only placement, size and behaviour; the look is set here.
  */
-:is(.workspace-tree-context-menu, .file-open-menu, .canvas-context-menu, .canvas-context-submenu, .canvas-context-branch-menu, .library-dialog-actions-menu, .canvas-add-node-menu, .canvas-add-node-submenu, .viewport-menu-popover, .selected-text-menu, .canvas-chip-menu) {
+:is(.workspace-tree-context-menu, .file-open-menu, .canvas-context-menu, .canvas-context-submenu, .canvas-context-branch-menu, .library-dialog-actions-menu, .canvas-add-node-menu, .canvas-add-node-submenu, .selected-text-menu, .canvas-chip-menu) {
   padding: var(--space-1);
   border: 0;
   border-radius: var(--radius-lg);
@@ -12877,8 +12790,7 @@ summary.work-summary:hover {
   .canvas-context-branch-menu,
   .library-dialog-actions-menu,
   .canvas-add-node-menu,
-  .canvas-add-node-submenu,
-  .viewport-menu-popover
+  .canvas-add-node-submenu
 ) {
   & [role^="menuitem"] {
     min-height: 30px;

@@ -121,7 +121,7 @@
 /* Everything on the title bar's row is the tabs' height, so the row lines up
    with itself and with the macOS window controls at its middle. Menus that
    open from it keep their own sizes. */
-:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-button, .ui-icon-button, .icon-button, .viewport-trigger, .project-name):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
+:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-button, .ui-icon-button, .icon-button, .project-name):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
   height: 26px;
 }
 
