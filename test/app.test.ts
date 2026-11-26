@@ -2252,7 +2252,7 @@ describe("web build export", () => {
     const refused = await app.inject({ method: "POST", url: `/projects/${canvas.id}/build` });
 
     expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toBe("Build requires a Web Game, General Game or Interactive Story project");
+    expect(refused.json().error).toBe("Build requires a Web Game or General Game project");
   });
 
   it("refuses a publish or a second build while a web build is exported", async () => {

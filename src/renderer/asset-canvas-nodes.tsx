@@ -33,7 +33,7 @@ import type { DroppedFolder } from "./canvas-file-import.js";
 import { formatBytes } from "./format-bytes.js";
 import { listModel3DAnimations } from "./api.js";
 import { createPortal } from "react-dom";
-import { LibraryAssetPicker } from "./node-workbench.js";
+import { LibraryAssetPicker } from "./library-asset-picker.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { settingsHash } from "./routes.js";
 import { PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";

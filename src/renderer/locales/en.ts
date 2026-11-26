@@ -4197,8 +4197,6 @@ const en = {
 
   nodeWorkbench: {
     breadcrumb: "Breadcrumb",
-    story: "Story",
-    title: "Title",
     closePicker: "Close Library picker",
     searchLibrary: "Search Library",
     noMatch: "No assets match your search",

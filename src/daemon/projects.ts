@@ -798,7 +798,7 @@ export class ProjectManager {
 
   /**
    * Stores a file the canvas imported that is not a document, table or media asset, beside the
-   * project's other media (`.ohmygame/media/files/`, `assets/files/` in an Interactive Story),
+   * project's other media (`.ohmygame/media/files/`),
    * so it ships only once the game copies it into its own files.
    * A file from an imported folder names that folder's directory there.
    */

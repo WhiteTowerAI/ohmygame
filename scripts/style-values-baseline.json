@@ -96,12 +96,12 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 200,
-    "fontSize": 356,
-    "fontWeight": 132,
-    "radius": 236,
-    "shadow": 35,
-    "zIndex": 73
+    "color": 169,
+    "fontSize": 321,
+    "fontWeight": 114,
+    "radius": 206,
+    "shadow": 33,
+    "zIndex": 58
   },
   "src/renderer/ui/chip.css": {
     "shadow": 1

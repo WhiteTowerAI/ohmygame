@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
+import { LoaderCircle, Search, Upload, X } from "./icons.js";
 import type { LibraryAssetProject, LibraryUploadMediaType } from "../shared/contracts.js";
 import { filterLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryCollectionFilters } from "./library-filters.js";
@@ -11,89 +11,7 @@ import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
 import { Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
 
-/**
- * Workbench pieces for the canvases: a breadcrumb back to the
- * board, a scaled preview frame, and the Library picker.
- */
-export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
-  label: string;
-  onClose: () => void;
-  /** Makes the label an editable title. */
-  onRename?: (label: string) => void;
-}) {
-  return <nav className="story-node-editor-breadcrumb" aria-label={t("nodeWorkbench.breadcrumb")}>
-    <button type="button" onClick={onClose}>{t("nodeWorkbench.story")}</button>
-    <ChevronRight size={12} aria-hidden="true" />
-    {onRename ? <BreadcrumbTitle value={label} onCommit={onRename} /> : <strong>{label}</strong>}
-  </nav>;
-}
-
-function BreadcrumbTitle({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  // Esc blurs too; the blur that follows must not save the discarded draft.
-  const cancelled = useRef(false);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    const next = draft.trim();
-    if (!cancelled.current && next && next !== value) onCommit(next);
-    else setDraft(value);
-    cancelled.current = false;
-  };
-  return <input
-    className="story-node-editor-breadcrumb-title"
-    aria-label={t("nodeWorkbench.title")}
-    title={t("common.rename")}
-    value={draft}
-    maxLength={120}
-    spellCheck={false}
-    onChange={(event) => setDraft(event.target.value)}
-    onBlur={commit}
-    onKeyDown={(event) => {
-      if (event.key === "Enter") event.currentTarget.blur();
-      if (event.key === "Escape") {
-        cancelled.current = true;
-        event.currentTarget.blur();
-      }
-    }}
-  />;
-}
-
-/** Scales a fixed-size stage to fit its frame while keeping the viewport ratio. */
-export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, overlay, children }: {
-  ariaLabel: string;
-  viewport: { width: number; height: number };
-  stageClassName?: string;
-  /** Floats over the preview frame, such as a tool bar. */
-  overlay?: ReactNode;
-  children: ReactNode;
-}) {
-  const frame = useRef<HTMLDivElement>(null);
-  const [stageSize, setStageSize] = useState<{ width: number; height: number }>();
-
-  useLayoutEffect(() => {
-    const container = frame.current;
-    if (!container) return;
-    const update = () => {
-      const scale = Math.min(container.clientWidth / viewport.width, container.clientHeight / viewport.height);
-      setStageSize({ width: Math.max(1, viewport.width * scale), height: Math.max(1, viewport.height * scale) });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [viewport.height, viewport.width]);
-
-  return <section className="story-workbench-preview" aria-label={ariaLabel}>
-    <div ref={frame} className="story-workbench-preview-frame">
-      <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
-        {children}
-      </div>
-    </div>
-    {/* Outside the frame, which clips the scaled stage, so shadows and popovers are not cut off. */}
-    {overlay}
-  </section>;
-}
-
+/** The Library picker the canvases share, and the Library upload behind it. */
 export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, libraryTab = false, multiple, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];

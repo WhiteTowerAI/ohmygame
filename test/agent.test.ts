@@ -163,7 +163,7 @@ describe("conversationItems", () => {
   });
 
   it("hides editor context and shows its labels", () => {
-    const block = promptContextBlock([{ kind: "playable-node", label: "Lobby", text: "The user has Node \"lobby\" open." }]);
+    const block = promptContextBlock([{ kind: "canvas-board", label: "Lobby", text: "The user has board \"lobby\" open." }]);
     const items = conversationItems([
       sessionMessage("user", {
         role: "user",
@@ -172,7 +172,7 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
 
-    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Make this warmer", contexts: [{ kind: "playable-node", label: "Lobby" }] })]);
+    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Make this warmer", contexts: [{ kind: "canvas-board", label: "Lobby" }] })]);
   });
 
   it("restores attachment metadata from a structured session entry", () => {

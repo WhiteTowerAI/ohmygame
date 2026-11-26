@@ -4128,8 +4128,6 @@ const zhCN: typeof en = {
 
   nodeWorkbench: {
     breadcrumb: "面包屑导航",
-    story: "故事",
-    title: "标题",
     closePicker: "关闭素材库选择器",
     searchLibrary: "搜索素材库",
     noMatch: "没有符合搜索条件的素材",

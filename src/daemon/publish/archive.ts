@@ -243,7 +243,6 @@ async function readMultiplayerConfig(source: string, requested?: MultiplayerMani
     if (other !== undefined && (!isMultiplayerManifestConfig(other, options) || !sameMultiplayerConfig(value, other)))
       throw new PublishError("The source, build and requested multiplayer deployments do not match.");
   }
-  if (manifest.runtime === "playable-nodes") throw new PublishError("Interactive Stories do not have a multiplayer adapter.");
   return value;
 }
 
@@ -309,7 +308,7 @@ async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, loc
 /** Only games that play as a web page have a web build. */
 export function assertBuildable(project: ProjectState): void {
   if (project.pluginType?.preview === "native" || !isWebRuntimeProjectType(project.type))
-    throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
+    throw new PublishError("Build requires a Web Game or General Game project");
 }
 
 async function publishStartupDirectory(project: ProjectState): Promise<string> {

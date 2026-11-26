@@ -10,7 +10,7 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
-import { LibraryAssetPicker } from "./node-workbench.js";
+import { LibraryAssetPicker } from "./library-asset-picker.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";

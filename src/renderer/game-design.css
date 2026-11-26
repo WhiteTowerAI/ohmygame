@@ -23,7 +23,6 @@
 .design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
 .story-media-reference.is-unavailable { border: 1px solid var(--danger); }
 .story-media-reference .canvas-reference-retry { left: 4px; right: auto; }
-.story-save-notice { display: flex; align-items: flex-start; gap: 8px; }
 .story-canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
 .design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
 /* The board's name floats over the board as a light chip that picks another. */

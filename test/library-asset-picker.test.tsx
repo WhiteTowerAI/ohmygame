@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryAsset } from "../src/renderer/library-assets.js";
-import { LibraryAssetPicker } from "../src/renderer/node-workbench.js";
+import { LibraryAssetPicker } from "../src/renderer/library-asset-picker.js";
 
 const project = { id: "forest", name: "Forest", type: "web-game" as const };
 const otherProject = { id: "desert", name: "Desert", type: "web-game" as const };
