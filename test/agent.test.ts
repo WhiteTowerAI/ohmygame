@@ -1063,7 +1063,7 @@ describe("AgentManager", () => {
       data: { item: { type: "userInputRequest", requestId: "questionnaire-1", status: "inProgress" } },
     });
 
-    manager.answerQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", [{ questionId: "scope", value: "game" }]);
+    await manager.answerQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", [{ questionId: "scope", value: "game" }]);
     await expect(pending).resolves.toMatchObject({ cancelled: false, answers: [{ value: "game", custom: false }] });
     expect(events.since(project.id).at(-1)).toMatchObject({
       type: "item.completed",
@@ -1092,14 +1092,46 @@ describe("AgentManager", () => {
       { id: "text", prompt: "A name?", options: [] },
     ] });
     expect(manager.activeItems(project.id, conversation.summary.id).filter((item) => item.type === "userInputRequest" && item.status === "inProgress")).toHaveLength(2);
-    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "unknown", values: ["unknown"] }])).toThrow("Custom answers");
-    manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "a,b,c", values: ["a,b", "c"] }]);
+    await expect(manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "unknown", values: ["unknown"] }])).rejects.toThrow("Custom answers");
+    await manager.answerQuestionnaire(project.id, conversation.summary.id, "one", [{ questionId: "scope", value: "a,b,c", values: ["a,b", "c"] }]);
     await expect(first).resolves.toMatchObject({ answers: [{ values: ["a,b", "c"], label: "A and B, C" }] });
     controller.abort(); // A finished request cannot cancel its successor.
     prompt.resolve();
     await run;
     await expect(second).resolves.toEqual({ cancelled: true, answers: [] });
-    expect(() => manager.answerQuestionnaire(project.id, conversation.summary.id, "two", [{ questionId: "text", value: "late" }])).toThrow("no longer active");
+    await expect(manager.answerQuestionnaire(project.id, conversation.summary.id, "two", [{ questionId: "text", value: "late" }])).rejects.toThrow("no longer active");
+    await manager.close();
+  });
+
+  it("records an async answer after delivery, keeps a rejected answer editable, and skips without delivery", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const scope = [project.id, conversation.summary.id] as const;
+    const run = manager.prompt(project, conversation, "Check").result!;
+    await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
+    const input = { questions: [{ id: "choice", prompt: "Continue?", options: [] }], blocking: false };
+    const acknowledgement = deferred<void>();
+    const deliver = vi.fn().mockRejectedValueOnce(new Error("Codex rejected the answer")).mockImplementation(() => acknowledgement.promise);
+    const options = { deliver, allowAutomatic: false };
+    const question = manager.askQuestionnaire(...scope, "async", input, undefined, options);
+    const answer = [{ questionId: "choice", value: "Custom reply" }];
+    await expect(manager.answerQuestionnaire(...scope, "async", answer)).rejects.toThrow("Codex rejected");
+    const sending = manager.answerQuestionnaire(...scope, "async", answer);
+    await expect(manager.answerQuestionnaire(...scope, "async", answer)).rejects.toThrow("being sent");
+    expect(manager.activeItems(...scope)).toEqual(expect.arrayContaining([expect.objectContaining({ requestId: "async", status: "inProgress" })]));
+    acknowledgement.resolve();
+    await sending;
+    await expect(question).resolves.toMatchObject({ cancelled: false, answers: [{ label: "Custom reply", custom: true }] });
+    const skipped = manager.askQuestionnaire(...scope, "skip", input, undefined, options);
+    await manager.answerQuestionnaire(...scope, "skip", [], true);
+    await expect(skipped).resolves.toEqual({ answers: [], cancelled: true });
+    expect(deliver).toHaveBeenCalledTimes(2);
+    prompt.resolve();
+    await run;
     await manager.close();
   });
 

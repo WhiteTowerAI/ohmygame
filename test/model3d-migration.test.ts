@@ -20,11 +20,12 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createApp } from "../src/daemon/app.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { MeshyProvider } from "../src/daemon/meshy-provider.js";
+import { Hyper3DProvider } from "../src/daemon/hyper3d-provider.js";
 import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import {
   MODEL3D_MIGRATION_PACKAGES,
-  model3DMigrationPackageIssue,
+  checkModel3DMigrationPackage,
 } from "../src/daemon/model3d-migration-package.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
@@ -92,7 +93,7 @@ describe("prepared 3D model reference migration", () => {
   });
 });
 
-describe("prepared Hyper3D enablement split", () => {
+describe("Hyper3D enablement split", () => {
   it.each([[], ["hyper3d"], ["cloud-hyper3d"], ["hyper3d", "cloud-hyper3d"]].map((disabled) => ({ disabled })))("preserves both effective switches from $disabled", async ({ disabled }) => {
     const directory = await mkdtemp(path.join(tmpdir(), "hyper3d-switches-"));
     try {
@@ -116,6 +117,14 @@ describe("prepared Hyper3D enablement split", () => {
 describe.each(MODEL3D_MIGRATION_PACKAGES)(
   "$provider reviewed Beta migration package",
   (pin) => {
+    const host = { meshy: "assets.meshy.ai", tripo: "openapi-dl.data.tripo3d.com", hyper3d: "file.hyper3d.com" }[pin.provider];
+    function rodinResponse(url: string, artifact: string, submit: () => string) {
+      if (url.endsWith("/status")) return Response.json({ jobs: [{ status: "Done" }] });
+      if (url.endsWith("/download")) return Response.json({ list: [{ name: "model.glb", url: artifact }] });
+      if (url.endsWith("/rodin") || url.endsWith("/rodin_texture_only"))
+        return Response.json({ uuid: submit(), jobs: { subscription_key: "status-key" } });
+      throw new Error("Unexpected Rodin endpoint");
+    }
     async function fixture(
       check: (directory: string, root: string) => Promise<void>,
     ) {
@@ -149,7 +158,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
           path.join(directory, "plugin-store/origins.json"),
           JSON.stringify({
             [`${pin.id}@${pin.version}`]: pin.type === "release" ? {
-              type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `tripo-v${pin.version}`,
+              type: "github", repository: "WhiteTowerAI/ohmygame-plugins", release: `${pin.provider}-v${pin.version}`,
             } : {
               type: "npm",
               package: pin.package,
@@ -243,8 +252,8 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         }
         const before = await snapshot(directory);
         expect(
-          await model3DMigrationPackageIssue(directory, pin.provider),
-        ).toBeUndefined();
+          (await checkModel3DMigrationPackage(directory, pin.provider)).manifest,
+        ).toEqual(manifest);
         expect(await snapshot(directory)).toEqual(before);
         const prepared = JSON.parse(
           await readFile(".runtime/preinstalled-plugins/index.json", "utf8"),
@@ -366,11 +375,12 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await oldCanvas.close(); await oldTools.close();
         const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
         const request = vi.fn<typeof fetch>(async () => { throw new Error("Unexpected provider request"); });
-        const artifact = pin.provider === "meshy" ? "https://assets.meshy.ai/model.glb" : "https://openapi-dl.data.tripo3d.com/model.glb";
+        const artifact = `https://${host}/model.glb`;
         let taskNumber = 0;
         const pluginRequest = vi.fn<typeof fetch>(async (url, init) => {
           if (String(url) === artifact) return new Response(new Uint8Array(TEST_GLB));
           if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "source-file" } });
+          if (pin.provider === "hyper3d") return rodinResponse(String(url), artifact, () => `plugin-${++taskNumber}`);
           const id = init?.method === "POST" ? `plugin-${++taskNumber}` : String(url).split("/").at(-1);
           if (pin.provider === "meshy") return init?.method === "POST" ? Response.json({ result: id }) : Response.json({ id, status: "SUCCEEDED", model_urls: { glb: artifact } });
           return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: id } }) : Response.json({ code: 0, data: { task_id: id, status: "success", output: { model_url: artifact } } });
@@ -409,13 +419,18 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
           expect(taskNumber).toBe(1);
           const sourceAssetId = completed!.run?.files[0]?.assetId;
           expect(sourceAssetId).toBeTruthy();
-          const options = pin.provider === "meshy" ? { textureModel: "meshy-6" } : { textureQuality: "detailed" };
-          const textured = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { model: { provider: pin.provider, id: definition.id }, operation: "retexture", sourceAssetId, prompt: "Weathered stone", images: [], options } });
+          const options = { meshy: { textureModel: "meshy-6" }, tripo: { textureQuality: "detailed" }, hyper3d: {} }[pin.provider];
+          const images = pin.provider === "hyper3d" ? [{ mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cB84AAAAASUVORK5CYII=" }] : [];
+          const textured = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { model: { provider: pin.provider, id: definition.id }, operation: "retexture", sourceAssetId, prompt: "Weathered stone", images, options } });
           expect(textured.statusCode).toBe(202);
           await expect.poll(async () => { completed = (await app.inject("/tool-jobs")).json().find((job: { id: string }) => job.id === textured.json().id); return completed?.status; }, { timeout: 10_000 }).not.toBe("running");
           expect(completed, JSON.stringify(completed)).toMatchObject({ status: "succeeded", model: { provider: target, id: "connection" } });
-          const texturePost = pluginRequest.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith(pin.provider === "meshy" ? "/retexture" : "/models/texture"));
-          expect(JSON.parse(String(texturePost?.[1]?.body))).toMatchObject(pin.provider === "meshy" ? { ai_model: "meshy-6", model_url: expect.stringContaining("data:") } : { texture_quality: "detailed", input: "source-file" });
+          const texturePost = pluginRequest.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith({ meshy: "/retexture", tripo: "/models/texture", hyper3d: "/rodin_texture_only" }[pin.provider]));
+          if (pin.provider === "hyper3d") {
+            const form = texturePost?.[1]?.body as FormData;
+            expect(form.get("model")).toBeInstanceOf(Blob);
+            expect(form.get("image")).toBeInstanceOf(Blob);
+          } else expect(JSON.parse(String(texturePost?.[1]?.body))).toMatchObject(pin.provider === "meshy" ? { ai_model: "meshy-6", model_url: expect.stringContaining("data:") } : { texture_quality: "detailed", input: "source-file" });
           expect(taskNumber).toBe(2); expect(request).not.toHaveBeenCalled();
         } finally { await app.close(); }
 
@@ -512,15 +527,15 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
     it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
       await fixture(async (directory, root) => {
         let failDownload = true;
-        const host = pin.provider === "meshy" ? "assets.meshy.ai" : "openapi-dl.data.tripo3d.com";
         const artifact = mode === "unapproved-host" ? "https://unapproved.test/model.glb" : `${mode === "insecure-url" ? "http" : "https"}://${host}/model.glb`;
         const request = vi.fn<typeof fetch>(async (url, init) => {
           if (String(url) === artifact) return failDownload ? new Response("offline", { status: 503 }) : new Response(new Uint8Array(TEST_GLB));
+          if (pin.provider === "hyper3d") return rodinResponse(String(url), artifact, () => "owned-task");
           if (pin.provider === "meshy") return init?.method === "POST" ? Response.json({ result: "owned-task" }) : Response.json({ status: "SUCCEEDED", model_urls: { glb: artifact } });
           if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "owned-file" } });
           return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: "owned-task" } }) : Response.json({ code: 0, data: { status: "success", output: { model_url: artifact } } });
         });
-        const Native = pin.provider === "meshy" ? MeshyProvider : TripoProvider;
+        const Native = { meshy: MeshyProvider, tripo: TripoProvider, hyper3d: Hyper3DProvider }[pin.provider];
         const original = new ToolRunner(directory, { generate: vi.fn() }, new Native(() => "private-canary", request, 0));
         await original.load();
         const job = original.start("image-to-3d", { model: { provider: pin.provider, id: MODEL_3D_PRESETS[pin.provider][0]!.id }, images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] });
@@ -552,17 +567,20 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
           let current: { status: string; error?: string } | undefined;
           await expect.poll(async () => {
             current = (await app.inject("/tool-jobs")).json()[0]; return current?.status;
-          }).toBe(mode === "enabled" ? "succeeded" : "failed");
+          }, { timeout: 10_000 }).toBe(mode === "enabled" ? "succeeded" : "failed");
           if (mode === "enabled") {
             expect(request.mock.calls.length).toBeGreaterThan(0);
-            expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+            const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
+            expect(posts.map(([url]) => new URL(String(url)).pathname)).toEqual(pin.provider === "hyper3d" ? ["/api/v2/status", "/api/v2/download"] : []);
             expect(request.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
           } else {
             if (mode === "unapproved-host" || mode === "insecure-url") {
-              expect(request).toHaveBeenCalledTimes(1);
+              expect(request).toHaveBeenCalledTimes(pin.provider === "hyper3d" ? 2 : 1);
               expect(request.mock.calls.some(([url]) => String(url) === artifact)).toBe(false);
             } else expect(request).not.toHaveBeenCalled();
-            expect(current?.error).toMatch(/plugin|connection or input changed|address/);
+            if (pin.provider === "hyper3d" && mode === "insecure-url")
+              expect(current?.error).toBe("Hyper3D completed without a valid GLB artifact");
+            else expect(current?.error).toMatch(/plugin|connection or input changed|address/);
           }
           expect(JSON.parse(await readFile(path.join(directory, `${pin.provider}.json`), "utf8")).apiKey).toBe("private-canary");
         } finally { await app.close(); }
@@ -635,7 +653,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         const record = JSON.parse(plan.changes.get(file)!.toString());
         if (failure === "version") record.version = 2;
         if (failure === "operation") record.models[0].operations = ["animate"];
-        if (failure === "source") record.source = "hyper3d";
+        if (failure === "source") record.source = pin.provider === "hyper3d" ? "meshy" : "hyper3d";
         if (failure === "duplicate") record.models.push(record.models[0]);
         if (failure === "extra") record.future = "keep";
         if (failure === "conflict") {
@@ -715,7 +733,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         expect(plan.counts).toEqual({
           keys: 1,
           definitions: 1,
-          providerPreferences: 1,
+          providerPreferences: pin.provider === "hyper3d" ? 2 : 1,
           defaultModel3D: true,
           modelStoreUpgrade: true,
         });
@@ -727,7 +745,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         });
         expect(config.plugins.unrelated.token.extra).toBe(true);
         const prefs = JSON.parse(plan.changes.get(files[2])!.toString());
-        expect(prefs.disabled).toEqual([pin.provider, "unrelated", target]);
+        expect(prefs.disabled).toEqual([pin.provider, "unrelated", ...(pin.provider === "hyper3d" ? ["cloud-hyper3d"] : []), target]);
         expect(prefs.defaultModel3D).toEqual({
           provider: target,
           id: custom.id,
@@ -1061,7 +1079,7 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
             });
           const before = await snapshot(directory);
           expect(
-            await model3DMigrationPackageIssue(directory, pin.provider),
+            (await checkModel3DMigrationPackage(directory, pin.provider)).issue,
           ).toBe(expected);
           expect(await snapshot(directory)).toEqual(before);
         });
@@ -1069,9 +1087,3 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
     );
   },
 );
-
-it("does not treat an unreviewed Hyper3D package as a migration target", async () => {
-  expect(await model3DMigrationPackageIssue("/unused", "hyper3d")).toBe(
-    "plugin-release-not-reviewed",
-  );
-});

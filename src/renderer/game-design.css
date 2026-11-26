@@ -3,22 +3,22 @@
 .canvas-group-node { box-sizing: border-box; width: 100%; height: 100%; border: 1px solid color-mix(in srgb, var(--theme-accent) 48%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--theme-accent) 5%, transparent); }
 .canvas-group-node .react-flow__resize-control { pointer-events: auto; }
 .canvas-group-node.is-selected { border-color: var(--theme-accent); }
-.canvas-group-heading { pointer-events: auto; cursor: grab; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; color: var(--text); background: color-mix(in srgb, var(--theme-accent) 11%, var(--surface)); border-bottom: 1px solid var(--border); font-size: 12px; }
+/* Groups organize large areas and are read zoomed out, so their names use the large size. */
+.canvas-group-heading { pointer-events: auto; cursor: grab; display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; color: var(--text); background: color-mix(in srgb, var(--theme-accent) 11%, var(--surface)); border-bottom: 1px solid var(--border); font-size: var(--text-lg); }
 .canvas-group-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .design-workspace > .viewer-pane.interactive-story-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .design-workspace > .viewer-pane[hidden] { display: none; }
 .design-workspace .interactive-story-body { flex: 1; }
 .design-workspace .interactive-story-canvas { position: relative; }
 .design-loading { flex: 1; display: grid; place-items: center; }
-.design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
-.design-save-status.is-error { color: var(--danger); }
-.design-header-actions > .design-save-status { order: -1; margin-right: 8px; }
+/* One stack of notices floats over the top of the canvas, and over an expanded document or table, so a failed save is never hidden. */
+.canvas-notice-anchor { position: relative; z-index: var(--z-canvas-notice); height: 0; }
+.canvas-notices { position: absolute; top: 12px; left: 50%; display: flex; flex-direction: column; gap: 6px; width: min(420px, calc(100% - 32px)); max-height: 60vh; overflow-y: auto; transform: translateX(-50%); }
+.canvas-notices:empty { display: none; }
+.canvas-notices > .canvas-notice { box-shadow: var(--shadow-float); }
 .design-notice { flex-wrap: wrap; margin: 6px 10px 0; z-index: 6; }
 .design-notice > span:not(.canvas-notice-dot) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .design-notice button { flex-shrink: 0; }
-.design-sync-retry { padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
-.design-sync-retry:hover { background: var(--surface-hover); color: var(--text-secondary); }
-.design-sync-retry:disabled { cursor: wait; }
 .design-document-issue { padding: 8px 12px; color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text)); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
 .story-media-reference.is-unavailable { border: 1px solid var(--danger); }
@@ -123,6 +123,9 @@
 .canvas-node-details:hover {
   background: var(--surface-hover);
 }
+/* A text node's expand button sits right beside the details button, closer than the header's gap. */
+.canvas-node-expand { margin-right: -6px; }
+
 /* An output made from inputs that have changed since; the chip runs it again. */
 .canvas-node-stale {
   display: inline-flex;

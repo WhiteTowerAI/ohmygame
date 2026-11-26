@@ -376,6 +376,8 @@ export interface MediaProviderStatus {
   providerName: string;
   state: "ready" | "empty" | "error";
   message?: string;
+  /** What the person still has to set up, so the menu can say so in their language. */
+  setup?: "api-key";
 }
 
 export interface MediaModelCatalog<Model> {
@@ -421,6 +423,9 @@ export interface BackgroundRemovalModel extends ImageModelRef {
   providerName: string;
 }
 
+/** Values for an image model's own settings, by key. */
+export type ImageModelParams = Record<string, string | number | boolean>;
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -432,6 +437,10 @@ export interface ImageModel extends ImageModelRef {
   minReferenceImages?: number;
   /** A reference image can provide the subject when no text prompt is present (API 2.33). */
   promptOptionalWithReference?: boolean;
+  /** A plugin model's own settings, such as a camera view, in the asked language. */
+  params?: import("./plugins.js").PluginParamView[];
+  /** What each reference picture is for, in order, in the asked language. */
+  referenceImageLabels?: string[];
   maxOutputs: ImageOutputCount;
   /** `plugin`: a plugin's media adapter makes it. */
   protocol: ImageProtocol | "codex-cli" | "plugin";
@@ -621,7 +630,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
-  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string; pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel } }
+  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string; /** The density assigned by an earlier Home template. */ pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel } }
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
   /** Any other project file or folder, by project-relative path. */
   | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
@@ -644,12 +653,12 @@ export type AssetCanvasNode = (
     backgroundRemoval?: true;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
+    /** Palette expectation saved by earlier pixel presets. */
+    pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel;
     /** Prompt parts managed by the Effect Library template. */
     effectBasePrompt?: string;
     effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
     effectRhythm?: "sample" | "quick" | "extended";
-    /** Pixel density used when expanding this image's preset prompt. */
-    pixelStyle?: import("./canvas-pixel-style.js").PixelArtLevel;
     /** User action substituted into an editable continuous-action template. */
     actionDescription?: string;
     materialStyle?: import("./canvas-image-presets.js").CanvasMaterialStyle;
@@ -661,6 +670,8 @@ export type AssetCanvasNode = (
     generationMode?: "character-asset" | "continuous-actions" | "all-actions";
     promptSource?: AssetCanvasTextReference;
     model?: ImageModelRef;
+    /** The model's own settings the person changed from their defaults. */
+    modelParams?: ImageModelParams;
     resolution: ImageResolution;
     aspectRatio: ImageAspectRatio;
     images: AssetCanvasReference[];
@@ -1419,6 +1430,8 @@ export type ToolId = (typeof TOOL_IDS)[number];
 interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  /** Values for the model's own settings; only a model that declares them takes them. */
+  params?: ImageModelParams;
   transparentBackground?: boolean;
   size?: ImageSize;
   resolution?: never;
@@ -1433,6 +1446,8 @@ interface RunSizedImageToolRequest {
 interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  /** Values for the model's own settings; only a model that declares them takes them. */
+  params?: ImageModelParams;
   transparentBackground?: boolean;
   size?: never;
   resolution: ImageResolution;

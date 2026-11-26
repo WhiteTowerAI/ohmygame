@@ -192,7 +192,7 @@ export function EditorCanvas<N extends Node>({
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
         {selectionAction}
-        <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.selectHint")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
+        <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
         </button>
         <button className={mode === "pan" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>

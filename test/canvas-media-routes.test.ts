@@ -62,10 +62,10 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-it("saves and reopens a new pixel material workflow with its density group", async () => {
+it("keeps a density group from an earlier template across saving and reopening", async () => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
-  const workflow = createPixelAssetWorkflowNodes("tileset", "classic", [], "tileset-workflow");
+  const workflow = createPixelAssetWorkflowNodes("tileset", [], "tileset-workflow");
   const document = createAssetCanvasDocument();
   document.nodes = [
     { id: "pixel-classic", type: "group", position: { x: 0, y: 0 }, width: 600, height: 720, data: { name: "Classic", pixelStyle: "classic" } },
@@ -117,11 +117,14 @@ it.each(["building", "terrain", "tileset"].flatMap((presetId) =>
   }
 });
 
-it.each(["coarse", "classic", "detailed"] as const)("preserves %s density across saving, reopening, and generation", async (level) => {
+it.each(["coarse", "classic", "detailed"] as const)("generates an image that saved the %s density with the one pixel style", async (level) => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
-  const workflow = createPixelAssetWorkflowNodes("tileset", level, [], "nested");
+  const workflow = createPixelAssetWorkflowNodes("tileset", [], "nested");
   const output = workflow.nodes[0]!;
+  if (output.type !== "image") throw new Error("Expected an image node");
+  // Earlier versions saved a density on the image and on the group around it.
+  output.data = { ...output.data, prompt: "Snow tiles", promptExpanded: false, pixelStyle: level } as typeof output.data;
   const nodes = [
     { id: "density", type: "group" as const, position: { x: 0, y: 0 }, width: 600, height: 720, data: { name: "Density", pixelStyle: level } },
     { id: "nested", type: "group" as const, parentId: "density", position: { x: 0, y: 0 }, width: 540, height: 650, data: { name: "Nested workflow" } },
@@ -129,25 +132,9 @@ it.each(["coarse", "classic", "detailed"] as const)("preserves %s density across
   ];
   const board = { ...current.board, nodes, editorLayout: { ...current.board.editorLayout, nodes: Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }])) } };
   await store.saveBoard(project.id, board, current.revision);
-  const reopened = await store.board(project.id, boardId);
-  expect(reopened.board.nodes.find((node) => node.id === output.id)).toMatchObject({ data: { pixelStyle: level, promptExpanded: true } });
   const start = vi.spyOn(store, "start").mockResolvedValue({ id: "density-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Tiles" });
   await store.generateNode(project.id, boardId, output.id);
-  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: output.type === "image" ? output.data.prompt : "" });
-
-  // An unexpanded older node inherits through nested groups. An explicit node
-  // density takes priority over the surrounding group.
-  if (output.type !== "image") throw new Error("Expected an image node");
-  output.data = { ...output.data, prompt: "Snow tiles", promptExpanded: false };
-  delete output.data.pixelStyle;
-  const inherited = await store.saveBoard(project.id, board, reopened.revision);
-  await store.generateNode(project.id, boardId, output.id);
-  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: canvasImagePresetPrompt("tileset", "Snow tiles", undefined, 0, level) });
-  const override = level === "detailed" ? "coarse" : "detailed";
-  output.data.pixelStyle = override;
-  await store.saveBoard(project.id, board, inherited.revision);
-  await store.generateNode(project.id, boardId, output.id);
-  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: canvasImagePresetPrompt("tileset", "Snow tiles", undefined, 0, override) });
+  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: canvasImagePresetPrompt("tileset", "Snow tiles", undefined, 0) });
 });
 
 it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded %s prompt exactly as it appears in the image node", async (presetId) => {
@@ -171,6 +158,50 @@ it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded 
   const input = start.mock.calls[0]![4];
   if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
   expect(input.prompt).toBe(prompt);
+});
+
+it("generates an effect from its saved base prompt without a supplementary prompt", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = {
+    id: "effect",
+    type: "image" as const,
+    position: { x: 0, y: 0 },
+    data: { prompt: "", effectBasePrompt: "Create a lightning burst.", effectColor: "ice-blue" as const, effectRhythm: "quick" as const, resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] },
+  };
+  await store.saveBoard(project.id, { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { effect: node.position } } }, current.revision);
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "effect-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Effects" });
+  await store.generateNode(project.id, boardId, node.id);
+  const input = start.mock.calls[0]![4];
+  expect(input).toMatchObject({ transparentBackground: true });
+  if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
+  expect(input.prompt).toContain("Create a lightning burst.");
+  expect(input.prompt).toContain("icy cyan");
+  expect(input.prompt).toContain("immediate peak impact");
+  expect(input.prompt).toContain("transparent alpha channel");
+});
+
+it("saves an image model's settings on its node and sends them with the request", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = {
+    id: "model-settings",
+    type: "image" as const,
+    position: { x: 0, y: 0 },
+    data: { prompt: "a knight", model: { provider: "plugin.acme.flow.flow", id: "sprite" }, modelParams: { view: "side", directions: 8, outline: false }, resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] },
+  };
+  const board = { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { [node.id]: node.position } } };
+  const saved = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: current.revision } });
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect((await store.board(project.id, boardId)).board.nodes[0]!.data).toMatchObject({ modelParams: { view: "side", directions: 8, outline: false } });
+  // Settings are plain values by key; a nested value isn't one.
+  const nested = { ...board, nodes: [{ ...node, data: { ...node.data, modelParams: { view: { side: true } } } }] };
+  const refused = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board: nested, revision: (await store.board(project.id, boardId)).revision } });
+  expect(refused.statusCode).toBe(400);
+
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "model-settings-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Knight" });
+  await store.generateNode(project.id, boardId, node.id);
+  expect(start.mock.calls[0]![4]).toMatchObject({ prompt: "a knight", imageModel: node.data.model, params: { view: "side", directions: 8, outline: false } });
 });
 
 it("passes an empty image prompt when a reference provides the subject", async () => {
@@ -204,7 +235,7 @@ it("passes an empty image prompt when a reference provides the subject", async (
 it.each(["prompt", "legacy field"])("requires a custom action entered through %s before generation", async (mode) => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
-  const workflow = createPixelAssetWorkflowNodes("continuous-sequence", "classic", [], "animation-workflow");
+  const workflow = createPixelAssetWorkflowNodes("continuous-sequence", [], "animation-workflow");
   const node = workflow.nodes.find((candidate) => candidate.id === workflow.outputNodeId);
   if (node?.type !== "image") throw new Error("Missing continuous action node");
   const document = createAssetCanvasDocument();

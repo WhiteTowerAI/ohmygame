@@ -28,7 +28,7 @@ let canvasFlush: (() => Promise<void>) | undefined;
 let canvasSync: (() => Promise<void>) | undefined;
 let canvasChanged: (scopes: CanvasSyncScope[]) => void;
 const changed = (scope: CanvasSyncScope) => act(async () => canvasChanged([scope]));
-const canvasStatus = vi.fn();
+const syncFailed = vi.fn();
 const api = {
   model3DCatalog: vi.fn(),
   model3DOperations: vi.fn(),
@@ -356,34 +356,34 @@ it("does not claim a successful flush when a document draft has lost its workspa
   expect(localStorage.getItem("canvas-documents:p")).toContain("Unsaved rules");
 });
 
-it("shows failed sync retries once and lets Dismiss remove them", async () => {
+it("keeps a paused sync in the notice stack until a retry reconnects", async () => {
   await act(async () => root.render(<CanvasWorkspace project={{ id: "p", type: "asset-canvas" } as ProjectState} />));
   await advance(400);
   api.getBoard.mockRejectedValue(new TypeError("Failed to fetch"));
   await changed("board");
-  expect(container.textContent).toContain("Sync paused");
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Retry canvas sync"]')!.click());
-  expect(container.querySelectorAll(".design-notice")).toHaveLength(1);
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss notice"]')!.click());
-  await advance(3000);
-  expect(container.querySelectorAll(".design-notice")).toHaveLength(0);
-  expect(container.textContent).toContain("Sync paused");
+  const stack = container.querySelector(".canvas-notices")!;
+  expect(stack.textContent).toContain("Could not read the latest changes on disk.");
+  expect(stack.querySelector('[aria-label="Dismiss notice"]')).toBeNull();
+  const retry = () => [...stack.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Retry sync")!;
+  await act(async () => retry().click());
+  expect(stack.textContent).toContain("Retry failed");
+  api.getBoard.mockImplementation(async () => structuredClone(boardDisk));
+  await act(async () => retry().click());
+  expect(stack.textContent).not.toContain("Could not read the latest changes on disk.");
 });
 
-it("lets the header restore a dismissed conflict so the user can choose a version", async () => {
+it("keeps a conflict in the notice stack until the user chooses a version", async () => {
   await act(async () => root.render(<CanvasWorkspace project={{ id: "p", type: "asset-canvas" } as ProjectState} />));
   boardDisk.board.nodes[0]!.title = "Agent title"; boardDisk.revision = "agent-edit";
   await act(async () => captured.props!.onNodesChange!([{ id: "n", type: "replace", item: { ...captured.props!.nodes[0]!, title: "My title" } }]));
   await advance(400);
-  expect(container.textContent).toContain("choose a version");
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss notice"]')!.click());
-  expect(container.querySelector(".design-notice")).toBeNull();
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Review canvas conflicts"]')!.click());
-  expect(container.textContent).toContain("Keep my version");
-  const keep = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Keep my version")!;
+  const stack = container.querySelector(".canvas-notices")!;
+  expect(stack.textContent).toContain("choose a version");
+  expect(stack.querySelector('[aria-label="Dismiss notice"]')).toBeNull();
+  const keep = [...stack.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Keep my version")!;
   await act(async () => keep.click());
   expect(boardDisk.board.nodes[0]!.title).toBe("My title");
-  expect(container.querySelector(".design-notice")).toBeNull();
+  expect(stack.querySelector(".canvas-notice")).toBeNull();
 });
 
 it("still saves document drafts when the board cannot save during desktop close", async () => {
@@ -567,7 +567,7 @@ async function openCanvas(type: "web-game" | "asset-canvas") {
         assets={[]}
         onSaveReady={(save) => { canvasFlush = save; }}
         onSyncReady={(sync) => { canvasSync = sync; }}
-        onStatusChange={canvasStatus}
+        onSyncFailedChange={syncFailed}
       />,
     ),
   );
@@ -658,12 +658,12 @@ it("can flush an already saved canvas after a failed background sync without sho
   const writes = api.saveBoard.mock.calls.length;
   api.getBoard.mockRejectedValueOnce(new TypeError("Failed to fetch"));
   await changed("board");
-  expect(canvasStatus).toHaveBeenLastCalledWith("sync-error");
-  expect(container.querySelector(".story-save-notice")).toBeNull();
+  expect(syncFailed).toHaveBeenLastCalledWith(true);
+  expect(container.querySelector(".canvas-notice")).toBeNull();
   await act(async () => canvasFlush!());
   expect(api.saveBoard).toHaveBeenCalledTimes(writes);
   await act(async () => canvasSync!());
-  expect(canvasStatus).toHaveBeenLastCalledWith("saved");
+  expect(syncFailed).toHaveBeenLastCalledWith(false);
 });
 
 it("flushes an edit immediately before the autosave debounce", async () => {
@@ -673,18 +673,20 @@ it("flushes an edit immediately before the autosave debounce", async () => {
   expect(boardDisk.board.nodes[0]!.position).toEqual({ x: 400, y: 400 });
 });
 
-it("retries a failed save and keeps the save status after dismissing its notice", async () => {
+it("keeps the failed-save notice through a sync and clears it after a successful retry", async () => {
   await openCanvas("asset-canvas");
   api.saveBoard.mockRejectedValueOnce(new Error("Disk unavailable"));
   await move("n"); await advance(400);
-  expect(canvasStatus).toHaveBeenLastCalledWith("error");
-  expect(container.textContent).toContain("Could not save canvas");
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss notice"]')!.click());
+  const saveNotice = () => container.querySelector<HTMLElement>(".canvas-notice.is-error")!;
+  expect(saveNotice().textContent).toContain("Could not save canvas");
+  expect(saveNotice().querySelector('[aria-label="Dismiss notice"]')).toBeNull();
   await changed("board");
-  expect(container.querySelector(".story-save-notice")).toBeNull();
-  expect(canvasStatus).toHaveBeenLastCalledWith("error");
-  await act(async () => canvasFlush!());
-  expect(canvasStatus).toHaveBeenLastCalledWith("saved");
+  const retry = [...saveNotice().querySelectorAll("button")].find((button) => button.textContent === "Retry save")!;
+  api.saveBoard.mockRejectedValueOnce(new Error("Still unavailable"));
+  await act(async () => retry.click());
+  expect(saveNotice().textContent).toContain("Still unavailable");
+  await act(async () => retry.click());
+  expect(saveNotice()).toBeNull();
   expect(boardDisk.board.nodes[0]!.position).toEqual({ x: 400, y: 400 });
 });
 

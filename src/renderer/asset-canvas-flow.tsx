@@ -3,7 +3,7 @@ import type { CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import type { CanvasNodeDetails } from "./canvas-node-label.js";
 import type { TableNodeRuntime } from "./canvas-table-node.js";
 import type { DocumentNodeRuntime } from "./canvas-document-node.js";
-import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, ImageModelRef, ModelRef, ImageResolution, ImageAspectRatio, VideoModelRef, VideoResolution, VideoAspectRatio, AssetCanvasReference, Model3DGenerationConfig, Model3DActionId, Model3DOperation, Model3DOptions, AssetCanvasNodeType, AgentModel, ImageModel, BackgroundRemovalModel, MediaProviderStatus, VideoModel, Model3DModel, VideoGenerationReference } from "../shared/contracts.js";
+import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, ImageModelRef, ImageModelParams, ModelRef, ImageResolution, ImageAspectRatio, VideoModelRef, VideoResolution, VideoAspectRatio, AssetCanvasReference, Model3DGenerationConfig, Model3DActionId, Model3DOperation, Model3DOptions, AssetCanvasNodeType, AgentModel, ImageModel, BackgroundRemovalModel, MediaProviderStatus, VideoModel, Model3DModel, VideoGenerationReference } from "../shared/contracts.js";
 import type { Node } from "@xyflow/react";
 import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
@@ -57,6 +57,8 @@ export type AssetCanvasFlowData = AudioSettings & Record<string, unknown> & {
   textModel?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   model?: ImageModelRef;
+  /** An image model's own settings changed from their defaults. */
+  modelParams?: ImageModelParams;
   audioModel?: ModelRef;
   audioKind?: AudioKind;
   voiceId?: string;
@@ -253,7 +255,7 @@ export function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data
 }
 
 export function effectivePrompt(data: AssetCanvasFlowData, runtime?: MediaNodeRuntime): string {
-  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? "", data.pixelStyle));
+  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? ""));
 }
 
 export function titleCase(value: string): string {

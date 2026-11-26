@@ -734,8 +734,9 @@ export function subscribeToModelAuth(
   return () => controller.abort();
 }
 
+/** Plugin models' names and settings come in the app's language. */
 export async function listImageModels(): Promise<ImageModel[]> {
-  return request("/image-models");
+  return request(`/image-models?locale=${encodeURIComponent(language)}`);
 }
 
 export async function listVideoModels(): Promise<VideoModel[]> {
@@ -744,7 +745,7 @@ export async function listVideoModels(): Promise<VideoModel[]> {
 
 /** Image models grouped by connected provider, with the reason a provider has none. */
 export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
-  return request("/image-models/catalog");
+  return request(`/image-models/catalog?locale=${encodeURIComponent(language)}`);
 }
 
 export async function setDefaultMediaModel(usage: MediaModelUsage, model?: AgentModelRef): Promise<void> {
@@ -1467,9 +1468,10 @@ export async function getConversationImage(url: string, signal?: AbortSignal): P
   return response.blob();
 }
 
-export async function getWorkspaceAsset(projectId: string, filePath: string): Promise<Blob> {
+export async function getWorkspaceAsset(projectId: string, filePath: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/files/raw?path=${encodeURIComponent(filePath)}`), {
     headers: runtimeHeaders(),
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
@@ -2153,6 +2155,14 @@ export async function pluginNetFetch(projectId: string, plugin: string, body: { 
 /** The canvas nodes of the project's active plugins, in the app's language. */
 export async function getProjectPluginCanvas(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCanvas> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-canvas?locale=${encodeURIComponent(language)}`);
+}
+
+/** A plugin preset's preview picture; `id` is `publisher/name:preset`. */
+export async function readProjectPluginCanvasPresetPreview(projectId: string, id: string, signal?: AbortSignal): Promise<Blob> {
+  const [plugin = "", preset = ""] = id.split(":");
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/plugin-canvas/presets/${plugin.split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(preset)}/preview`), { headers: projectRuntimeHeaders(projectId), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 /** A plugin preset's nodes and edges; `id` is `publisher/name:preset`. */

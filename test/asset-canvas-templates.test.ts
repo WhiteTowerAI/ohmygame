@@ -4,11 +4,14 @@ import type { ImageModel } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, effectLibraryPrompt, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
-import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
+import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtStyle, withGlobalPixelStyle, withPixelArtStyle } from "../src/shared/canvas-pixel-style.js";
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
-import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
-import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
-import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
+import { createPixelAssetWorkflowNodes, PIXEL_ASSET_TEMPLATE_CATEGORIES, pixelAssetPresetLabel, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { createPixelWorkflowPreset, pixelWorkflowPresets } from "../src/renderer/asset-canvas-workflow-presets.js";
+import { canvasPresetInGroup } from "../src/shared/canvas-plugin-nodes.js";
+import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
+import { EFFECT_PRESETS, effectPresetFrames } from "../src/renderer/asset-canvas-effect-presets.js";
+import { effectPresetExampleId } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const textOnly: ImageModel = {
@@ -26,65 +29,119 @@ const reference: ImageModel = {
 };
 
 describe("pixel asset workflows", () => {
-  it("offers every bundled effect as an individual, localized pixel preset", () => {
+  it("keeps every bundled effect's examples", () => {
     expect(EFFECT_PRESETS).toHaveLength(12);
     expect(new Set(EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(EFFECT_PRESETS.length);
-    expect(effectPresetAspectRatio("electric-orb-burst")).toBe("3:4");
-    expect(effectPresetAspectRatio("lightning-strike")).toBe("21:9");
+    expect(effectPresetFrames("lightning-strike")).toBe("5 × 2 · 10 frames");
     for (const preset of EFFECT_PRESETS) {
-      expect(effectPresetById(preset.id)).toBe(preset);
-      expect(effectPresetLabel(preset.id)).not.toContain("assetCanvas.");
-      expect(effectPresetDescription(preset.id)).not.toContain("assetCanvas.");
-      expect(effectPresetAspectRatio(preset.id)).toMatch(/^(4:3|3:4|21:9)$/);
-      expect(preset.prompt).toContain("sprite sheet");
-      const previews = ["coarse", "classic", "detailed"] as const;
-      expect(new Set(previews.map((level) => effectPresetPreviewUrl(preset.id, level))).size).toBe(3);
-      expect(new Set(previews.map((level) => pixelExampleImageUrl(effectPresetExampleId(preset.id, level)))).size).toBe(3);
-      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "coarse"))).toBeTruthy();
-      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "classic"))).toBeTruthy();
-      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "detailed"))).toBeTruthy();
+      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id))).toContain(`/pixel/classic/effects/${preset.id}-sheet.webp`);
+      // Canvases from before one pixel style still show their examples.
+      for (const level of ["coarse", "detailed"] as const) {
+        expect(pixelExampleImageUrl(`effects/${level}/${preset.id}`)).toContain(`/pixel/${level}/effects/`);
+      }
     }
   });
 
-  it("applies the selected pixel density to effect generation prompts", () => {
+  it("applies the one pixel style to effect generation prompts", () => {
     const base = "Create one complete 4-column by 3-row Sprite Sheet (12 frames) for a fire impact.";
-    const coarse = effectLibraryPrompt(base, "original", "sample", "", "coarse");
-    const classic = effectLibraryPrompt(base, "original", "sample", "", "classic");
-    const detailed = effectLibraryPrompt(base, "original", "sample", "", "detailed");
-    expect(coarse).toContain("PIXEL DENSITY: COARSE PIXELS");
-    expect(coarse).toContain("32×32 pixels");
-    expect(coarse).toContain("Use no more than 8 colors");
-    expect(classic).toContain("PIXEL DENSITY: CLASSIC PIXELS");
-    expect(classic).toContain("64×64 pixels");
-    expect(classic).not.toContain("Use no more than 8 colors");
-    expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("Default logical size per frame: 192×192 pixels");
-    expect(detailed).not.toContain("256×256");
-    expect(detailed).toContain("Use no more than 48 colors");
-    expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
+    const prompt = effectLibraryPrompt(base, "original", "sample", "");
+    expect(prompt).toContain("PIXEL DENSITY: CLASSIC PIXELS");
+    expect(prompt).toContain("Default logical size per frame: 64×64 pixels");
+    expect(prompt).toContain("Use no more than 16 colors");
+    expect(prompt).not.toContain("DETAILED EFFECT PIXEL RULES");
+    expect(prompt).not.toContain("COARSE PIXELS");
+    expect(effectLibraryPrompt(undefined, undefined, undefined, "Ordinary image")).toBe("Ordinary image");
+    expect(effectLibraryPrompt("", "original", "sample", "")).toBe("");
   });
 
-  it("organizes the pixel catalog by function and provides translated card details", () => {
-    const catalog = pixelAssetPresetCatalog();
-    expect(catalog.map((category) => category.id)).toEqual([
-      "characters", "animation", "terrain", "objects", "creatures", "scenes", "skins",
-    ]);
-    expect(catalog.flatMap((category) => category.presets)).toHaveLength(21);
-    expect(catalog.flatMap((category) => category.presets).every((preset) =>
-      preset.label.length > 0 && preset.description.length > 0 && !preset.label.startsWith("assetCanvas."),
-    )).toBe(true);
-    expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Outfits");
-    expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Classic Pixels");
-    expect(pixelAssetTemplateCategories().map((category) => category.id)).toEqual([
-      "characters", "animation", "terrain", "objects", "creatures", "scenes", "skins",
-    ]);
-    expect(pixelAssetTemplateCategories().every((category) => category.label && category.description)).toBe(true);
+  it("offers each pixel category, and effects, as one workflow on the board", () => {
+    const presets = pixelWorkflowPresets();
+    expect(presets.map((preset) => preset.id)).toEqual(["characters", "animation", "terrain", "objects", "creatures", "scenes", "skins", "effects"]);
+    for (const preset of presets) {
+      expect(preset.label, preset.id).not.toContain("assetCanvas.");
+      expect(preset.description, preset.id).not.toMatch(/^(assetCanvas|effectLibrary)\./);
+      expect(preset.coverUrl, preset.id).toMatch(/cover\.webp$/);
+      const board = createPixelWorkflowPreset(preset.id, [reference]);
+      expect(preset.nodeCount, preset.id).toBe(board.nodes.length);
+      // Added as one group named after the preset, the board stays valid.
+      const document = createAssetCanvasDocument();
+      document.nodes = canvasPresetInGroup(board, preset.label, "group");
+      document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, node.position]));
+      expect(isAssetCanvasDocument(document), preset.id).toBe(true);
+      expect(document.nodes[0]).toMatchObject({ type: "group", data: { name: preset.label } });
+      // Added where the view is, it gets new ids, groups inside groups and links included.
+      let next = 0;
+      const added = duplicateCanvasSelection(document.nodes, [], { x: 900, y: 300 }, () => `new-${++next}`).nodes;
+      const addedIds = new Set(added.map((node) => node.id));
+      expect(added).toHaveLength(document.nodes.length);
+      expect(added.every((node) => !node.parentId || addedIds.has(node.parentId)), preset.id).toBe(true);
+      expect(added.flatMap((node) => node.type === "image" ? node.data.images : []).every((item) => item.type !== "node" || addedIds.has(item.nodeId)), preset.id).toBe(true);
+      const placed = createAssetCanvasDocument();
+      placed.nodes = added;
+      placed.editorLayout.nodes = Object.fromEntries(added.map((node) => [node.id, node.position]));
+      expect(isAssetCanvasDocument(placed), preset.id).toBe(true);
+      const images = board.nodes.filter((node) => node.type === "image");
+      // Guides and steps are ordinary text nodes in the language they were added in, which the person can edit.
+      const texts = board.nodes.filter((node) => node.type === "text");
+      for (const node of texts) {
+        expect(node.type === "text" && node.data, preset.id).toEqual({ text: expect.any(String), instruction: "" });
+        expect(node.type === "text" && node.data.text, preset.id).not.toMatch(/(assetCanvas|effectLibrary)\./);
+        expect(node.height, preset.id).toBeGreaterThan(100);
+      }
+      const notes = texts.filter((node) => node.parentId || preset.id === "animation");
+      if (preset.id === "effects") {
+        // One finished sheet with its prompt and its GIF, then one generator with the effect controls.
+        const examples = images.filter((node) => node.type === "image" && node.data.exampleImage);
+        expect(examples.map((node) => node.type === "image" && node.data.exampleImage)).toEqual(["effects/classic/fire-hit", "effects/classic/fire-hit.gif"]);
+        expect(examples[0]?.type === "image" && examples[0].data.prompt).toContain("fire impact");
+        for (const node of examples) expect(pixelExampleImageUrl(node.type === "image" ? node.data.exampleImage : undefined), node.title).toBeDefined();
+        const generators = images.filter((node) => node.type === "image" && node.data.effectBasePrompt);
+        expect(generators).toHaveLength(1);
+        // Titled for any effect, though the prompt starts as a fire hit.
+        expect(generators[0]?.title).toBe("Effect sheet");
+        expect(texts[0]?.title).toBe("Effects · How to use");
+        expect(generators[0]).toMatchObject({ data: { effectColor: "original", effectRhythm: "sample", model: { id: "reference" } } });
+        // The four steps run left to right in the person's own group, the generator under the first.
+        expect(notes).toHaveLength(4);
+        expect(new Set(notes.map((step) => step.parentId))).toEqual(new Set([generators[0]!.parentId]));
+        expect(notes.map((step) => step.position.x)).toEqual([...notes.map((step) => step.position.x)].sort((a, b) => a - b));
+        expect(generators[0]!.position.x).toBe(notes[0]!.position.x);
+        expect(generators[0]!.position.y).toBeGreaterThan(notes[0]!.position.y);
+        continue;
+      }
+      if (preset.id === "animation") {
+        // One action, read left to right: each step's note above the reference, the sheet and its GIF.
+        const [reference, sheet, gif] = images;
+        expect(notes).toHaveLength(3);
+        // Titled for any action, though the prompt starts as a walk.
+        expect(sheet).toMatchObject({ title: "Action sheet", data: { images: [{ type: "node", nodeId: reference!.id }] } });
+        expect(gif?.title).toBe("Example GIF");
+        expect(texts.map((node) => node.type === "text" ? node.data.text : "").join("\n")).not.toContain("generate Walk");
+        expect(gif?.type === "image" && gif.data.exampleImage).toBe("classic/walk.gif");
+        expect(pixelExampleImageUrl(gif?.type === "image" ? gif.data.exampleImage : undefined)).toBeDefined();
+        notes.forEach((step, index) => {
+          expect(step.position.x).toBe([reference, sheet, gif][index]!.position.x);
+          expect(step.position.y).toBeLessThan([reference, sheet, gif][index]!.position.y);
+        });
+        continue;
+      }
+      // One guide, listing what each generator's result is for, with the nodes starting below it.
+      expect(texts, preset.id).toHaveLength(1);
+      for (const id of pixelAssetTemplatePresetIds(preset.id)) expect(texts[0]!.type === "text" && texts[0]!.data.text, preset.id).toContain(pixelAssetPresetLabel(id));
+      for (const node of images) expect(node.position.y, preset.id).toBeGreaterThan(texts[0]!.height!);
+      if (preset.id === "skins") continue;
+      // Every generator works from the category's one reference.
+      const [source, ...generators] = images;
+      expect(source?.type === "image" && source.data.sourceInput, preset.id).toBe(true);
+      expect(generators.map((node) => node.title), preset.id).toEqual(pixelAssetTemplatePresetIds(preset.id).map(pixelAssetPresetLabel));
+      for (const node of generators) expect(node.type === "image" && node.data.images, preset.id).toEqual([{ type: "node", nodeId: source!.id }]);
+    }
   });
 
-  it("adds one image node per preset and links the three-node skin workflow", () => {
-    const catalog = pixelAssetPresetCatalog();
-    for (const preset of catalog.flatMap((category) => category.presets)) {
-      const workflow = createPixelAssetWorkflowNodes(preset.id, "classic", [reference], "workflow");
+  it("makes one image node per generator and links the three-node skin workflow", () => {
+    for (const id of PIXEL_ASSET_TEMPLATE_CATEGORIES.flatMap(pixelAssetTemplatePresetIds)) {
+      const preset = { id, label: pixelAssetPresetLabel(id) };
+      const workflow = createPixelAssetWorkflowNodes(preset.id, [reference], "workflow");
       const expectedCount = preset.id === "quick-reskin" ? 3 : 1;
       expect(workflow.nodes).toHaveLength(expectedCount);
       expect(workflow.nodes.every((node) => node.parentId === "workflow")).toBe(true);
@@ -93,7 +150,8 @@ describe("pixel asset workflows", () => {
       if (output?.type === "image") {
         expect(output.data.promptExpanded).toBe(true);
         expect(output.data.prompt).toContain("CLASSIC PIXELS");
-        expect(output.title).toContain("Classic Pixels");
+        expect(output.title).toBe(preset.label);
+        expect(output.data).not.toHaveProperty("pixelStyle");
       }
       if (preset.id === "quick-reskin" && output?.type === "image") {
         const inputs = workflow.nodes.filter((node) => node.type === "image" && node.data.sourceInput);
@@ -104,40 +162,16 @@ describe("pixel asset workflows", () => {
     }
   });
 
-  it("adds no workflow group for a single image and one for the reskin flow", () => {
-    const placement = { nodePosition: { x: 24, y: 48 }, workflowGroupPosition: { x: 24, y: 48 } };
-    const single = createPixelAssetPresetContents("character-sheet", "classic", [], placement);
-    const reskin = createPixelAssetPresetContents("quick-reskin", "classic", [], placement);
-
-    expect(single.group).toBeUndefined();
-    expect(single.nodes).toHaveLength(1);
-    expect(single.nodes[0]?.parentId).toBeUndefined();
-    expect(reskin.group).toMatchObject({ type: "group", position: placement.workflowGroupPosition });
-    expect(reskin.group?.parentId).toBeUndefined();
-    expect(reskin.nodes).toHaveLength(3);
-    expect(reskin.nodes.every((node) => (node as typeof node & { parentId?: string }).parentId === reskin.group?.id)).toBe(true);
-  });
-
-  it("places toolbar presets outside the permanent pixel-density frames", () => {
-    const groups = [
-      { position: { x: -880, y: -360 }, width: 560, height: 720 },
-      { position: { x: -280, y: -360 }, width: 560, height: 720 },
-      { position: { x: 320, y: -360 }, width: 560, height: 720 },
-    ];
-    const single = placePixelPresetOutsideDensityGroups("character-sheet", { x: 0, y: 0 }, groups);
-    const reskin = placePixelPresetOutsideDensityGroups("quick-reskin", { x: 0, y: 0 }, groups);
-
-    expect(single.nodePosition.y).toBeGreaterThanOrEqual(360);
-    expect(reskin.workflowGroupPosition.y).toBeGreaterThanOrEqual(360);
-  });
-
-  it("persists the pixel level on an outer group and keeps older group data valid", () => {
-    const workflow = createPixelAssetWorkflowNodes("quick-reskin", "detailed", [reference], "workflow-skins");
+  it("keeps canvases that saved a pixel density on groups and images valid", () => {
+    const workflow = createPixelAssetWorkflowNodes("quick-reskin", [reference], "workflow-skins");
+    const output = workflow.nodes.find((node) => node.id === workflow.outputNodeId)!;
+    // Earlier versions saved the density on the image too.
+    (output.data as Record<string, unknown>).pixelStyle = "detailed";
     const document = createAssetCanvasDocument();
     document.nodes = [
       { id: "legacy-group", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } },
-      { id: "pixel-detailed", type: "group", position: { x: 500, y: 0 }, width: 1520, height: 760, data: { name: "Fine pixels", pixelStyle: "detailed" } },
-      { id: "workflow-skins", type: "group", parentId: "pixel-detailed", position: { x: 24, y: 48 }, width: 1460, height: 650, data: { name: pixelAssetWorkflowLabel("quick-reskin", "detailed") } },
+      { id: "pixel-detailed", type: "group", position: { x: 500, y: 0 }, width: 1520, height: 760, data: { name: "detailed", pixelStyle: "detailed" } },
+      { id: "workflow-skins", type: "group", parentId: "pixel-detailed", position: { x: 24, y: 48 }, width: 1460, height: 650, data: { name: "Outfits · Swap outfits" } },
       ...workflow.nodes,
     ];
     document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, {
@@ -176,75 +210,59 @@ describe("pixel asset workflows", () => {
     expect(canvasImagePresetPrompt("prop", "sword")).toContain("Section 3 — Functional States:");
   });
 
-  it("uses the density-level character and action prompts in single-node workflows", () => {
-    const character = createPixelAssetWorkflowNodes("character-sheet", "coarse", [reference], "characters");
+  it("uses the character and action prompts in single-node workflows", () => {
+    const character = createPixelAssetWorkflowNodes("character-sheet", [reference], "characters");
     expect(character.nodes).toHaveLength(1);
     expect(character.nodes[0]).toMatchObject({ type: "image", data: { presetId: "character-sheet", aspectRatio: "16:9" } });
     if (character.nodes[0]?.type === "image") {
-      expect(character.nodes[0].data.prompt).toBe(withCharacterPixelArtLevel(characterAssetPrompt("", "coarse"), "coarse"));
+      expect(character.nodes[0].data.prompt).toBe(withCharacterPixelArtStyle(characterAssetPrompt("")));
       expect(character.nodes[0].data.model).toEqual({ provider: "example", id: "reference" });
     }
 
-    const walk = createPixelAssetWorkflowNodes("action:walk", "classic", [reference], "animation");
+    const walk = createPixelAssetWorkflowNodes("action:walk", [reference], "animation");
     expect(walk.nodes).toHaveLength(1);
     expect(walk.nodes[0]).toMatchObject({ type: "image", data: { aspectRatio: "4:3" } });
-    if (walk.nodes[0]?.type === "image") expect(walk.nodes[0].data.prompt).toBe(actionSheetPrompt("walk", "", "classic"));
+    if (walk.nodes[0]?.type === "image") expect(walk.nodes[0].data.prompt).toBe(actionSheetPrompt("walk", ""));
   });
 
-  it("keeps distinct size, palette, and shading budgets without output-width examples", () => {
-    const settings = [
-      ["coarse", 32, 8, "1–2"], ["classic", 64, 16, "2–3"], ["detailed", 192, 48, "4–6"],
-    ] as const;
-    for (const [level, size, colors, tones] of settings) {
-      const prompt = withPixelArtLevel("USER REQUEST: wizard", level);
-      expect(prompt).toContain(`${size}×${size} logical sprite canvas`);
-      expect(prompt).toContain(`Use no more than ${colors} colors`);
-      expect(prompt).toContain(`${tones} hard-edged tones per major material`);
-      expect(prompt).not.toContain("1536-pixel output width");
-      expect(prompt).not.toContain("character head");
-      expect(prompt).not.toContain("each eye");
-    }
+  it("sets one size, palette, and shading budget without output-width examples", () => {
+    const prompt = withPixelArtStyle("USER REQUEST: wizard");
+    expect(prompt).toContain("64×64 logical sprite canvas");
+    expect(prompt).toContain("Use no more than 16 colors");
+    expect(prompt).toContain("2–3 hard-edged tones per major material");
+    expect(prompt).not.toContain("DENSITY PRIORITY");
+    expect(prompt).not.toContain("DETAILED PIXELS");
+    expect(prompt).not.toContain("1536-pixel output width");
+    expect(prompt).not.toContain("character head");
+    expect(prompt).not.toContain("each eye");
   });
 
   it("separates whole reference-sheet dimensions from full-body sprite budgets", () => {
-    for (const [level, size, width, height] of [
-      ["coarse", 32, 128, 72], ["classic", 64, 256, 144], ["detailed", 192, 768, 432],
-    ] as const) {
-      const prompt = canvasImagePresetPrompt("character-sheet", "blue-haired wizard", "pixel", 1, level);
-      expect(prompt).toContain(`entire 16:9 reference sheet on a ${width}×${height} logical pixel canvas`);
-      expect(prompt).toContain(`${size}×${size} logical sprite budget`);
-      expect(prompt).toContain("same pixel scale and detail budget");
-      expect(prompt).toContain("CHARACTER DETAIL BUDGET:");
-      expect(prompt).not.toContain("coarse logical pixel grid");
-    }
-    const coarse = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "coarse");
-    expect(coarse).toContain("each eye as one solid dark mark");
-    const detailed = canvasImagePresetPrompt("character-sheet", "wizard", "pixel", 1, "detailed");
-    expect(detailed).toContain("4–6 hard-edged tones per major material");
-    expect(detailed).toContain("small armor divisions");
-    expect(detailed).not.toContain("1–2 hard-edged tones");
-    expect(detailed).not.toContain("2–3 hard-edged tones");
+    const prompt = canvasImagePresetPrompt("character-sheet", "blue-haired wizard", "pixel", 1);
+    expect(prompt).toContain("entire 16:9 reference sheet on a 256×144 logical pixel canvas");
+    expect(prompt).toContain("64×64 logical sprite budget");
+    expect(prompt).toContain("same pixel scale and detail budget");
+    expect(prompt).toContain("CHARACTER DETAIL BUDGET:");
+    expect(prompt).toContain("2–3 hard-edged tones per major material");
+    expect(prompt).not.toContain("coarse logical pixel grid");
+    expect(prompt).not.toContain("for coarse pixels");
+    expect(prompt).not.toContain("for fine pixels");
   });
 
-  it.each(["coarse", "classic", "detailed"] as const)("applies only the selected %s density across all catalog workflows", (level) => {
-    const colors = { coarse: 8, classic: 16, detailed: 48 };
-    const tones = { coarse: "1–2", classic: "2–3", detailed: "4–6" };
-    for (const category of pixelAssetPresetCatalog()) {
-      for (const preset of category.presets) {
-        const workflow = createPixelAssetWorkflowNodes(preset.id, level, [reference], "workflow");
+  it("applies the one pixel style across all catalog workflows", () => {
+    for (const category of PIXEL_ASSET_TEMPLATE_CATEGORIES) {
+      for (const preset of pixelAssetTemplatePresetIds(category).map((id) => ({ id }))) {
+        const workflow = createPixelAssetWorkflowNodes(preset.id, [reference], "workflow");
         const output = workflow.nodes.find((node) => node.id === workflow.outputNodeId);
         expect(output?.type).toBe("image");
         if (output?.type !== "image") continue;
         const prompt = output.data.prompt;
-        expect(output.data.pixelStyle, preset.id).toBe(level);
         expect(prompt, preset.id).toContain("even when the reference is already pixel art");
         expect(prompt, preset.id).toContain("Do not inherit the reference's pixel density");
         expect(prompt, preset.id).toContain("DETAIL BUDGET:");
-        expect(prompt, preset.id).toContain(`Use no more than ${colors[level]} colors`);
-        expect(prompt, preset.id).toContain(`${tones[level]} hard-edged tones per major material`);
-        for (const other of ["coarse", "classic", "detailed"] as const) {
-          if (other !== level) expect(prompt, preset.id).not.toContain(`${tones[other]} hard-edged tones`);
-        }
+        expect(prompt, preset.id).toContain("Use no more than 16 colors");
+        expect(prompt, preset.id).toContain("2–3 hard-edged tones per major material");
+        for (const other of ["1–2", "4–6"]) expect(prompt, preset.id).not.toContain(`${other} hard-edged tones`);
         expect(prompt.match(/\*\*PIXEL DENSITY:/g), preset.id).toHaveLength(1);
         expect(prompt, preset.id).not.toContain("1536-pixel output width");
         expect(prompt, preset.id).not.toContain("coarse logical pixel grid");
@@ -253,53 +271,52 @@ describe("pixel asset workflows", () => {
     }
   });
 
-  it.each(["coarse", "classic", "detailed"] as const)("keeps %s density instructions relevant to each asset type", (level) => {
+  it("keeps pixel instructions relevant to each asset type", () => {
     for (const preset of ["scene", "terrain", "tileset", "building", "prop", "icon", "monster", "animal"] as const) {
-      const prompt = canvasImagePresetPrompt(preset, "a silver asset", "pixel", 1, level);
+      const prompt = canvasImagePresetPrompt(preset, "a silver asset", "pixel", 1);
       expect(prompt, preset).not.toContain("character head");
       expect(prompt, preset).not.toContain("each eye");
       expect(prompt, preset).not.toContain("hair locks");
       expect(prompt, preset).not.toContain("iris shading");
     }
-    const panels = canvasImagePresetPrompt("consistent-sequence", "a fox in nine settings", "pixel", 1, level);
+    const panels = canvasImagePresetPrompt("consistent-sequence", "a fox in nine settings", "pixel", 1);
     expect(panels).toContain("SUBJECT DETAIL BUDGET:");
     expect(panels).not.toContain("CHARACTER DETAIL BUDGET:");
-    const portrait = canvasImagePresetPrompt("portrait", "mage", "pixel", 1, level);
+    const portrait = canvasImagePresetPrompt("portrait", "mage", "pixel", 1);
     expect(portrait).toContain("CHARACTER DETAIL BUDGET:");
     expect(portrait).not.toContain("Allow greater pixel detail");
     expect(portrait).toContain("A larger portrait does not authorize a finer pixel grid");
-    expect(canvasImagePresetPrompt("side-view-character", "mage", "pixel", 1, level)).not.toContain("or visual style reference");
+    expect(canvasImagePresetPrompt("side-view-character", "mage", "pixel", 1)).not.toContain("or visual style reference");
   });
 
-  it.each([
-    ["coarse", 32, 96, 16], ["classic", 64, 160, 32], ["detailed", 192, 480, 128],
-  ] as const)("computes per-cell and complete-sheet dimensions for %s layouts", (level, sprite, scene, tile) => {
-    const actions = actionSheetPrompt("walk", "", level);
+  it("computes per-cell and complete-sheet dimensions for each layout", () => {
+    const [sprite, scene, tile] = [64, 160, 32];
+    const actions = actionSheetPrompt("walk", "");
     expect(actions).toContain(`per frame: ${sprite}×${sprite} pixels`);
     expect(actions).toContain(`complete sheet is ${sprite * 4}×${sprite * 3} logical pixels`);
     for (const preset of ["monster", "animal"] as const) {
-      const prompt = canvasImagePresetPrompt(preset, "fox", "pixel", 1, level);
+      const prompt = canvasImagePresetPrompt(preset, "fox", "pixel", 1);
       expect(prompt).toContain(`per sprite: ${sprite}×${sprite} pixels`);
       expect(prompt).toContain(`complete sheet is ${sprite * 4}×${sprite * 4} logical pixels`);
     }
-    const tiles = canvasImagePresetPrompt("tileset", "24×24 tiles in a 3×2 atlas", "pixel", 1, level);
+    const tiles = canvasImagePresetPrompt("tileset", "24×24 tiles in a 3×2 atlas", "pixel", 1);
     expect(tiles).toContain(`per tile: ${tile}×${tile} pixels`);
     expect(tiles).toContain(`complete sheet is ${tile * 4}×${tile * 4} logical pixels`);
     expect(tiles).toContain("An explicit user tile size or atlas layout overrides these defaults");
-    const panels = canvasImagePresetPrompt("consistent-sequence", "fox", "pixel", 1, level);
+    const panels = canvasImagePresetPrompt("consistent-sequence", "fox", "pixel", 1);
     expect(panels).toContain(`per panel: ${scene}×${scene} pixels`);
     expect(panels).toContain(`complete sheet is ${scene * 3}×${scene * 3} logical pixels`);
-    const prop = canvasImagePresetPrompt("prop", "sword", "pixel", 1, level);
+    const prop = canvasImagePresetPrompt("prop", "sword", "pixel", 1);
     expect(prop).toContain(`per view: ${sprite}×${sprite} pixels`);
     expect(prop).toContain(`complete sheet is ${sprite * 4}×${sprite * 3} logical pixels`);
     for (const [preset, ratio] of [["consistent-sequence", "1:1"], ["prop", "4:3"], ["multi-angle", "1:1"]] as const) {
-      const workflow = createPixelAssetWorkflowNodes(preset, level, [reference]);
+      const workflow = createPixelAssetWorkflowNodes(preset, [reference]);
       expect(workflow.nodes[0]).toMatchObject({ data: { aspectRatio: ratio } });
     }
   });
 
   it("simplifies each classic asset by function without losing animation, tile, or reskin contracts", () => {
-    const prompt = (preset: Parameters<typeof canvasImagePresetPrompt>[0]) => canvasImagePresetPrompt(preset, "silver mage $& $'", "pixel", 2, "classic");
+    const prompt = (preset: Parameters<typeof canvasImagePresetPrompt>[0]) => canvasImagePresetPrompt(preset, "silver mage $& $'", "pixel", 2);
     expect(prompt("character-sheet")).toContain("Close-ups must not reintroduce engraving");
     expect(prompt("portrait")).toContain("without separate iris shading or multiple glints");
     for (const preset of ["monster", "animal"] as const) {
@@ -316,7 +333,7 @@ describe("pixel asset workflows", () => {
       expect(prompt(preset)).not.toContain("Preserve composition");
       expect(prompt(preset)).toContain("TERRAIN DETAIL BUDGET:");
       expect(prompt(preset)).toContain("not a base image to restyle");
-      expect(canvasImagePresetPrompt(preset, "", "pixel", 1, "classic")).toContain("USER REQUEST: Derive the terrain biome");
+      expect(canvasImagePresetPrompt(preset, "", "pixel", 1)).toContain("USER REQUEST: Derive the terrain biome");
     }
     expect(prompt("tileset")).toContain("All cells must have identical square dimensions");
     expect(prompt("multi-angle")).toContain("3-column by 3-row grid");
@@ -333,7 +350,7 @@ describe("pixel asset workflows", () => {
       expect(prompt(preset)).toContain("Merge engraving, gems, reflections");
     }
     for (const action of ["idle", "walk", "run", "attack", "hurt", "down"] as const) {
-      const actionPrompt = actionSheetPrompt(action, "", "classic");
+      const actionPrompt = actionSheetPrompt(action, "");
       expect(actionPrompt).toContain("same detail choices to the supplied subject in every frame");
       expect(actionPrompt).toContain("pelvis horizontal anchor at 50%");
       expect(actionPrompt).toContain("ground baseline at 90%");
@@ -360,18 +377,17 @@ describe("pixel asset workflows", () => {
     const previousLanguage = i18next.language;
     try {
       await i18next.changeLanguage("zh-CN");
-      const workflow = createPixelAssetWorkflowNodes("quick-reskin", "classic", [reference], "skins");
+      const workflow = createPixelAssetWorkflowNodes("quick-reskin", [reference], "skins");
       const output = workflow.nodes.find((node) => node.id === workflow.outputNodeId);
-      expect(output?.type === "image" && output.data.prompt).toBe(withPixelArtLevel(QUICK_RESKIN_DEFAULT_PROMPT, "classic", "sprite", { assetType: "character" }));
-      expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("换装");
-      expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("经典像素");
+      expect(output?.type === "image" && output.data.prompt).toBe(withPixelArtStyle(QUICK_RESKIN_DEFAULT_PROMPT, "sprite", { assetType: "character" }));
+      expect(pixelWorkflowPresets().find((preset) => preset.id === "skins")?.label).toContain("换装");
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }
   });
 
   it("does not assign an incompatible reference model to the two-image reskin flow", () => {
-    const workflow = createPixelAssetWorkflowNodes("quick-reskin", "classic", [textOnly], "skins");
+    const workflow = createPixelAssetWorkflowNodes("quick-reskin", [textOnly], "skins");
     const output = workflow.nodes.find((node) => node.id === workflow.outputNodeId);
     expect(output?.type === "image" && output.data.model).toBeUndefined();
   });

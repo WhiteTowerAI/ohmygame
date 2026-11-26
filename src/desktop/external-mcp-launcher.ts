@@ -79,6 +79,8 @@ export class ExternalMcpLauncher {
   #rootsRequest = 0;
   #connection?: Connection;
   #connecting?: Promise<Connection>;
+  /** An endpoint that refused to connect: a restarting daemon's old one, until a new one is written. */
+  #refused?: string;
   /** Canonical ID returned by a successful explicit selection, independent of the daemon session. */
   #projectId?: string;
 
@@ -297,13 +299,17 @@ export class ExternalMcpLauncher {
         if (cause instanceof UnavailableError || controller.signal.aborted)
           throw cause;
         if (this.#connection === connection) this.#connection = undefined;
+        if (connection && refused(cause)) this.#refused = endpointKey(connection);
         // 401/404 reject the request before execution. Any other failure after
         // dispatch may mean a paid generation or edit already happened.
+        // A refused connection (a daemon that restarted on another port) never
+        // reached it either.
         if (
           dispatched &&
           tool &&
           !READ_ONLY_TOOLS.has(tool) &&
-          !(cause instanceof SessionExpiredError)
+          !(cause instanceof SessionExpiredError) &&
+          !refused(cause)
         )
           throw new Error(
             `OhMyGame's response to ${tool} was lost or failed (${errorMessage(cause)}). Execution status is unknown; the call was not automatically retried. Check the project before starting it again.`,
@@ -349,7 +355,11 @@ export class ExternalMcpLauncher {
               protocolVersion: MCP_PROTOCOL_VERSION,
             },
           },
-        );
+        ).catch((cause: unknown) => {
+          if (refused(cause)) this.#refused = endpointKey(endpoint);
+          throw cause;
+        });
+        this.#refused = undefined;
         const session = response.headers.get("mcp-session-id");
         if (!response.ok || !session)
           throw new Error(
@@ -406,6 +416,8 @@ export class ExternalMcpLauncher {
       ) as ExternalMcpEndpoint;
       if (endpoint.version !== 1 || !endpoint.url || !endpoint.token)
         return undefined;
+      // A restarting daemon's old file, until its replacement writes a new one.
+      if (endpointKey(endpoint) === this.#refused) return undefined;
       // A daemon that crashed leaves its file behind.
       if (!(this.#options.isAlive ?? isAlive)(endpoint.pid)) return undefined;
       return { url: endpoint.url, token: endpoint.token };
@@ -493,6 +505,23 @@ function isAlive(pid: number): boolean {
     // EPERM: the process exists but belongs to someone else.
     return (cause as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+const endpointKey = (endpoint: { url: string; token: string }) =>
+  `${endpoint.token} ${endpoint.url}`;
+
+/** Whether `fetch` failed to connect at all, so nothing was sent. */
+function refused(cause: unknown): boolean {
+  const reason = (cause as { cause?: unknown } | undefined)?.cause as
+    | { code?: unknown; errors?: Array<{ code?: unknown }> }
+    | undefined;
+  // With several addresses for a host, Node reports each refusal in `errors`.
+  return (
+    reason?.code === "ECONNREFUSED" ||
+    (Array.isArray(reason?.errors) &&
+      reason.errors.length > 0 &&
+      reason.errors.every((error) => error?.code === "ECONNREFUSED"))
+  );
 }
 
 function errorMessage(cause: unknown): string {

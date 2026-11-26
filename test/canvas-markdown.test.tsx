@@ -67,6 +67,7 @@ describe("canvas Markdown media lifecycle", () => {
     expect(api.getWorkspaceAsset).toHaveBeenCalledExactlyOnceWith(
       "project-1",
       "canvas/assets/concept.png",
+      expect.any(AbortSignal),
     );
     expect(revokeObjectURL).not.toHaveBeenCalled();
   });
@@ -82,6 +83,10 @@ describe("canvas Markdown media lifecycle", () => {
     expect(container.querySelector("img")).toBe(image);
     expect(api.getWorkspaceAsset).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).not.toHaveBeenCalled();
+    await renderCanvas({ ...canvasDocument, markdown: "# Rules\n\nNew paragraph\n\n![Concept](../assets/concept.png)" });
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:preview-1");
+    expect(api.getWorkspaceAsset).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it("loads a changed image source and releases its previous URL", async () => {
@@ -93,6 +98,7 @@ describe("canvas Markdown media lifecycle", () => {
     expect(api.getWorkspaceAsset).toHaveBeenLastCalledWith(
       "project-1",
       "canvas/assets/revised.png",
+      expect.any(AbortSignal),
     );
     expect(api.getWorkspaceAsset).toHaveBeenCalledTimes(2);
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
@@ -118,11 +124,13 @@ describe("canvas Markdown media lifecycle", () => {
       1,
       "project-1",
       "canvas/documents/rules/concept.png",
+      expect.any(AbortSignal),
     );
     expect(api.getWorkspaceAsset).toHaveBeenNthCalledWith(
       2,
       "project-2",
       "canvas/documents/revised/concept.png",
+      expect.any(AbortSignal),
     );
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       "blob:preview-2",
@@ -226,10 +234,12 @@ describe("Markdown component updates", () => {
     expect(api.getWorkspaceAsset).toHaveBeenCalledWith(
       "project-1",
       "canvas/assets/concept.png",
+      expect.any(AbortSignal),
     );
     expect(api.getWorkspaceAsset).toHaveBeenCalledWith(
       "project-2",
       "canvas/assets/concept.png",
+      expect.any(AbortSignal),
     );
     expect(container.querySelectorAll("img")).toHaveLength(2);
   });
@@ -253,21 +263,29 @@ describe("the design document panel", () => {
     return { toolbar, ...handlers };
   }
 
-  it("reads the main document with its outline, and edits it as Markdown", async () => {
-    const documents = documentsState([lore, rules]);
+  it("reads and edits the main document while keeping its preview image", async () => {
+    const illustrated = { ...rules, markdown: rules.markdown + "\n\n![Map](../assets/map.png)" };
+    const documents = documentsState([lore, illustrated]);
     const { toolbar } = await renderPanel(documents);
+    const image = container.querySelector('img[alt="Map"]');
+    expect(image).not.toBeNull();
     expect(toolbar.querySelector(".design-doc-picker")?.textContent).toBe("Rules");
     expect([...container.querySelectorAll(".design-doc-outline-item")].map((item) => `${item.className.includes("is-h3") ? "  " : ""}${item.textContent}`))
       .toEqual(["Combat", "  Cards", "Map"]);
     await act(async () => [...toolbar.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Edit")!.click());
     const source = container.querySelector<HTMLTextAreaElement>(".design-doc-source")!;
-    expect(source.value).toBe(rules.markdown);
+    expect(source.value).toBe(illustrated.markdown);
+    expect(image?.closest(".design-doc-page")).toHaveProperty("hidden", true);
     expect(container.querySelector(".design-doc-outline")).toBeNull();
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(source, "# Rules\n\nNew");
       source.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(documents.update).toHaveBeenCalledWith("rules", { markdown: "# Rules\n\nNew" });
+    await act(async () => [...toolbar.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Split")!.click());
+    expect(container.querySelector('img[alt="Map"]')).toBe(image);
+    expect(image?.closest(".design-doc-page")).toHaveProperty("hidden", false);
+    expect(api.getWorkspaceAsset).toHaveBeenCalledOnce();
   });
 
   it("references the document in the next message, and stops", async () => {

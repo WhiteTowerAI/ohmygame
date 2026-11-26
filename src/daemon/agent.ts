@@ -521,7 +521,11 @@ interface PendingApproval {
   removeAbortListener?: () => void;
 }
 
+export type DeliverQuestionnaireAnswers = (answers: QuestionnaireAnswer[]) => Promise<void>;
+
 interface PendingQuestionnaire {
+  deliver?: DeliverQuestionnaireAnswers;
+  delivering?: boolean;
   timer?: ReturnType<typeof setTimeout>;
   persist: boolean;
   item: Extract<ThreadItem, { type: "userInputRequest" }>;
@@ -1390,7 +1394,7 @@ export class AgentManager {
     toolCallId: string,
     input: QuestionnaireInput,
     signal?: AbortSignal,
-    options: { persist?: boolean; allowAutomatic?: boolean } = {},
+    options: { persist?: boolean; allowAutomatic?: boolean; deliver?: DeliverQuestionnaireAnswers } = {},
   ): Promise<QuestionnaireResult> {
     const key = conversationKey(projectId, conversationId);
     const active = this.#activeTurns.get(key);
@@ -1419,7 +1423,7 @@ export class AgentManager {
       })),
     };
     return new Promise<QuestionnaireResult>((resolve, reject) => {
-      const pending: PendingQuestionnaire = { item, resolve, reject, persist: options.persist === true };
+      const pending: PendingQuestionnaire = { item, resolve, reject, persist: options.persist === true, deliver: options.deliver };
       if (signal) {
         const abort = () => {
           if (pendingForConversation.get(requestId) !== pending) return;
@@ -1464,21 +1468,31 @@ export class AgentManager {
     }
   }
 
-  answerQuestionnaire(
+  async answerQuestionnaire(
     projectId: string,
     conversationId: string,
     requestId: string,
     answers: QuestionnaireResponse[] = [],
     cancelled = false,
-  ): void {
+  ): Promise<void> {
     const key = conversationKey(projectId, conversationId);
     const pending = this.#questionnaires.get(key)?.get(requestId);
     const active = this.#activeTurns.get(key);
     if (!pending || !active) throw new Error("Questionnaire is no longer active");
+    if (pending.delivering) throw new Error("The answer is being sent");
     // Validate before releasing the waiter: an invalid reply leaves the question answerable.
     const result: QuestionnaireResult = {
       cancelled, answers: cancelled ? [] : questionnaireAnswers(pending.item.questions, answers),
     };
+    if (!cancelled && pending.deliver) {
+      pending.delivering = true;
+      try {
+        await pending.deliver(result.answers);
+      } finally {
+        pending.delivering = false;
+      }
+      if (this.#questionnaires.get(key)?.get(requestId) !== pending) throw new Error("Questionnaire is no longer active");
+    }
     this.#finishQuestionnaire(projectId, active, pending, result);
   }
 

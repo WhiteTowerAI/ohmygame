@@ -1,0 +1,133 @@
+{
+  "src/renderer/app-sidebar.css": {
+    "fontSize": 5,
+    "radius": 5,
+    "zIndex": 1
+  },
+  "src/renderer/browser-panel.css": {
+    "fontSize": 1,
+    "fontWeight": 2
+  },
+  "src/renderer/canvas-notice.css": {
+    "zIndex": 1
+  },
+  "src/renderer/community.css": {
+    "color": 2,
+    "fontSize": 4,
+    "radius": 1,
+    "zIndex": 4
+  },
+  "src/renderer/design-document-panel.css": {
+    "fontSize": 2,
+    "shadow": 3,
+    "zIndex": 1
+  },
+  "src/renderer/floating-chat.css": {
+    "radius": 2,
+    "shadow": 1,
+    "zIndex": 1
+  },
+  "src/renderer/game-design.css": {
+    "color": 1,
+    "fontSize": 8,
+    "fontWeight": 4,
+    "radius": 10,
+    "shadow": 3,
+    "zIndex": 10
+  },
+  "src/renderer/home.css": {
+    "fontSize": 1,
+    "radius": 2
+  },
+  "src/renderer/library.css": {
+    "shadow": 1,
+    "zIndex": 1
+  },
+  "src/renderer/model-selector.css": {
+    "radius": 1,
+    "zIndex": 1
+  },
+  "src/renderer/onboarding.css": {
+    "color": 4,
+    "fontSize": 13,
+    "fontWeight": 4,
+    "radius": 4,
+    "shadow": 3,
+    "zIndex": 1
+  },
+  "src/renderer/panel-layout.css": {
+    "radius": 4,
+    "shadow": 1,
+    "zIndex": 3
+  },
+  "src/renderer/playable-player.css": {
+    "color": 9,
+    "fontSize": 2
+  },
+  "src/renderer/plugin-builder.css": {
+    "radius": 1
+  },
+  "src/renderer/plugins.css": {
+    "fontSize": 1,
+    "fontWeight": 2,
+    "radius": 1
+  },
+  "src/renderer/project-card.css": {
+    "color": 4,
+    "radius": 2,
+    "shadow": 1
+  },
+  "src/renderer/project-create-dialog.css": {
+    "shadow": 1
+  },
+  "src/renderer/project-frame.css": {
+    "radius": 1
+  },
+  "src/renderer/projects.css": {
+    "radius": 2,
+    "zIndex": 2
+  },
+  "src/renderer/runtime-recovery.css": {
+    "color": 1,
+    "fontSize": 7,
+    "radius": 3,
+    "shadow": 1,
+    "zIndex": 3
+  },
+  "src/renderer/settings.css": {
+    "fontSize": 2,
+    "radius": 8,
+    "shadow": 13
+  },
+  "src/renderer/styles.css": {
+    "color": 200,
+    "fontSize": 356,
+    "fontWeight": 132,
+    "radius": 236,
+    "shadow": 35,
+    "zIndex": 73
+  },
+  "src/renderer/ui/chip.css": {
+    "shadow": 1
+  },
+  "src/renderer/ui/display.css": {
+    "color": 1,
+    "fontSize": 1,
+    "radius": 2,
+    "shadow": 2
+  },
+  "src/renderer/ui/form.css": {
+    "color": 1,
+    "radius": 3,
+    "shadow": 13
+  },
+  "src/renderer/ui/media.css": {
+    "shadow": 1
+  },
+  "src/renderer/ui/overlay.css": {
+    "color": 1,
+    "radius": 2,
+    "shadow": 2,
+    "zIndex": 5
+  }
+}

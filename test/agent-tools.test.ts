@@ -49,6 +49,9 @@ describe("agent tools", () => {
     expect(ask).toHaveBeenCalledWith("question", { questions: [{ ...question, allowOther: true }] }, signal);
     expect(output.details).toEqual({ cancelled: false, answers: [answer] });
     expect(output.content).toEqual([{ type: "text", text: "platform: Mobile" }]);
+    ask.mockResolvedValueOnce({ cancelled: true, answers: [] });
+    const skipped = await tool.execute("skip", input, signal, undefined, {} as never);
+    expect(skipped.content).toEqual([{ type: "text", text: "The user skipped these questions." }]);
   });
 
   it("maps enabled product tools to Pi tool names", () => {
@@ -140,15 +143,16 @@ describe("agent tools", () => {
     const configure = vi.fn();
     const toolsFor = (target = project) => createAgentTools(target, runner, projects, undefined, undefined, undefined, undefined, undefined, configure);
     const before = await listWorkspaceFiles(project.workspacePath);
-    const registered = toolsFor().map(({ name }) => name);
+    const projectTools = toolsFor();
+    const registered = projectTools.map(({ name }) => name);
     for (const mode of ["normal", "planning"] as const) expect(projectPiToolNames(mode, [], registered)).toContain("project_guide");
-    const bridge = new ToolBridge(toolsFor());
+    const bridge = new ToolBridge(projectTools);
     bridge.setActive(projectPiToolNames("planning", [], registered));
     expect(bridge.list().map(({ name }) => name)).toContain("project_guide");
     expect(await bridge.call("project_guide", { topic: "plugins" }, "guide")).toMatchObject({ isError: false });
     expect(await bridge.call("project_guide", { topic: "panels" }, "guide")).toMatchObject({ isError: true });
     expect(await bridge.call("project_guide", { topic: "unknown" }, "guide")).toMatchObject({ isError: true });
-    const guide = toolsFor().find(({ name }) => name === "project_guide")!;
+    const guide = projectTools.find(({ name }) => name === "project_guide")!;
     for (const topic of ["plugins", "scene-media"] as const) {
       const type = topic === "plugins" ? "general" : "interactive-story";
       expect(appendSystemPromptForProject({ type }).join("\n")).toContain(`topic "${topic}"`);
@@ -175,6 +179,9 @@ describe("agent tools", () => {
     }
     expect(appendSystemPromptForProject({ type: "plugin" }).join("\n")).not.toContain("fork_plugin");
     expect(await listWorkspaceFiles(project.workspacePath)).toEqual(before);
+    const sdkSetup = projectTools.find(({ name }) => name === "game_sdk_setup");
+    expect(sdkSetup?.description).toContain("src/ohmygame");
+    expect(sdkSetup?.description).toContain("public/manifest.json");
     for (const webPreviewEnabled of [false, true]) {
       const names = toolsFor({ ...project, webPreviewEnabled }).map(({ name }) => name);
       expect(names).toContain("game_sdk_setup");
@@ -295,7 +302,7 @@ describe("agent tools", () => {
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Its manifest is .ohmygame/plugins/acme/tiles/.ohmygame-plugin/plugin.json.") }]);
   });
 
-  it("generates an image into the current project workspace", async () => {
+  it.each([["image/webp", "webp"], ["image/gif", "gif"]] as const)("generates an image into the current project workspace (%s)", async (mediaType, extension) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
@@ -304,7 +311,7 @@ describe("agent tools", () => {
     const imageGenerator: ImageGenerator = {
       generate: async (_input, signal) => {
         expect(signal).toBe(controller.signal);
-        return { bytes: Buffer.from("generated image"), mediaType: "image/webp" };
+        return { bytes: Buffer.from("generated image"), mediaType };
       },
     };
     const runner = new ToolRunner(dataDirectory, imageGenerator);
@@ -317,8 +324,8 @@ describe("agent tools", () => {
     const relativePath = text.replace("Generated image saved to ", "");
 
     expect(tool.name).toBe("generate_image");
-    expect(relativePath).toMatch(/^\.ohmygame\/media\/generated\/image-[0-9a-f-]+\.webp$/);
-    expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
+    expect(relativePath).toMatch(new RegExp(`^\\.ohmygame/media/generated/image-[0-9a-f-]+\\.${extension}$`));
+    expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });

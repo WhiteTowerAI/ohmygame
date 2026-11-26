@@ -127,7 +127,7 @@ beforeEach(async () => {
   const canvas = createAssetCanvasDocument();
   canvas.nodes = [
     { id: "first", type: "asset" as const, position: { x: 0, y: 0 }, data: { assetId: "first", mediaType: "image" as const } },
-    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [], pixelStyle: "classic" as const } },
+    { id: "second", type: "image" as const, position: { x: 600, y: 300 }, data: { assetId: "second", presetId: "tileset" as const, prompt: "second", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [] } },
   ];
   canvas.editorLayout.nodes = Object.fromEntries(
     canvas.nodes.map((node) => [node.id, node.position]),
@@ -324,11 +324,9 @@ it("runs pixel-art fixing immediately and creates a derived asset", async () => 
   await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b", operation: "fix-pixel-art", assetIds: ["first"], options: {},
   }));
-  // A finished action reports what it made, not that it failed.
-  const notice = await vi.waitFor(() => container.querySelector<HTMLElement>(".story-save-notice")!);
-  expect(notice.textContent).toContain("Created pixel-art-fixed.png");
-  expect(notice.textContent).not.toContain("Could not complete this action.");
-  expect(notice.getAttribute("role")).toBe("status");
+  // What it made shows on the board, with no notice on top of it.
+  await vi.waitFor(() => expect(captured.props?.nodes.some((node) => node.data.assetId === "fixed")).toBe(true));
+  expect(container.querySelector(".canvas-notice")).toBeNull();
 });
 
 it("checks pixel art without creating nodes and lists failed rules", async () => {
@@ -344,6 +342,25 @@ it("checks pixel art without creating nodes and lists failed rules", async () =>
   expect(dialog.textContent).toContain("1 image has failed checks.");
   expect(dialog.querySelector("tr.is-fail")!.textContent).toContain("Colors");
   expect(captured.props!.nodes).toHaveLength(2);
+});
+
+it.each([
+  { selected: "first", pixelStyle: undefined, options: {} },
+  { selected: "second", pixelStyle: "coarse" as const, options: { colors: 8 } },
+  { selected: "second", pixelStyle: "detailed" as const, options: { colors: 48 } },
+])("checks $selected with the relevant saved palette $pixelStyle", async ({ selected, pixelStyle, options }) => {
+  if (pixelStyle) {
+    const image = captured.props!.nodes.find((node) => node.id === selected)!;
+    await act(async () => captured.props!.onNodesChange!([
+      { type: "replace", id: selected, item: { ...image, data: { ...image.data, pixelStyle } } },
+    ]));
+  }
+  runMedia.mockResolvedValue({ kind: "pixel-check", checks: { reports: [] } });
+  await select(selected);
+  await chooseTool("Image tools", "Check pixel art");
+  await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b", operation: "check-pixel-art", assetIds: [selected], options,
+  }));
 });
 
 it("shows a direct pixel-art processing error", async () => {

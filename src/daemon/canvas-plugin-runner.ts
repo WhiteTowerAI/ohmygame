@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { canvasNodeInputs, canvasNodeParams } from "../shared/canvas-plugin-nodes.js";
+import { canvasNodeInputs, pluginParams } from "../shared/canvas-plugin-nodes.js";
 import { mediaFileInfo } from "../shared/media-files.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { CanvasError } from "./canvas-files.js";
@@ -31,7 +31,7 @@ export function canvasPluginRunner(options: { native: NativePlugins; library: As
           prepare: async (definition, entry) => {
             const title = (text: string) => localizePluginString(entry, text, "en");
             try {
-              return { params: canvasNodeParams(definition, request.params, title), inputs: canvasNodeInputs(definition, request.inputs, title), output: folder };
+              return { params: pluginParams(definition.params, request.params, title), inputs: canvasNodeInputs(definition, request.inputs, title), output: folder };
             } catch (cause) {
               throw new CanvasError(cause instanceof Error ? cause.message : String(cause), 400);
             }

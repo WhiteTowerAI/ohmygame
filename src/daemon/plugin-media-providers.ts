@@ -5,7 +5,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, type AudioGenerationRequest, type AudioModel, type AudioOutputFormat, type AudioTranscription, type AudioTranscriptionRequest, type AudioVoice, type AudioVoicePage, type GeneratedAudio } from "../shared/audio.js";
-import type { BackgroundRemovalModel, ImageModelRef, ImageModel, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
+import type { BackgroundRemovalModel, ImageModelRef, ImageModel, MediaProviderStatus, Model3DModel, Model3DOptions, Model3DAnimationAction, Model3DBalance, PromptImage, VideoModel, VideoReferenceMode } from "../shared/contracts.js";
 import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { mergeAnimationClips } from "./merge-animations.js";
@@ -21,7 +21,8 @@ import { applyBackgroundAlpha, BACKGROUND_IMAGE_MAX_BYTES, prepareBackgroundImag
 import { GenerationShutdown, MediaTaskBusyError, MEDIA_TASK_FILE_MAX_BYTES, type MediaTaskJournal, type MediaTaskStart } from "./media-task-journal.js";
 import { MediaTaskReuse } from "./media-task-reuse.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerationRecovery } from "./openai-image.js";
-import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
+import { pluginParams, pluginParamViews } from "../shared/canvas-plugin-nodes.js";
 import { MediaInputFiles } from "./plugin-media-files.js";
 import { composeGif, withMediaTask } from "./media-tools.js";
 import { PluginMediaModelChoiceError, PluginMediaModelChoices, type PluginMediaModelChoice } from "./plugin-media-models.js";
@@ -104,6 +105,24 @@ function audioFormat(audio: { codec: string; mime: string }): AudioOutputFormat 
 }
 
 /** A model's `data`, given back to the adapter. */
+/**
+ * The settings an image model's adapter gets: each one it declares, with its
+ * default where the request gave none. A value it doesn't declare, or one
+ * that doesn't fit, is refused rather than dropped, so a caller learns its
+ * request wasn't what ran.
+ */
+function imageModelParams(entry: PluginIndexEntry, model: PluginMediaModels["image"] | undefined, values: Record<string, string | number | boolean> | undefined): Record<string, string | number | boolean> | undefined {
+  const declared = model?.params ?? {};
+  const unknown = Object.keys(values ?? {}).filter((key) => !Object.hasOwn(declared, key));
+  if (unknown.length) {
+    const known = Object.keys(declared);
+    throw new ImageGenerationError(`${model?.id ?? "This model"} has no setting ${unknown.join(", ")}. ${known.length ? `Its settings are ${known.join(", ")}.` : "It has no settings."}`, 400);
+  }
+  if (!Object.keys(declared).length) return undefined;
+  try { return pluginParams(declared, values ?? {}, (title) => localizePluginString(entry, title, "en")); }
+  catch (cause) { throw new ImageGenerationError(cause instanceof Error ? cause.message : String(cause), 400); }
+}
+
 function modelData(model: { data?: Record<string, unknown> } | undefined): { modelData?: Record<string, unknown> } {
   return model?.data ? { modelData: model.data } : {};
 }
@@ -167,10 +186,26 @@ export class PluginMediaProviders {
     return providers;
   }
 
-  /** The image models of each provider that makes images, as the image catalog lists them. */
-  async imageProviders(): Promise<Array<{ id: string; name: string; models: ImageModel[] }>> {
+  /**
+   * The providers of `kind` whose API key hasn't been set, which list no
+   * models, as a model menu's status saying what to set up.
+   */
+  async waitingForKey(kind: PluginMediaKind): Promise<MediaProviderStatus[]> {
+    const waiting: MediaProviderStatus[] = [];
+    for (const entry of await this.services.everyProject()) {
+      for (const provider of entry.manifest.contributes?.providers ?? []) {
+        if (!provider.media?.[kind] || !provider.apiKey || this.services.values.secret(entry, provider.apiKey) !== undefined) continue;
+        waiting.push({ provider: pluginModelProviderId(entry.id, provider.id), providerName: localizePluginString(entry, provider.title, "en"), state: "empty", setup: "api-key", message: "Add its API key in Providers." });
+      }
+    }
+    return waiting;
+  }
+
+  /** The image models of each provider that makes images, as the image catalog lists them, in `locale`. */
+  async imageProviders(locale: PluginLocale = "en"): Promise<Array<{ id: string; name: string; models: ImageModel[] }>> {
     return Promise.all((await this.providers()).filter((item) => item.media.image).map(async (item) => {
       const name = this.#name(item);
+      const text = (value: string) => localizePluginString(item.entry, value, locale);
       return {
         id: item.id,
         name,
@@ -178,7 +213,7 @@ export class PluginMediaProviders {
           provider: item.id,
           providerName: name,
           id: model.id,
-          name: model.title ? localizePluginString(item.entry, model.title, "en") : model.id,
+          name: model.title ? text(model.title) : model.id,
           protocol: "plugin",
           sizes: [],
           generationOptions: model.supportsResolution === false && model.supportsAspectRatio === false ? [] : (model.resolutions.length ? model.resolutions : ["1K" as const]).flatMap((resolution) => (model.aspectRatios.length ? model.aspectRatios : ["1:1" as const]).map((aspectRatio) => ({ resolution, aspectRatio }))),
@@ -188,6 +223,8 @@ export class PluginMediaProviders {
           maxReferenceImages: model.maxReferenceImages ?? 0,
           ...(model.minReferenceImages ? { minReferenceImages: model.minReferenceImages } : {}),
           ...(model.promptOptionalWithReference ? { promptOptionalWithReference: true } : {}),
+          ...(model.params && Object.keys(model.params).length ? { params: pluginParamViews(model.params, text) } : {}),
+          ...(model.referenceImageLabels ? { referenceImageLabels: model.referenceImageLabels.map(text) } : {}),
           maxOutputs: 1,
         })),
       };
@@ -722,9 +759,11 @@ export class PluginMediaProviders {
     if (recoverable && !recovery) throw new ImageGenerationError("This provider requires a durable image job", 409);
     if (recoverable && (recovery!.outputs ?? 1) !== 1) throw new ImageGenerationError("Recoverable images take one output per generation", 400);
     const declared = (await this.#models(item, "image")).find((candidate) => candidate.id === model.id);
+    const params = imageModelParams(item.entry, declared, input.params);
     return this.#produce(item, "image", {
       model: model.id,
       prompt: input.prompt,
+      ...(params ? { params } : {}),
       ...(declared?.supportsResolution !== false && input.resolution ? { resolution: input.resolution } : {}),
       ...(declared?.supportsAspectRatio !== false && input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
       ...(input.transparentBackground ? { transparentBackground: true } : {}),

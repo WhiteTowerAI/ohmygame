@@ -452,17 +452,21 @@ export interface ProjectCanvasNode {
   title: string;
   description?: string;
   inputs: Array<{ id: string; title: string; accepts: CanvasNodeMedia; multiple?: boolean; optional?: boolean }>;
-  params: Array<{
-    key: string;
-    type: "text" | "number" | "boolean" | "select";
-    title: string;
-    description?: string;
-    default?: string | number | boolean;
-    options?: string[];
-    minimum?: number;
-    maximum?: number;
-  }>;
+  params: PluginParamView[];
   output: CanvasNodeMedia;
+}
+
+/** A setting of a plugin's canvas node or media model, in the asked language. */
+export interface PluginParamView {
+  key: string;
+  type: "text" | "number" | "boolean" | "select";
+  title: string;
+  description?: string;
+  default?: string | number | boolean;
+  /** A select's choices: the value sent, and the title shown. */
+  options?: Array<{ value: string; title: string }>;
+  minimum?: number;
+  maximum?: number;
 }
 export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
 
@@ -480,6 +484,8 @@ export interface ProjectCanvasPreset {
   pluginName: string;
   title: string;
   description?: string;
+  /** The plugin gives a picture of what it makes (GET …/plugin-canvas/presets/:publisher/:name/:preset/preview). */
+  preview?: true;
 }
 
 /** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */

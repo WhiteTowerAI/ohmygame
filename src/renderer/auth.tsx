@@ -1,4 +1,4 @@
-import type { User } from "@supabase/supabase-js";
+import { isAuthRetryableFetchError, type User } from "@supabase/supabase-js";
 import { createSupabaseClient } from "./auth-client.js";
 export { createSupabaseClient } from "./auth-client.js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -40,7 +40,7 @@ export const localDebug = isLocalDebugEnabled(
 const LOCAL_SESSION_KEY = "ohmygame-local-debug-session";
 
 interface AuthClient {
-  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
+  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signInWithOtp" | "signOut" | "verifyOtp">;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -127,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setDialogOpen(true);
           setPendingProvider(undefined);
           setOAuthBrowserOpen(false);
-          setError(errorMessage(callbackError));
+          setError(signInErrorMessage(callbackError));
         }
       }
     };
@@ -228,9 +228,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (signInError) {
       await window.ohMyGameDesktop?.auth.cancel().catch(() => undefined);
-      setError(errorMessage(signInError));
+      setError(signInErrorMessage(signInError));
       setPendingProvider(undefined);
       setOAuthBrowserOpen(false);
+    }
+  }
+
+  async function sendEmailSignInCode(email: string): Promise<boolean> {
+    if (!supabase) {
+      setError("Supabase Auth is not configured.");
+      return false;
+    }
+    setError(undefined);
+    try {
+      await sendEmailCode(supabase, email);
+      return true;
+    } catch (sendError) {
+      setError(signInErrorMessage(sendError));
+      return false;
+    }
+  }
+
+  async function verifyEmailSignInCode(email: string, code: string): Promise<void> {
+    if (!supabase) {
+      setError("Supabase Auth is not configured.");
+      return;
+    }
+    setError(undefined);
+    try {
+      await verifyEmailCode(supabase, email, code);
+      const accessToken = await getAccessToken(supabase);
+      if (!accessToken) throw new Error("Sign-in did not create a session");
+      settleAccessTokenRequest(accessToken);
+      setDialogOpen(false);
+    } catch (verifyError) {
+      setError(signInErrorMessage(verifyError));
     }
   }
 
@@ -252,6 +284,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setOAuthBrowserOpen(false);
           }}
           onSignIn={(provider) => void signIn(provider)}
+          onSendEmailCode={sendEmailSignInCode}
+          onVerifyEmailCode={verifyEmailSignInCode}
         />
       ) : null}
     </AuthContext.Provider>
@@ -315,6 +349,18 @@ export async function createOAuthAuthorizationUrl(
   return data.url;
 }
 
+/** Emails a one-time sign-in code; the first code for an address creates its account. */
+export async function sendEmailCode(client: AuthClient, email: string): Promise<void> {
+  const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  if (error) throw error;
+}
+
+export async function verifyEmailCode(client: AuthClient, email: string, code: string): Promise<void> {
+  const { data, error } = await client.auth.verifyOtp({ email, token: code, type: "email" });
+  if (error) throw error;
+  if (!data.session) throw new Error("Sign-in did not create a session");
+}
+
 export async function exchangeDesktopCallback(client: AuthClient, callback: string): Promise<void> {
   const url = new URL(callback);
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.pathname.startsWith("/auth/callback/")) {
@@ -344,4 +390,9 @@ function stringValue(value: unknown): string | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Supabase reports a request that never reached the server with the browser's bare message. */
+export function signInErrorMessage(error: unknown): string {
+  return isAuthRetryableFetchError(error) ? t("auth.network") : errorMessage(error);
 }

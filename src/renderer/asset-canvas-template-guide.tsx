@@ -5,6 +5,7 @@ export function PixelAssetTemplateGuide({ category }: { category: PixelAssetTemp
   return <div className="asset-template-guide-content pixel-template-guide-content nodrag nowheel">
     <p className="asset-template-guide-instruction">{t(`assetCanvas.pixelPresets.templateDescriptions.${category}`)}</p>
     <p className="asset-template-guide-instruction">{t("assetCanvas.pixelPresets.introduction")}</p>
+    <p className="asset-template-guide-instruction">{t("assetCanvas.pixelPresets.modelRecommendation")}</p>
     <dl className="pixel-template-guide-uses">
       {pixelAssetTemplatePresetIds(category).map((id) => <div key={id}>
         <dt>{pixelAssetPresetLabel(id)}</dt>

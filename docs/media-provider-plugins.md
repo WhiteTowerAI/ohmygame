@@ -337,6 +337,23 @@ plugin API. Every kind's input also has `modelData` when the model has
   downloaded image, and composes the frames into a GIF under the media-task
   queue. Models without this flag retain normal single-image behavior even if
   an adapter returns multiple outputs.
+  API 2.38 adds two image model fields. `params` declares up to 16 settings of
+  the model's own, such as a camera view or a direction count, in the same
+  form as a [canvas node's settings](plugins.md#canvas-nodes): `text`,
+  `number` (with `minimum`/`maximum`), `boolean` or `select`, each with an
+  optional `default`. A select's option is its value, or `{ value, title }` to
+  show a title, such as `{ "value": "low top-down", "title": "%view.low%" }`.
+  The Image node shows choices next to the model and text or numbers as fields,
+  and saves only what the person changed (`data.modelParams`); the agent
+  passes `params` to `generate_image`, and `inspect_media_models` lists them.
+  The adapter gets `params` with every setting the model declares, defaults
+  filled in. The app refuses a request with a setting the model doesn't
+  declare or a value that doesn't fit, before the adapter runs; a model
+  without `params` gets none. `referenceImageLabels` (1–16 titles, at most
+  `maxReferenceImages`) says what each reference picture is for, in order,
+  such as `["%start%", "%end%"]`; the node shows them on its reference slots.
+  Titles take `%key%` locale strings, and the catalog lists them in the app's
+  language.
 - **Video:** `model`, `prompt`, `duration` (seconds), `resolution` and
   `aspectRatio` (one of the model's each), `references` (`[{ mediaType,
   base64 }]`, pictures only), and `referenceMode` when there are references:
@@ -1070,7 +1087,7 @@ bun run inspect:media-migrations --data-dir /absolute/path/to/copied-app-data \
 ```
 
 This offline command combines the existing MiniMax, Seedance, ElevenLabs,
-Doubao, Meshy and Tripo settings rehearsals. It makes no vendor requests,
+Doubao, Meshy, Tripo and own-key Hyper3D settings rehearsals. It makes no vendor requests,
 installs nothing, and does not activate migrations or release anything.
 Rehearsals write only disposable settings copies and check reload, idempotency,
 rollback and cleanup. Source settings and migration-record bytes are compared
@@ -1080,7 +1097,7 @@ can detect changes but does not lock out a running app.
 A validated committed receipt reports `committed` without proposing to copy the
 old key/defaults again. This verifies historical ownership, not current plugin
 installation or account health. An interrupted transaction or invalid committed
-receipt, including a Hyper3D preparation record, blocks all settings rehearsals
+receipt blocks all settings rehearsals
 because providers share configuration files. The command never repairs or deletes
 these records; resolve recovery through the owning app before taking another copy.
 Other provider-specific failures do not hide independent results. Missing or
@@ -1631,11 +1648,9 @@ compatibility window for profiles whose migration has not committed.
 
 ### 3D Beta package preparation
 
-The reviewed optional Beta packages are Meshy 0.1.2 and Tripo 0.1.1.
-They require API 2.16. The npm archive checksum for Meshy, GitHub release
-ZIP checksum for Tripo and both indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
-Preparation verifies the archives into `.runtime/meshy-migration-packages/` and
-`.runtime/tripo-migration-packages/` for integration tests. These fixtures are
+The reviewed optional Beta packages are Meshy 0.1.2, Tripo 0.1.1 and Hyper3D 0.1.0.
+They require API 2.16. The archive checksums and indexed package digests are pinned in `src/daemon/model3d-migration-package.ts`.
+Preparation verifies the archives into provider-specific directories under `.runtime/` for integration tests. These fixtures are
 not shipped or added to the preinstalled index.
 
 The read-only package preflight requires one reviewed, managed package from npm or an official market release,
@@ -1644,7 +1659,7 @@ every-project enablement. It never installs, enables or changes settings.
 Meshy 0.1.2 requires the additional `cdn.meshy.ai` grant for animation previews.
 Meshy 0.1.1 installations defer migration until the user updates and approves the new host.
 If projects retain two installed versions, migration defers until a single version is in use.
-Hyper3D has no reviewed migration package yet.
+Hyper3D requires grants for `api.hyper3d.com` and `file.hyper3d.com`.
 
 Startup rolls back any interrupted Meshy, Tripo or Hyper3D settings transaction
 before MiniMax or Seedance can write the shared plugin configuration or model
@@ -1660,11 +1675,11 @@ only after the support window for its first startup cutover release has also
 passed, remaining native settings have an upgrade path, and outstanding paid
 tasks are accounted for.
 
-Startup migrates Meshy and Tripo independently after the audio providers. Tripo
+Startup migrates Meshy, Tripo and own-key Hyper3D independently after the audio providers. Tripo
 0.1.0 defers until the user updates to 0.1.1 and grants the result host
 `openapi-dl.data.tripo3d.com`. A committed
 transaction moves future selections and enables native recovery for existing tasks.
-Deferred profiles and own-key Hyper3D continue to use their native connections.
+Deferred profiles continue to use their native connections.
 Existing native task journals must retain their original provider and paid
 stage IDs, even after new requests move to a plugin. Free-cloud Hyper3D is
 independent from the own-key connection.
@@ -1687,6 +1702,7 @@ directory to a private folder. Rehearse one provider at a time:
 ```bash
 bun run rehearse:3d-migration --provider meshy --data-dir /absolute/path/to/copied-app-data
 bun run rehearse:3d-migration --provider tripo --data-dir /absolute/path/to/copied-app-data
+bun run rehearse:3d-migration --provider hyper3d --data-dir /absolute/path/to/copied-app-data
 ```
 
 The command uses the reviewed package fixture and changes only a temporary
@@ -1728,7 +1744,7 @@ paths are not activated by the rehearsal.
 
 The shared migration state accepts reviewed per-provider model IDs, generation
 operations and processing connections after a settings transaction commits.
-Startup passes only committed Meshy and Tripo records to the application.
+Startup passes only committed 3D migration records to the application.
 
 With that committed state, project 3D defaults and future canvas selections move
 to the matching plugin. Known custom versions retain their IDs. Generation nodes
@@ -1813,8 +1829,6 @@ they are never rewritten as new plugin submissions. The standalone HTTP job
 schema preserves 3D operation, source asset and advanced options, with their
 strict operation-specific validation still owned by ToolRunner.
 
-Own-key Hyper3D has no reviewed release and remains outside startup activation.
-
 ### ElevenLabs model references
 
 The `elevenlabs` migration flag maps the six reviewed generation model
@@ -1861,17 +1875,10 @@ well as generation. Disabling or removing it cannot re-enable native fallback.
 
 ### Doubao Beta package verification
 
-`@ohmygame/doubao-voice@0.1.0` was published from
-[official plugins #26](https://github.com/WhiteTowerAI/ohmygame-plugins/pull/26).
-The npm registry signature (with a key valid at verification), tarball SHA-512,
-all nine packaged files against reviewed source, and the host package digest
-were verified. The package requires API 2.25 and declares `beta: true`. Its market
-record, index checksum and served logo match the actual release. The workflow
-published provenance; local verification checks the registry signature, not the
-SLSA bundle itself.
-
-`DOUBAO_MIGRATION_PACKAGES` pins those published bytes for disposable integration
-fixtures. It does not add a preinstalled plugin. The read-only package gate
+The official Doubao Voice 0.1.1 release requires API 2.38 and handles both
+streaming speech and successful Seed Audio responses with no status field.
+The migration fixture pins its release ZIP and indexed package digest.
+Version 0.1.0 keeps native ownership until the user updates. The read-only package gate
 requires a matching managed installation from npm or an official market release, current verified index metadata
 and existing app-wide permission grants. Changed files, unreviewed versions,
 disabled/project-only installs and missing grants hold migration; the gate does
@@ -1880,7 +1887,7 @@ not install, enable, grant or write settings. Profiles with a deferred migration
 ### Doubao / Volcengine settings inspection
 
 The optional `ohmygame/doubao-voice` Beta combines speech synthesis and Seed Audio
-under one API key and requires host API 2.25. Unmigrated profiles retain native services.
+under one API key and requires host API 2.38. Unmigrated profiles retain native services.
 
 ```sh
 bun run inspect:doubao-migration --data-dir /path/to/copied-app-data
@@ -1971,9 +1978,8 @@ credentials the user removed from the plugin.
 
 Startup recovers an interrupted Doubao transaction before any new shared settings
 migration, including in safe mode. An invalid receipt stops startup before those
-writes. Startup honors previously committed records. New migrations wait for a
-reviewed Doubao package that decodes successful Seed Audio responses without a
-status field. Doubao 0.1.0 requires that field and leaves new profiles on native audio.
+writes. Startup honors existing commits and runs the Doubao migration after ElevenLabs
+when the reviewed 0.1.1 package and existing grants match.
 
 ### Doubao application ownership
 

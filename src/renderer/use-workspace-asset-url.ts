@@ -2,6 +2,8 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "../shared/canvas-assets.js";
 import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
 import { t } from "./i18n.js";
+import { useImagePreview } from "./image-preview.js";
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
 export interface LocalCanvasAsset { projectId: string; path: string; name: string; revision: number; size?: number; error?: string }
 export function canvasAssetSources(projectId: string, assets: readonly CanvasAssetCatalogEntry[], unavailable: readonly UnavailableCanvasAsset[] = []): ReadonlyMap<string, LocalCanvasAsset> {
@@ -19,17 +21,33 @@ export function CanvasAssetProvider({ assets, children }: { assets: ReadonlyMap<
   return createElement(CanvasAssets.Provider, { value }, children);
 }
 
+function useWorkspaceAssetSource(projectId: string | undefined, filePath: string, libraryAssetId?: string) {
+  const assets = useContext(CanvasAssets);
+  const local = libraryAssetId ? assets.byId.get(libraryAssetId) : assets.byPath.get(JSON.stringify([projectId, filePath]));
+  return local
+    ? { projectId: local.projectId, filePath: local.path, libraryAssetId: undefined, local }
+    : { projectId, filePath, libraryAssetId, local };
+}
+
+export function useWorkspaceImagePreview(project: string | undefined, path: string, revision: string | number = 0, assetId?: string) {
+  const { projectId, filePath, libraryAssetId, local } = useWorkspaceAssetSource(project, path, assetId);
+  const runtime = useReadyRuntimeGeneration();
+  const key = projectId || libraryAssetId ? JSON.stringify([projectId, filePath, libraryAssetId, local?.error]) : undefined;
+  const load = useCallback((signal: AbortSignal) => libraryAssetId ? getLibraryAsset(libraryAssetId) : getWorkspaceAsset(projectId!, filePath, signal), [projectId, filePath, libraryAssetId]);
+  const preview = useImagePreview(key, JSON.stringify([revision, local?.revision, runtime]), load);
+  return { ...preview, error: preview.error ?? (preview.url ? undefined : local?.error) };
+}
+
 export function useWorkspaceAssetUrl(
-  projectId: string | undefined,
-  filePath: string,
-  revision = 0,
-  libraryAssetId?: string,
+  project: string | undefined,
+  path: string,
+  fileRevision = 0,
+  assetId?: string,
   /** False waits to download the file, such as until its canvas node is on screen. */
   enabled = true,
 ): { url?: string; error?: string; loading: boolean; size?: number; retry(): void } {
-  const assets = useContext(CanvasAssets);
-  const local = libraryAssetId ? assets.byId.get(libraryAssetId) : assets.byPath.get(JSON.stringify([projectId, filePath]));
-  if (local) { projectId = local.projectId; filePath = local.path; revision = local.revision; libraryAssetId = undefined; }
+  const { projectId, filePath, libraryAssetId, local } = useWorkspaceAssetSource(project, path, assetId);
+  const revision = local?.revision ?? fileRevision;
   const resourceKey = JSON.stringify([projectId, filePath, revision, libraryAssetId, local?.error]);
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);

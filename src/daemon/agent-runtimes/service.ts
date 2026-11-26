@@ -86,7 +86,7 @@ const STATUS_TTL_MS = 60_000;
  * no such line. They plan in their own plan modes.
  */
 const NATIVE_INSTRUCTIONS =
-  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. For clarifying choices use questionnaire in any turn; mark a recommended option only when you have a clear preference. Never use questionnaire for action permissions. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
+  "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. Use questionnaire for choices or confirmations in any turn. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
 /** What a coding agent hears from OhMyGame: a project's instructions, then how to use OhMyGame's tools. */
 export function nativeAgentInstructions(projectInstructions: string): string {
   return `${projectInstructions}\n\n${NATIVE_INSTRUCTIONS}`;

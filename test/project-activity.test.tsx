@@ -53,9 +53,9 @@ function Activity({ enabled = true }: { enabled?: boolean }) {
 }
 const noop = () => undefined;
 const pages = [
-  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
+  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
   { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
-  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
+  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
 ] as const;
 beforeEach(() => {
   vi.useFakeTimers();

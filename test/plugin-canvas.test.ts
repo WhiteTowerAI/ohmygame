@@ -57,15 +57,22 @@ const MANIFEST = {
         output: "text", run: { native: "describe" },
       },
     ],
-    canvasPresets: [{ id: "knight", title: "%knight%", board: "./presets/knight.json" }],
+    canvasPresets: [
+      { id: "knight", title: "%knight%", board: "./presets/knight.json" },
+      { id: "hero", title: "Hero", board: "./presets/hero.json", preview: "./presets/hero.gif" },
+    ],
   },
 };
 
 // A prompt, its picture, and a copy of the picture: the nodes keep their links, never outputs.
+const KNIGHT_ART: CanvasPresetBoard["nodes"][number] = { id: "art", type: "image", position: { x: 500, y: 0 }, data: { prompt: "", promptSource: { type: "node", nodeId: "brief" }, resolution: "1K", aspectRatio: "1:1", images: [] } };
+// One node with a picture of what it makes.
+const HERO: CanvasPresetBoard = { nodes: [{ id: "hero", type: "image", position: { x: 0, y: 0 }, data: { prompt: "A hero", resolution: "1K", aspectRatio: "1:1", images: [] } }], edges: [] };
+const HERO_GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 const KNIGHT: CanvasPresetBoard = {
   nodes: [
     { id: "brief", type: "text", position: { x: 0, y: 0 }, data: { text: "A knight", instruction: "" } },
-    { id: "art", type: "image", position: { x: 500, y: 0 }, data: { prompt: "", promptSource: { type: "node", nodeId: "brief" }, resolution: "1K", aspectRatio: "1:1", images: [] } },
+    KNIGHT_ART,
     { id: "copy", type: "plugin", position: { x: 1000, y: 0 }, data: { node: "acme/frames:copy", params: {}, inputs: { source: [{ type: "node", nodeId: "art" }] } } },
   ],
   edges: [],
@@ -89,6 +96,8 @@ async function setup() {
   const refused = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
   expect(refused.body).toContain("./presets/knight.json can't hold outputs or Library assets");
   await writeFile(path.join(source, "presets/knight.json"), JSON.stringify(KNIGHT));
+  await writeFile(path.join(source, "presets/hero.json"), JSON.stringify(HERO));
+  await writeFile(path.join(source, "presets/hero.gif"), HERO_GIF);
   const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
   expect(inspected.statusCode, inspected.body).toBe(200);
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
@@ -174,7 +183,15 @@ describe("plugin canvas nodes", () => {
   it("offers presets, hands out their nodes, and adds them as one group with new ids", async () => {
     const { app, project } = await setup();
     const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas?locale=zh-CN` })).json<ProjectPluginCanvas>();
-    expect(listed.presets).toEqual([{ id: "acme/frames:knight", plugin: "acme/frames", pluginName: "帧工具", title: "骑士设定" }]);
+    expect(listed.presets).toEqual([
+      { id: "acme/frames:knight", plugin: "acme/frames", pluginName: "帧工具", title: "骑士设定" },
+      { id: "acme/frames:hero", plugin: "acme/frames", pluginName: "帧工具", title: "Hero", preview: true },
+    ]);
+    const preview = await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/hero/preview` });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["content-type"]).toBe("image/gif");
+    expect(preview.rawPayload.equals(HERO_GIF)).toBe(true);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/knight/preview` })).statusCode).toBe(404);
     const fetched = await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/knight` });
     expect(fetched.json<CanvasPresetBoard>()).toEqual(KNIGHT);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/queen` })).statusCode).toBe(404);
@@ -189,6 +206,8 @@ describe("plugin canvas nodes", () => {
     expect(nodes.every((node) => node.parentId === group!.id)).toBe(true);
     expect(nodes.map((node) => node.position)).toEqual([{ x: 28, y: 54 }, { x: 528, y: 54 }, { x: 1028, y: 54 }]);
     expect(nodes[2]!.data).toMatchObject({ inputs: { source: [{ type: "node", nodeId: nodes[1]!.id }] } });
+    // A preset of one node needs no group around it.
+    expect(canvasPresetInGroup(HERO, "Hero", "group")).toEqual([{ ...HERO.nodes[0], title: "Hero" }]);
     const board = createAssetCanvasDocument();
     board.nodes = added.nodes;
     board.editorLayout.nodes = Object.fromEntries(added.nodes.map((node) => [node.id, node.position]));
@@ -281,10 +300,6 @@ describe("plugin canvas nodes", () => {
     expect(copies.find((node) => node.id === "b1")).toMatchObject({ type: "asset", parentId: "b4", data: { assetId: pictures[0]!.id, mediaType: "image" } });
     expect(copies.find((node) => node.id === "b3")!.data).toMatchObject({ inputs: { source: [{ type: "node", nodeId: "b2" }] } });
 
-    // An image copied out of a group keeps the pixel density that group gave it.
-    const group = { id: "art", type: "group", position: { x: 0, y: 0 }, width: 900, height: 500, data: { name: "Art", pixelStyle: "coarse" } } as AssetCanvasNode;
-    const styled = { id: "styled", type: "image", parentId: "art", position: { x: 20, y: 60 }, data: { prompt: "knight", images: [{ type: "node", nodeId: "hero" }] } } as unknown as AssetCanvasNode;
-    expect(canvasBatchCopies([image, group, styled], "hero", [{ assetId: pictures[0]!.id, name: "villain" }], (name) => name).nodes.find((node) => node.type === "image")!.data).toMatchObject({ pixelStyle: "coarse" });
     // A Text node a model writes, with something run after it, keeps a chain from starting.
     const caption = { id: "caption", type: "text", position: { x: 500, y: 0 }, data: { text: "old", instruction: "Describe it", references: [{ type: "node", nodeId: "hero" }] } } as unknown as AssetCanvasNode;
     const reader = plugin("reader", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "caption" }] });

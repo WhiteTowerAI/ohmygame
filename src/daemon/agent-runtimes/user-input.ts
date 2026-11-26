@@ -7,17 +7,14 @@ import { record } from "./driver-context.js";
 /** Preserve native choices; malformed or secret requests must not turn into an empty answer. */
 export function nativeQuestions(
   value: unknown,
-  runtime: "codex" | "claude",
+  runtime: "codex" | "codex-async" | "claude",
 ): QuestionnaireInput {
   if (!Array.isArray(value) || value.length < 1 || value.length > 4)
     throw new Error("The agent must ask between one and four questions");
   const questions: QuestionnaireQuestion[] = value.map((raw, index) => {
     const question = record(raw);
-    if (
-      !question ||
-      typeof question.question !== "string" ||
-      !question.question.trim()
-    )
+    const prompt = runtime === "codex-async" ? question?.title : question?.question;
+    if (!question || typeof prompt !== "string" || !prompt.trim())
       throw new Error("The agent sent an invalid question");
     if (question.isSecret === true)
       throw new Error(
@@ -31,21 +28,17 @@ export function nativeQuestions(
       throw new Error("Invalid question options");
     const options = rawOptions.map((rawOption) => {
       const option = record(rawOption);
-      if (
-        !option ||
-        typeof option.label !== "string" ||
-        !option.label.trim() ||
-        option.label.length > 2000
-      )
+      const label = runtime === "codex-async" ? rawOption : option?.label;
+      if (typeof label !== "string" || !label.trim() || label.length > 2000)
         throw new Error("Invalid question option");
       return {
-        value: option.label,
-        label: option.label,
-        ...(typeof option.description === "string"
+        value: label,
+        label,
+        ...(typeof option?.description === "string"
           ? { description: option.description }
           : {}),
         // A literal recommendation is evidence; order and description sentiment are not.
-        ...(/\((?:recommended|推荐)\)|（推荐）/i.test(option.label)
+        ...(runtime !== "codex-async" && /\((?:recommended|推荐)\)|（推荐）/i.test(label)
           ? { recommended: true }
           : {}),
       };
@@ -54,10 +47,10 @@ export function nativeQuestions(
       throw new Error("Duplicate question options");
     return {
       id,
-      prompt: question.question,
+      prompt,
       options,
       allowOther:
-        runtime === "claude" || !options.length || question.isOther === true,
+        runtime !== "codex" || !options.length || question.isOther === true,
       ...(runtime === "claude" && question.multiSelect === true
         ? { multiSelect: true }
         : {}),

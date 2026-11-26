@@ -3,6 +3,8 @@
 The Files view renders `.md` and `.markdown` files as formatted Markdown.
 Workspace links and images resolve relative to the document's folder; links
 open the selected file in Code, and relative paths cannot leave the project.
+**Refresh files** also checks workspace images in the open Markdown file.
+A displayed image stays visible while a replacement loads.
 Supported source files appear immediately as text. A local worker adds syntax
 colors using Prism, and line numbers stay visible when scrolling sideways. In the Code panel, the open
 file's path and its open actions sit in the panel's toolbar; the file tree

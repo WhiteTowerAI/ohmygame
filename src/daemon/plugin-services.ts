@@ -2,11 +2,12 @@ import type { SettingsWrites } from "./settings-writes.js";
 import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
 import { isPluginSettingsCommand } from "../shared/plugin-settings.js";
 import { createHash, randomUUID } from "node:crypto";
-import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, pluginParamViews, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { migrateLegacyAudioNodes } from "../shared/audio-legacy.js";
 import { watch, type FSWatcher } from "node:fs";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
+import { readPluginPresetPreview } from "./plugin-icons.js";
 import type {
   AgentToolResult,
   ToolDefinition,
@@ -1006,12 +1007,7 @@ export class PluginServices {
           title: text(node.title),
           ...(node.description ? { description: text(node.description) } : {}),
           inputs: (node.inputs ?? []).map((input) => ({ ...input, title: text(input.title) })),
-          params: Object.entries(node.params ?? {}).map(([key, param]) => ({
-            key,
-            ...param,
-            title: text(param.title),
-            ...(param.description ? { description: text(param.description) } : {}),
-          })),
+          params: pluginParamViews(node.params, text),
           output: node.output,
         });
       for (const preset of entry.manifest.contributes?.canvasPresets ?? [])
@@ -1021,18 +1017,30 @@ export class PluginServices {
           pluginName,
           title: text(preset.title),
           ...(preset.description ? { description: text(preset.description) } : {}),
+          ...(preset.preview ? { preview: true as const } : {}),
         });
     }
     return canvas;
   }
 
-  /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
-  async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
-    await this.ready();
+  async #activeCanvasPreset(folder: string, plugin: string, id: string) {
     const resolved = await this.resolve(folder).catch(() => undefined);
     const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
     const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
-    if (!entry || !preset) return undefined;
+    return entry && preset ? { entry, preset } : undefined;
+  }
+
+  /** A preset's preview picture, from an active plugin's package. */
+  async canvasPresetPreview(folder: string, plugin: string, id: string) {
+    const active = await this.#activeCanvasPreset(folder, plugin, id);
+    return active?.preset.preview ? readPluginPresetPreview(active.entry.root, active.preset.preview) : undefined;
+  }
+
+  /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
+  async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
+    const active = await this.#activeCanvasPreset(folder, plugin, id);
+    if (!active) return undefined;
+    const { entry, preset } = active;
     const file = path.join(entry.root, preset.board);
     const bytes = await readFile(file);
     if (bytes.length > CANVAS_PRESET_MAX_BYTES) throw new Error(`${preset.board} is too large`);

@@ -153,6 +153,13 @@ For example, run a focused suite with `bun run test -- test/preview.test.ts`.
 `bun run lint` runs oxlint with the rules in [.oxlintrc.json](.oxlintrc.json)
 and fails on warnings. To turn a rule off, do it there with a comment saying
 why, rather than with inline disable comments.
+It then runs `bun run lint:styles`, which counts the colours, font sizes,
+weights, radii, shadows and z-indexes the renderer's stylesheets write out
+instead of reading the tokens in
+[src/renderer/ui/tokens.css](src/renderer/ui/tokens.css). A file may not add
+any beyond [the baseline](scripts/style-values-baseline.json); when a change
+moves styles onto the tokens, run `bun run lint:styles --update` to lock the
+lower counts in.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
 `main`, including documentation PRs. It checks the changelog, plugin
 preparation, types, lint, tests, the renderer build, and the Node daemon/player
@@ -255,9 +262,9 @@ you need in an ignored `.env.local` and restart development after changing them.
 
 ### Sign-in (Supabase)
 
-To test real authentication, use a Supabase project with Google and GitHub Auth
-enabled. Add the renderer URL to its allowed redirect URLs and set these public
-values:
+To test real authentication, use a Supabase project with Google, GitHub, and
+Email Auth enabled. Add the renderer URL to its allowed redirect URLs and set
+these public values:
 
 ```dotenv
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -270,6 +277,15 @@ requires a matching Cloud API deployment.
 
 For desktop OAuth, allow `http://127.0.0.1:*/auth/callback/**`. The app opens
 the system browser and receives the result through a temporary loopback server.
+
+Email sign-in sends a one-time code instead of a link, so it works in the
+desktop app without a redirect. Edit the project's **Confirm signup** and
+**Magic Link** email templates to show `{{ .Token }}` in place of the link:
+Supabase sends the first to a new address and the second to an existing
+account. The first code for an address
+creates its account; Supabase links it to a Google or GitHub account with the
+same verified address. Supabase's built-in mailer sends only a few emails an
+hour, so set up custom SMTP before real users sign in with email.
 
 ### Cloud integration
 

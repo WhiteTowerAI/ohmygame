@@ -112,12 +112,14 @@ import {
   WiFiOffIcon,
   WidgetIcon,
   Widget4Icon,
+  LibraryIcon,
   CheckReadIcon,
   CloudIcon,
   CpuIcon,
   MenuDotsIcon,
   RoutingIcon,
   TrashBinMinimalisticIcon,
+  RunningIcon,
   UserIcon,
   SpeedometerMiddleIcon,
   HeadphonesRoundSoundIcon,
@@ -174,8 +176,9 @@ export const GripVertical = forwardRef<SVGSVGElement, IconProps>(function GripVe
   );
 });
 
+// Solar has no open hand, so the pan tool draws one in its style: separate fingers at staggered heights stay readable at 18px.
 export const Hand = forwardRef<SVGSVGElement, IconProps>(function Hand({ size = 24, ...props }, ref) {
-  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M18 11V7.5a1.5 1.5 0 0 0-3 0V10m0-2.5V6a1.5 1.5 0 0 0-3 0v4m0-3V5.5a1.5 1.5 0 0 0-3 0V11m0-3.5a1.5 1.5 0 0 0-3 0V13l-1.2-1.2a1.7 1.7 0 0 0-2.4 2.4l4 4A6 6 0 0 0 10.6 20H13a5 5 0 0 0 5-5v-4Z", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M19.5 12V8.25a1.75 1.75 0 0 0-3.5 0V11M16 8.25v-2a1.75 1.75 0 0 0-3.5 0V11M12.5 6.25V5a1.75 1.75 0 0 0-3.5 0v6M9 7.5a1.75 1.75 0 0 0-3.5 0V14l-1.3-1.3a1.6 1.6 0 0 0-2.3 2.3l3.4 3.4a6 6 0 0 0 4.2 1.8H14a5.5 5.5 0 0 0 5.5-5.5V12", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
 });
 
 export const Move = forwardRef<SVGSVGElement, IconProps>(function Move({ size = 24, ...props }, ref) {
@@ -245,6 +248,7 @@ export {
   ImportIcon as Import,
   LayersIcon as Layers3,
   Widget4Icon as LayoutGrid,
+  LibraryIcon as Library,
   HamburgerMenuIcon as List,
   KeyIcon as Key,
   LoginIcon as LogIn,
@@ -301,6 +305,7 @@ export {
   CpuIcon as Cpu,
   MenuDotsIcon as MoreHorizontal,
   RoutingIcon as Routing,
+  RunningIcon as Running,
   UserIcon as User,
   Tuning2Icon as SlidersHorizontal,
   ServerIcon as Server,

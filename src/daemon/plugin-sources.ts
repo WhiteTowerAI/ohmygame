@@ -25,8 +25,12 @@ export class PluginSourceError extends Error {
   readonly statusCode = 400;
   constructor(
     message: string,
-    /** The plugin and this version of the app don't match, and which of them has to change. */
-    readonly code?: "needs-app-update" | "needs-plugin-update",
+    /**
+     * The plugin and this version of the app don't match, and which of them has
+     * to change; or the package is OhMyGame's own, which comes from the market
+     * or a folder in development.
+     */
+    readonly code?: "needs-app-update" | "needs-plugin-update" | "official-publisher",
   ) {
     super(message);
   }
@@ -346,7 +350,7 @@ export class PluginSources {
       try {
         assertAddablePlugin(entry.id, fetched.origin);
       } catch (cause) {
-        throw new PluginSourceError((cause as Error).message);
+        throw new PluginSourceError((cause as Error).message, entry.id.startsWith(`${OHMYGAME_PUBLISHER}/`) ? "official-publisher" : undefined);
       }
       fetched.check?.(entry);
       return await use(fetched, entry);

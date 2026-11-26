@@ -1,7 +1,6 @@
 import {
   pixelPromptWithRequest,
-  withPixelArtLevel,
-  type PixelArtLevel,
+  withPixelArtStyle,
 } from "./canvas-pixel-style.js";
 
 // Pixel material templates; logical pixel sizes describe the design target.
@@ -147,7 +146,7 @@ LOGICAL SPRITE SIZE
 Use the logical pixel size specified by the selected density.
 
 CHARACTER DESIGN AND READABILITY
-Show one complete full-body character in a side-on view suitable for a side-scrolling game, unless the user explicitly requests another perspective. Use a clear standing or idle pose unless the user requests a different action. Make the head, torso, arms, legs, and important equipment readable. Match facial and costume detail to the selected density: coarse is minimal, classic is compact, and fine may include small deliberate accents.
+Show one complete full-body character in a side-on view suitable for a side-scrolling game, unless the user explicitly requests another perspective. Use a clear standing or idle pose unless the user requests a different action. Make the head, torso, arms, legs, and important equipment readable. Keep facial and costume detail compact.
 
 COMPOSITION AND OUTPUT
 Center the complete character, including head, feet, and essential equipment, with a small safety margin. Use a genuinely transparent background where supported. No unrelated characters, monsters, scenery, UI, text, or decorative background.
@@ -490,9 +489,8 @@ Avoid smooth illustration, realistic anatomy detail, blurry edges, excessive tex
 export function consistentScenesPrompt(
   userPrompt: string,
   subjectDetails = "Preserve the subject identity, design, and essential colors shown in the supplied reference image.",
-  pixelLevel: PixelArtLevel = "classic",
 ): string {
-  return withPixelArtLevel(
+  return withPixelArtStyle(
     pixelPromptWithRequest(
       "USER REQUEST",
       userPrompt,
@@ -506,7 +504,7 @@ Use the per-panel and complete-sheet logical dimensions in the density instructi
 
 Use one shared palette across the entire nine-panel sheet within the selected density's color budget, with a matching number of flat tones per major material and hard color boundaries. Preserve essential reference hues in that palette. Different settings must reuse it rather than introduce smooth lighting gradients or new color ramps in every panel.
 
-Construct faces, hair, costumes, and scenery from pixel clusters sized to the selected density and stair-step contours. Coarse pixels use broad shapes; classic pixels use compact clusters; fine pixels retain small hair, fabric, and facial details as deliberate square-pixel groups. Reference fidelity means preserving recognizable design without reproducing smooth illustration rendering. The result must look like game scenes enlarged without smoothing.
+Construct faces, hair, costumes, and scenery from compact pixel clusters sized to the selected density and stair-step contours. Reference fidelity means preserving recognizable design without reproducing smooth illustration rendering. The result must look like game scenes enlarged without smoothing.
 
 **PRIMARY OBJECTIVE**
 
@@ -610,7 +608,6 @@ Every panel must feature the same recognizable subject with consistent identity,
 
 The final result should resemble a cohesive collection of authentic retro 2D pixel game scenes, with clearly visible square pixels, detail appropriate to the selected density, and consistent subject design.`,
     ),
-    pixelLevel,
     "scene",
     {
       assetType: ["subject", "environment"],
