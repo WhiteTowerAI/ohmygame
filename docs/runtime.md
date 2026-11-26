@@ -973,6 +973,9 @@ To show a project image in an assistant reply, use Markdown such as
 project root, or takes an absolute path inside the project, and reads the file from the workspace each time it loads the image.
 Keep the file in the project so earlier replies can still display it.
 
+File links and images in replies also accept Windows drive paths inside the
+project, such as `[Source](E:/my-game/src/main.ts)`.
+
 When an agent runs several tool calls one at a time, the calls waiting behind
 the running one are labelled **Queued**, and the group is named for the call
 that is running.

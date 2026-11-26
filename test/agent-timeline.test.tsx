@@ -1588,7 +1588,10 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
   });
 
-  it("loads workspace Markdown images in restored assistant replies", async () => {
+  it.each([
+    { workspacePath: "/work/game", absoluteImage: "/work/game/assets/hero.png", outsideImage: "/work/other/secret.png" },
+    { workspacePath: String.raw`E:\work\game`, absoluteImage: String.raw`E:\work\game\assets\hero.png`, outsideImage: "E:/work/other/secret.png" },
+  ])("loads workspace Markdown images in restored assistant replies ($workspacePath)", async ({ workspacePath, absoluteImage, outsideImage }) => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const fetchImage = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => (
       String(input).includes("missing.png")
@@ -1600,13 +1603,13 @@ describe("AgentTimeline", () => {
       '![Remote image](https://example.net/image.png "Remote caption")',
       "![Outside workspace](../outside.png)",
       "![Missing image](missing.png)",
-      "![Absolute path](/work/game/assets/hero.png)",
-      "![Absolute outside](/work/other/secret.png)",
+      `![Absolute path](${absoluteImage})`,
+      `![Absolute outside](${outsideImage})`,
     ].join("\n\n"), "final_answer");
     const container = document.createElement("div");
     const root = createRoot(container);
     try {
-      await act(async () => root.render(<AgentTimeline projectId="project-1" workspacePath="/work/game" items={[user(), reply]} />));
+      await act(async () => root.render(<AgentTimeline projectId="project-1" workspacePath={workspacePath} items={[user(), reply]} />));
       const message = container.querySelector(".assistant-message")!;
       expect(message.querySelector('img[alt="Test QR"]')?.getAttribute("src")).toMatch(/^blob:/);
       expect(message.querySelector('img[alt="Remote image"]')?.getAttribute("src")).toBe("https://example.net/image.png");
