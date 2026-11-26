@@ -2858,7 +2858,7 @@ export function createApp(options: AppOptions = {}) {
       const found = await pagePluginFiles({ projectId: project.id, publisher, name }, "write");
       return !!found && found.root === project.workspacePath;
     },
-    run: async (project, plugin, title, apply) => { await pluginWrites.run(project, { plugin, action: "files:pending", title }, apply); },
+    run: async (project, plugin, title, apply) => { await pluginWrites.run(project, { plugin, action: "files:pending", title, inPlace: true }, apply); },
     write: async (project, file, contents) => { await writePluginFile(project.workspacePath, file, contents); },
     remove: (project, file) => deletePluginFile(project.workspacePath, file),
     warn: (err, message) => app.log.warn({ err }, message),
@@ -2951,7 +2951,9 @@ export function createApp(options: AppOptions = {}) {
       }
       // What waits lands first, so this comes after it.
       await pendingWrites.flush(found.project, found.id);
-      const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title }, () => operation(found.root, found.root === found.project.workspacePath ? undefined : found.project.workspacePath));
+      // In place, as an agent's edit is: the page follows its own files, so the
+      // workspace isn't reloaded under it, which would close the page mid-save.
+      const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title, inPlace: true }, () => operation(found.root, found.root === found.project.workspacePath ? undefined : found.project.workspacePath));
       return { value: result };
     } catch (cause) {
       return pluginFileReply(reply, cause);
