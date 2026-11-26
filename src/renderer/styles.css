@@ -8192,6 +8192,11 @@ button {
   margin-bottom: var(--space-3);
 }
 
+/* The last paragraph ends the message, so tool rows after it sit as far below as the next text sits below them. */
+.assistant-message .markdown-content > p:last-child {
+  margin-bottom: 0;
+}
+
 .assistant-message .markdown-content img {
   max-width: 100%;
   height: auto;
