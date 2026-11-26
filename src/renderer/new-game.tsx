@@ -3,12 +3,13 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import { FilePlus, FolderOpen } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { GameIcon, type GameIconName, type GameIconTone } from "./game-icon.js";
+import { GameIcon, type GameIconName } from "./game-icon.js";
 import { isAppProjectType, projectTypeDescription, projectTypeLabel } from "./project-types.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
-import type { AvailableProjectType } from "./api.js";
+import { readProjectTypeCover, type AvailableProjectType } from "./api.js";
 import { createdProjectView, settingsHash } from "./routes.js";
-import { templateAssetUrl } from "./template-assets.js";
+import { hasTypeArt, ProjectTypeArt } from "./project-type-art.js";
+import { PluginGlyph } from "./plugin-icons.js";
 import { Button, Dialog } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./new-game.css";
@@ -19,15 +20,6 @@ import "./new-game.css";
 
 /** The order types are offered in; plugins' types follow, then 更多类型. */
 export const NEW_GAME_TYPES = ["web-game", "godot-game", "interactive-story", "general", "asset-canvas"] as const satisfies readonly ProjectType[];
-
-/** Each app type's picture. Plugins' types and any type without one get a quiet mark instead. */
-const TYPE_ART: Partial<Record<string, string>> = {
-  "web-game": "examples/scenes-cover.webp",
-  "godot-game": "examples/terrain-cover.webp",
-  "interactive-story": "examples/characters-cover.webp",
-  general: "examples/creatures-cover.webp",
-  "asset-canvas": "examples/objects-cover.webp",
-};
 
 const OPEN_EVENT = "ohmygame:new-game";
 const DRAFT_KEY = "home";
@@ -152,7 +144,7 @@ function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, 
       onClose={onClose}
       title={name}
       description={typeHint(type, pluginTypes)}
-      media={<TypeArt type={type} />}
+      media={<TypeArt type={type} pluginTypes={pluginTypes} fit="contain" />}
       footer={<>
         <Button variant="ghost" size="sm" icon={<FilePlus size="sm" />} disabled={sending} onClick={onBlank}>{t("home.startBlank")}</Button>
         {canImport ? <Button variant="ghost" size="sm" icon={<FolderOpen size="sm" />} disabled={sending} onClick={onImport}>{t("home.importFolder")}</Button> : null}
@@ -202,7 +194,7 @@ function useGrowFrom(from?: DOMRect): void {
 export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: readonly AvailableProjectType[] }) {
   return (
     <button type="button" className="new-game-card" onClick={(event) => openNewGame({ type, from: event.currentTarget })}>
-      <TypeArt type={type} />
+      <TypeArt type={type} pluginTypes={pluginTypes} />
       <TypeIcon type={type} size={32} className="new-game-card-icon" />
       <span className="new-game-card-copy">
         <span className="new-game-card-name">{typeName(type, pluginTypes)}</span>
@@ -212,25 +204,60 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
   );
 }
 
-function TypeArt({ type }: { type: string }) {
-  const art = TYPE_ART[type];
-  return <span className="new-game-art" aria-hidden="true">
-    {art ? <img src={templateAssetUrl(art)} alt="" /> : <span className="new-game-art-mark"><TypeIcon type={type} size={56} /></span>}
+/**
+ * A type's picture: app types are drawn (project-type-art.tsx); a plugin's
+ * type shows the cover it gives, or else its plugin's icon on a quiet ground.
+ * Drawn art and the icon take the theme's text colours; a cover is a photo,
+ * so the words over it go light on a scrim.
+ */
+function TypeArt({ type, pluginTypes, fit = "cover" }: { type: string; pluginTypes: readonly AvailableProjectType[]; fit?: "cover" | "contain" }) {
+  if (hasTypeArt(type)) return <span className={`new-game-art is-drawn is-${type}`} aria-hidden="true"><ProjectTypeArt type={type} fit={fit} /></span>;
+  return <PluginTypeArt type={type} option={pluginTypes.find((option) => option.id === type)} />;
+}
+
+function PluginTypeArt({ type, option }: { type: string; option?: AvailableProjectType }) {
+  const cover = useProjectTypeCover(option?.cover ? type : undefined, option?.plugin?.revision);
+  if (cover) return <span className="new-game-art is-photo" aria-hidden="true"><img src={cover} alt="" /></span>;
+  const plugin = option?.plugin;
+  return <span className="new-game-art is-plugin" aria-hidden="true">
+    <span className="new-game-art-mark">
+      {plugin
+        ? <PluginGlyph plugin={{ id: plugin.id, icon: plugin.icon ? { type: "asset", path: plugin.icon } : undefined, iconRevision: plugin.revision }} size={88} name={option.title} />
+        : <TypeIcon type={type} size={56} />}
+    </span>
   </span>;
 }
 
-/** Each type's game icon and tile colour; plugins' types share the puzzle piece. */
-const TYPE_ICONS: Partial<Record<string, [GameIconName, GameIconTone]>> = {
-  "web-game": ["internet", "blue"],
-  "godot-game": ["controller", "green"],
-  "interactive-story": ["book", "gold"],
-  general: ["random-dice", "pink"],
-  "asset-canvas": ["palette", "purple"],
+/** A plugin type's cover as an object URL while it's shown; nothing while it loads or when it can't. */
+function useProjectTypeCover(type: string | undefined, revision: string | undefined): string | undefined {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    setUrl(undefined);
+    if (!type) return;
+    const controller = new AbortController();
+    let made: string | undefined;
+    readProjectTypeCover(type, controller.signal)
+      .then((blob) => { if (!controller.signal.aborted) setUrl(made = URL.createObjectURL(blob)); })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [type, revision]);
+  return url;
+}
+
+/** Each type's game icon, on the neutral tile: colour comes from the picture, not the chrome. */
+const TYPE_ICONS: Partial<Record<string, GameIconName>> = {
+  "web-game": "internet",
+  "godot-game": "controller",
+  "interactive-story": "book",
+  general: "random-dice",
+  "asset-canvas": "palette",
 };
 
 function TypeIcon({ type, size, className }: { type: string; size: number; className?: string }) {
-  const [name, tone] = TYPE_ICONS[type] ?? ["puzzle-02", "teal"];
-  return <GameIcon name={name} tone={tone} size={size} className={className} />;
+  return <GameIcon name={TYPE_ICONS[type] ?? "puzzle-02"} tone="neutral" size={size} className={className} />;
 }
 
 function typeName(type: string, pluginTypes: readonly AvailableProjectType[]): string {
