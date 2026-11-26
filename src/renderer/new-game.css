@@ -16,7 +16,7 @@
   top: 0;
   right: 0;
   display: block;
-  width: 100%;
+  width: 66%;
   height: 100%;
   object-fit: cover;
   mask-image: url("./assets/project-types/dissolve.svg");
@@ -66,8 +66,7 @@
 
 .new-game-card > .new-game-art {
   position: absolute;
-  /* The transparent edge of the illustration blends into the text column. */
-  inset: 0 0 0 calc(var(--copy-width) - 12%);
+  inset: 0;
 }
 
 .new-game-card-copy {
@@ -116,11 +115,6 @@
   .new-game-card {
     --copy-width: 100%;
     justify-content: center;
-  }
-
-  .new-game-card > .new-game-art {
-    inset: 0;
-    opacity: 0.2;
   }
 
   .new-game-card-name {
