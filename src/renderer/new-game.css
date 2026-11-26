@@ -26,12 +26,13 @@
 
 /* The cards: the words on the left, the picture behind them on the right. */
 .new-game-card {
-  --copy-width: max(176px, 64%);
+  --copy-width: clamp(64%, 156px, 78%);
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 120px;
+  justify-content: flex-end;
+  aspect-ratio: 2.2 / 1;
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -66,7 +67,7 @@
 .new-game-card > .new-game-art {
   position: absolute;
   /* The transparent edge of the illustration blends into the text column. */
-  inset: 0 0 0 calc(var(--copy-width) - 20%);
+  inset: 0 0 0 calc(var(--copy-width) - 12%);
 }
 
 .new-game-card-copy {
@@ -76,8 +77,8 @@
   gap: var(--space-1);
   min-width: 0;
   max-width: var(--copy-width);
-  padding: var(--space-4);
-  overflow-wrap: anywhere;
+  padding: clamp(var(--space-2), 2cqi, var(--space-4));
+  padding-inline-end: var(--space-1);
 }
 
 /* The type's own small icon, over its name. */
@@ -87,19 +88,48 @@
   color: var(--color-text-secondary);
 }
 
+.new-game-card-name,
+.new-game-card-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .new-game-card-name {
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
 }
 
 .new-game-card-hint {
-  display: -webkit-box;
-  overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+}
+
+/* At small widths the type name takes priority over the icon and hint. */
+@container project-shelf (max-width: 600px) {
+  .new-game-card-copy > .new-game-glyph {
+    display: none;
+  }
+}
+
+@container project-shelf (max-width: 360px) {
+  .new-game-card {
+    --copy-width: 100%;
+    justify-content: center;
+  }
+
+  .new-game-card > .new-game-art {
+    inset: 0;
+    opacity: 0.2;
+  }
+
+  .new-game-card-name {
+    font-size: var(--text-md);
+  }
+
+  .new-game-card-hint {
+    display: none;
+  }
 }
 
 /* The dialog: the type's picture as its banner, a type switcher, then the prompt box. */

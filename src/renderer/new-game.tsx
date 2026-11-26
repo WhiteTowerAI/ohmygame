@@ -350,21 +350,20 @@ export function NewGameCard({
   type: string;
   pluginTypes: readonly AvailableProjectType[];
 }) {
+  const name = projectTypeChoiceLabel(type, pluginTypes);
+  const hint = typeHint(type, pluginTypes);
   return (
     <button
       type="button"
       className="new-game-card"
+      title={hint ? `${name}\n${hint}` : name}
       onClick={(event) => openNewGame({ type, from: event.currentTarget })}
     >
       <TypeArt type={type} pluginTypes={pluginTypes} />
       <span className="new-game-card-copy">
         <TypeGlyph type={type} pluginTypes={pluginTypes} />
-        <span className="new-game-card-name">
-          {projectTypeChoiceLabel(type, pluginTypes)}
-        </span>
-        <span className="new-game-card-hint">
-          {typeHint(type, pluginTypes)}
-        </span>
+        <span className="new-game-card-name">{name}</span>
+        {hint && <span className="new-game-card-hint">{hint}</span>}
       </span>
     </button>
   );

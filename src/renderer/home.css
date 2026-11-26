@@ -224,9 +224,8 @@
   white-space: nowrap;
 }
 
-/* Give each type enough room for both its name and its illustration. */
 .home-new-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 256px), 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(var(--space-2), 2cqi, var(--space-4));
 }
