@@ -213,8 +213,7 @@ export async function openNodeCodebaseDetail(
   workspacePath: string,
 ): Promise<NodeCodebaseDetail> {
   return withCodebaseLock(workspacePath, async () => {
-    // A web story gets the runtime this OhMyGame ships, keeping files the author
-    // changed; the update may drop graph fields this OhMyGame no longer reads.
+    // A web story gets the runtime this OhMyGame ships, keeping files the author changed.
     if (await isWebStory(workspacePath)) await installStoryRuntime(workspacePath);
     return readCodebase(workspacePath);
   });

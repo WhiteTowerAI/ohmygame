@@ -7,7 +7,6 @@ import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   AGENT_INSTRUCTIONS,
   createNodeCodebase,
-  openNodeCodebaseDetail,
   readNodeCodebase,
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
@@ -123,22 +122,6 @@ describe("a web story", () => {
     expect(graph.assets.opening.source).toEqual({ kind: "workspace", path: "assets/library/opening.mp4" });
     expect(graph.assets.lost.source).toEqual({ kind: "library", assetId: "lib-missing" });
     await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
-  });
-
-  it("drops the Story map options Scenes no longer have when the runtime updates, so the story still opens", async () => {
-    const root = await workspace();
-    await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
-    const graph = JSON.parse(await read(root, "graph.json"));
-    graph.nodes[0].story = { hidden: true, label: "Menu" };
-    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
-    // As in a project whose runtime came from an earlier OhMyGame.
-    const old = await manifest(root);
-    await writeFile(path.join(root, STORY_WEB_MANIFEST), JSON.stringify({ ...old, version: "earlier" }));
-
-    const opened = await openNodeCodebaseDetail(root);
-
-    expect(opened.graph.nodes[0]).not.toHaveProperty("story");
-    expect(JSON.parse(await read(root, "graph.json")).nodes[0]).not.toHaveProperty("story");
   });
 
   it("gives Scenes added to a web story browser imports", async () => {
