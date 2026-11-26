@@ -1757,6 +1757,7 @@ const zhCN: typeof en = {
     fromPlugins: "来自插件",
     fromPlugin: "{{title}} · 来自 {{plugin}}",
     close: "关闭{{title}}",
+    closeOthers: "关闭其他",
     add: "添加面板",
     moreTools: "更多工具",
     resize: "调整{{area}}大小",

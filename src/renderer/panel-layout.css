@@ -61,8 +61,7 @@
   overflow-x: clip;
 }
 
-/* Along the window's top the strips are the title bar: its height, its line,
-   and roomier tabs, which read as tabs rather than buttons. */
+/* Along the window's top the strips are the title bar: its height and its line. */
 .dock-tabs.is-titlebar {
   gap: var(--space-1);
   height: var(--titlebar-height, 48px);
@@ -77,51 +76,6 @@
 
 .dock-tab-list[hidden] {
   display: none;
-}
-
-/* A title bar tab is as tall and round as the bar's other buttons, its label
-   evenly padded. Only the open tab has a close button, quietly, until hovered;
-   the others close from their menu. */
-.dock-tabs.is-titlebar .dock-tab {
-  height: 28px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-}
-
-.dock-tabs.is-titlebar .dock-tab:hover {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-.dock-tabs.is-titlebar .dock-tab.is-active {
-  background: var(--color-selected);
-  color: var(--color-text);
-}
-
-.dock-tabs.is-titlebar .dock-tab-button {
-  gap: 6px;
-  padding: 0 10px;
-}
-
-.dock-tabs.is-titlebar .dock-tab.is-active .dock-tab-button:not(:last-child) {
-  padding-right: 2px;
-}
-
-.dock-tabs.is-titlebar .dock-tab-close {
-  margin: 0 5px 0 2px;
-  color: var(--color-text-tertiary);
-}
-
-.dock-tabs.is-titlebar .dock-tab:hover .dock-tab-close {
-  color: inherit;
-}
-
-.dock-tabs.is-titlebar.is-compact .dock-tab:not(.is-active) {
-  min-width: 0;
-}
-
-.dock-tabs.is-titlebar.is-compact .dock-tab:not(.is-active) .dock-tab-button {
-  padding: 0 var(--space-2);
 }
 
 /* The toolbar beside the tabs starts at no width and takes what they leave, so
@@ -141,28 +95,41 @@
   display: contents;
 }
 
-/* Crowded strips shrink the other tabs' labels; the active one stays whole. */
+/* Every strip's tabs look alike: as tall and round as the bar's buttons, the
+   open one filled. Crowded strips shrink the other tabs' labels; the open one
+   stays whole. */
 .dock-tab {
   position: relative;
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   min-width: 52px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast), color var(--duration-fast);
 }
 
 .dock-tab:hover {
-  background: color-mix(in srgb, var(--color-hover) 60%, transparent);
-  color: var(--color-text-secondary);
-}
-
-/* The open tab is marked lightly; its text, not a heavy fill, says it is open. */
-.dock-tab.is-active {
-  flex-shrink: 0;
   background: var(--color-hover);
   color: var(--color-text);
+}
+
+.dock-tab.is-active {
+  flex-shrink: 0;
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+/* Keyboard focus rings the whole tab, inside it, since the strip clips. */
+.dock-tab-button:focus-visible {
+  outline: 0;
+}
+
+.dock-tab:has(.dock-tab-button:focus-visible),
+.dock-tab-close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
 }
 
 /* the tab being dragged stays in place, faded, until it lands */
@@ -189,7 +156,7 @@
   gap: 6px;
   min-width: 0;
   height: 100%;
-  padding: 0 2px 0 var(--space-2);
+  padding: 0 10px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -199,9 +166,8 @@
   cursor: pointer;
 }
 
-/* In a locked layout no close button holds the tab's end. */
-.dock-tab-button:last-child {
-  padding-right: var(--space-2);
+.dock-tab.is-active .dock-tab-button:not(:last-child) {
+  padding-right: 2px;
 }
 
 .dock-tab[draggable="true"] {
@@ -245,30 +211,32 @@
   place-items: center;
   width: 18px;
   height: 18px;
-  margin: 0 4px 0 2px;
+  margin: 0 5px 0 2px;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: inherit;
+  color: var(--color-text-tertiary);
   opacity: 0;
   cursor: pointer;
+  transition: background-color var(--duration-fast), color var(--duration-fast);
 }
 
 .dock-tab:not(.is-active) .dock-tab-close {
   display: none;
 }
 
-.dock-tab:where(:not(.is-active)) .dock-tab-button {
-  padding-right: var(--space-2);
-}
-
 .dock-tab.is-active .dock-tab-close {
   opacity: 1;
 }
 
+.dock-tab:hover .dock-tab-close {
+  color: inherit;
+}
+
+/* Darker than the tab under it, whichever fill that has. */
 .dock-tab-close:hover {
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
   color: var(--color-text);
 }
 
@@ -326,14 +294,6 @@
 
   .dock-collapsible {
     padding-inline: 6px;
-  }
-
-  .dock-tabs.is-titlebar .dock-tab:not(.is-active) {
-    min-width: 0;
-  }
-
-  .dock-tabs.is-titlebar .dock-tab:not(.is-active) .dock-tab-button {
-    padding: 0 var(--space-2);
   }
 }
 

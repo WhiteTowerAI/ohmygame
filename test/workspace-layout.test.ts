@@ -287,6 +287,36 @@ describe("the panel layout", () => {
     expect([...document.querySelectorAll('[role="menu"] button')].map((item) => item.textContent)).toEqual(["Grid", "Export"]);
   });
 
+  it("handles its tabs as a browser does: arrows, middle click, double click and Close others", async () => {
+    let current: Layout = { ...layout, center: { panels: ["game", "code"], active: "game", size: 0 }, right: { panels: [], size: 280 } };
+    const show = () => act(async () => root.render(createElement(PanelLayout, {
+      layout: current, panels, onChange: (next: Layout) => { current = next; void show(); }, empty: null })));
+    await show();
+    const center = () => container.querySelector(".dock-area-center")!;
+    const tab = (title: string) => [...center().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((button) => button.getAttribute("aria-label")!.startsWith(title))!;
+    // Only the open tab is in the Tab order; the arrows move along the tabs and open them.
+    expect([tab("Game").tabIndex, tab("Code").tabIndex]).toEqual([0, -1]);
+    tab("Game").focus();
+    await act(async () => tab("Game").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(current.center.active).toBe("code");
+    expect(document.activeElement).toBe(tab("Code"));
+    await act(async () => tab("Code").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(current.center.active).toBe("game");
+    // A double click fills the layout with the tab's area, and another brings the rest back.
+    await act(async () => tab("Game").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(true);
+    await act(async () => tab("Game").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(false);
+    // Its menu closes the other tabs in the area.
+    await act(async () => tab("Code").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) => entry.textContent === "Close others")!;
+    await act(async () => item.click());
+    expect(current.center.panels).toEqual(["code"]);
+    // A middle click closes a tab.
+    await act(async () => tab("Code").closest(".dock-tab")!.dispatchEvent(new MouseEvent("auxclick", { button: 1, bubbles: true })));
+    expect(current.center.panels).toEqual([]);
+  });
+
   it("names every tab, so a narrow area's icon-only tabs still read", async () => {
     await render(layout);
     expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("aria-label"))).toEqual(["Chat", "Game", "Code (2)"]);

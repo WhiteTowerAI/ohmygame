@@ -295,6 +295,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     onActivate?.(id);
   };
   const close = (id: string) => onChange(closePanel(layout, id));
+  const toggleMax = (area: AreaId) => setMaximized(max ? undefined : area);
   // The + menu: panels not in the layout, opened in this area.
   const closed = panels.filter((panel) => !areaOf(layout, panel.id));
   const addMenu = (area: AreaId): MenuEntry[] => {
@@ -342,14 +343,44 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below.
                   Beside the project's name, a lone panel needs no title of its own. */}
               <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}
-                hidden={inTitlebar && area === startArea && ids.length === 1}>
+                hidden={inTitlebar && area === startArea && ids.length === 1}
+                onKeyDown={(event) => {
+                  // Arrows, Home and End move along the tabs and open the one they land on.
+                  const at = ids.indexOf(active ?? "");
+                  const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: ids.length - 1 }[event.key];
+                  if (next === undefined || !(event.target as Element).matches(".dock-tab-button")) return;
+                  event.preventDefault();
+                  const index = (next + ids.length) % ids.length;
+                  activate(area, ids[index]!);
+                  event.currentTarget.querySelectorAll<HTMLElement>(".dock-tab-button")[index]?.focus();
+                }}
+                onWheel={(event) => {
+                  // A mouse wheel scrolls a crowded strip sideways.
+                  const list = event.currentTarget;
+                  if (!event.deltaX && list.scrollWidth > list.clientWidth) list.scrollLeft += event.deltaY;
+                }}>
               {ids.map((id) => {
                 const panel = byId.get(id)!;
                 const moves = (["left", "center", "right", "bottom"] as const).filter((to) => to !== area)
                   .map((to) => ({ label: t("panels.moveTo", { area: areaLabel(to) }), onSelect: () => { onChange(movePanel(layout, id, to)); onActivate?.(id); } }));
+                const others = ids.filter((other) => other !== id);
+                const menu = [
+                  moves,
+                  [
+                    ...(present.length ? [{ label: t(max ? "panels.restore" : "panels.maximize"), onSelect: () => toggleMax(area) }] : []),
+                    ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []),
+                  ],
+                  [
+                    { label: t("common.close"), onSelect: () => close(id) },
+                    ...(others.length ? [{ label: t("panels.closeOthers"), onSelect: () => onChange(others.reduce(closePanel, layout)) }] : []),
+                  ],
+                ].filter((group) => group.length).flatMap((group, index): MenuEntry[] => index ? ["separator", ...group] : group);
                 const tab = (
                     <div key={id} className={`dock-tab${id === active ? " is-active" : ""}${dragging === id ? " is-dragged" : ""}${target?.area === area && target.before === id ? " is-drop-before" : ""}`}
                       draggable={!locked} title={panel.source ? t("panels.fromPlugin", { title: panel.title, plugin: panel.source }) : panel.title}
+                      // A middle click closes a tab, as in a browser.
+                      onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+                      onAuxClick={(event) => { if (event.button === 1 && !locked) close(id); }}
                       onDragStart={(event) => {
                         event.dataTransfer.setData("text/plain", panel.title);
                         event.dataTransfer.effectAllowed = "move";
@@ -357,8 +388,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                         setDragging(id);
                       }}
                       onDragOver={(event) => over(event, area, id)} onDrop={(event) => drop(event, area, id)}>
-                      <button type="button" role="tab" aria-selected={id === active} className="dock-tab-button"
-                        aria-label={panel.badge ? `${panel.title} (${panel.badge})` : panel.title} onClick={() => activate(area, id)}>
+                      <button type="button" role="tab" aria-selected={id === active} tabIndex={id === active ? 0 : -1} className="dock-tab-button"
+                        aria-label={panel.badge ? `${panel.title} (${panel.badge})` : panel.title} onClick={() => activate(area, id)}
+                        onDoubleClick={() => { if (present.length) toggleMax(area); }}>
                         <span className="dock-tab-icon" aria-hidden="true">{panel.icon}</span>
                         <span className="dock-tab-label">{panel.title}</span>
                         {panel.badge ? <span className="dock-tab-badge">{panel.badge}</span> : null}
@@ -369,7 +401,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                     </div>
                 );
                 return locked ? tab : (
-                  <ContextMenu key={id} items={[...moves, "separator", ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []), { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
+                  <ContextMenu key={id} items={menu}>{tab}</ContextMenu>
                 );
               })}
               {closed.length ? (
@@ -382,7 +414,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               <DockToolsMenu />
               {present.length ? (
                 <IconButton size="sm" className="dock-maximize" label={t(max ? "panels.restore" : "panels.maximize")}
-                  onClick={() => setMaximized(max ? undefined : area)}>
+                  onClick={() => toggleMax(area)}>
                   {max ? <Minimize size="sm" /> : <Maximize size="sm" />}
                 </IconButton>
               ) : null}
@@ -454,6 +486,15 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
   const [tools, setTools] = useState<ToolScope>();
   const [toolsVersion, setToolsVersion] = useState(0);
   useLayoutEffect(() => setCompact(false), [resetKey]);
+  // The open tab scrolls into view in a crowded strip, without moving anything around it.
+  useLayoutEffect(() => {
+    const list = strip.current?.querySelector(".dock-tab-list");
+    const tab = list?.querySelector(".dock-tab.is-active");
+    if (!list || !tab) return;
+    const box = list.getBoundingClientRect(), at = tab.getBoundingClientRect();
+    if (at.left < box.left) list.scrollLeft -= box.left - at.left;
+    else if (at.right > box.right) list.scrollLeft += at.right - box.right;
+  }, [resetKey, compact]);
   useLayoutEffect(() => {
     const element = strip.current;
     const list = element?.querySelector(".dock-tab-list");

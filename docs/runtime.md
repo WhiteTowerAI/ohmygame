@@ -1010,12 +1010,15 @@ selected project to be open in the desktop app.
 
 A project is a set of panels in four areas: left, middle, right and bottom,
 divided by hairlines. Each panel is a tab; its controls sit beside the tabs. A tab
-drags to another area or to an empty edge, its right-click menu moves or
-closes it, the selected tab has a close button, and an area's **+** reopens a
-closed panel there; it shows only while a panel is closed. A tab's right-click
-menu also restores the default layout. An area's **Maximize** lets it fill the
-project, chat included, until **Restore**; it isn't saved, and dragging a tab
-restores the layout first. Area edges drag to
+drags to another area or to an empty edge, and its right-click menu moves it,
+maximizes its area, restores the default layout, or closes it or the area's
+other tabs. As in a browser, the selected tab has a close button, a middle click
+closes any tab, the arrow keys, Home and End move between an area's tabs, and a
+crowded strip scrolls sideways with the wheel and keeps the selected tab in
+view. An area's **+** reopens a closed panel there; it shows only while a panel
+is closed. An area's **Maximize**, or a double click on one of its tabs, lets it
+fill the project, chat included, until **Restore** or another double click; it
+isn't saved, and dragging a tab restores the layout first. Area edges drag to
 resize. A moved or closed panel keeps its state, such as the open file, the
 design canvas or a running game, until the project closes: a closed panel's
 view waits hidden in the page, and views move with `moveBefore`, which keeps an

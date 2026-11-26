@@ -1777,6 +1777,7 @@ const en = {
     fromPlugins: "From plugins",
     fromPlugin: "{{title}} · from {{plugin}}",
     close: "Close {{title}}",
+    closeOthers: "Close others",
     add: "Add panel",
     moreTools: "More tools",
     resize: "Resize {{area}}",
