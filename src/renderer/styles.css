@@ -7365,12 +7365,18 @@ button {
   width: 1px;
   background: var(--border);
   content: "";
-  transition: background 120ms ease;
+  transition: background var(--duration-base) var(--ease-out);
 }
 
-.file-explorer-resizer:hover::after,
+/* Like the sidebar's: the line darkens once the pointer rests on it. */
+.file-explorer-resizer:hover::after {
+  background: var(--border-strong);
+  transition-delay: 150ms;
+}
+
 .file-explorer-resizer:active::after {
   background: var(--border-strong);
+  transition-delay: 0s;
 }
 
 .pane-header {

@@ -75,10 +75,12 @@
   display: none;
 }
 
-/* A title bar tab is as wide as its label, with the close button's room kept
-   at its end, so the button never covers the label and showing it moves
-   nothing. The open tab keeps its close button, quietly, until hovered. */
+/* A title bar tab is as tall and round as the bar's other buttons, its label
+   evenly padded. Only the open tab has a close button, quietly, until hovered;
+   the others close from their menu. */
 .dock-tabs.is-titlebar .dock-tab {
+  height: 28px;
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
 }
 
@@ -93,16 +95,16 @@
 }
 
 .dock-tabs.is-titlebar .dock-tab-button {
-  gap: 7px;
-  padding: 0 2px 0 12px;
+  gap: 6px;
+  padding: 0 10px;
 }
 
-.dock-tabs.is-titlebar .dock-tab-button:last-child {
-  padding-right: 12px;
+.dock-tabs.is-titlebar .dock-tab.is-active .dock-tab-button:not(:last-child) {
+  padding-right: 2px;
 }
 
 .dock-tabs.is-titlebar .dock-tab-close {
-  margin: 0 4px 0 2px;
+  margin: 0 5px 0 2px;
   color: var(--color-text-tertiary);
 }
 
@@ -231,7 +233,8 @@
   text-align: center;
 }
 
-/* The close button always takes its space, so showing it moves nothing. */
+/* Only the open tab has a close button; it takes its space while that tab is
+   open, so hovering it moves nothing. */
 .dock-tab-close {
   display: grid;
   flex: none;
@@ -248,9 +251,15 @@
   cursor: pointer;
 }
 
-.dock-tab:hover .dock-tab-close,
-.dock-tab.is-active .dock-tab-close,
-.dock-tab-close:focus-visible {
+.dock-tab:not(.is-active) .dock-tab-close {
+  display: none;
+}
+
+.dock-tab:where(:not(.is-active)) .dock-tab-button {
+  padding-right: var(--space-2);
+}
+
+.dock-tab.is-active .dock-tab-close {
   opacity: 1;
 }
 
@@ -439,31 +448,46 @@
   cursor: row-resize;
 }
 
-/* The same light line as the home sidebar's resizer. */
+/* The same hairline as the home sidebar's resizer: it shows once the pointer
+   rests in the gap and thickens a little while dragging. */
 .dock-resizer::after {
   content: "";
   position: absolute;
   inset: var(--space-2) 0;
   margin: auto;
-  border-radius: 2px;
+  border-radius: 1px;
   background: transparent;
-  transition: background var(--duration-fast);
+  transition: background var(--duration-base) var(--ease-out);
 }
 
 .dock-resizer-left::after,
 .dock-resizer-right::after {
-  width: 3px;
+  width: 1px;
 }
 
 .dock-resizer-bottom::after {
   inset: 0 var(--space-2);
-  height: 3px;
+  height: 1px;
 }
 
 .dock-resizer:hover::after,
-.dock-resizer:focus-visible::after,
+.dock-resizer:focus-visible::after {
+  background: var(--color-border-strong);
+  transition-delay: 150ms;
+}
+
 .dock-resizer:active::after {
   background: var(--color-border-strong);
+  transition-delay: 0s;
+}
+
+.dock-resizer-left:active::after,
+.dock-resizer-right:active::after {
+  width: 2px;
+}
+
+.dock-resizer-bottom:active::after {
+  height: 2px;
 }
 
 /* drop zones for the sides that have no panels yet */

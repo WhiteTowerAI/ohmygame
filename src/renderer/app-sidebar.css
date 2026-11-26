@@ -433,18 +433,27 @@
   touch-action: none;
 }
 
+/* A hairline that shows only once the pointer rests on the edge, so passing
+   over it doesn't flash; dragging thickens it a little. Panels' and the file
+   tree's handles draw the same. */
 .sidebar-resizer::after {
   content: "";
   position: absolute;
-  inset: var(--space-2) 3px;
-  border-radius: 2px;
-  transition: background var(--duration-fast);
+  inset: var(--space-2) 4px;
+  border-radius: 1px;
+  transition: background var(--duration-base) var(--ease-out);
 }
 
 .sidebar-resizer:hover::after,
-.sidebar-resizer:focus-visible::after,
-.is-resizing-sidebar .sidebar-resizer::after {
+.sidebar-resizer:focus-visible::after {
   background: var(--color-border-strong);
+  transition-delay: 150ms;
+}
+
+.is-resizing-sidebar .sidebar-resizer::after {
+  inset-inline: 3.5px;
+  background: var(--color-border-strong);
+  transition-delay: 0s;
 }
 
 /* collapsed: a column of 40px squares */

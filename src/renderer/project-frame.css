@@ -30,9 +30,11 @@
   visibility: hidden;
 }
 
+/* The rail is a step off the panels' surface, not the app's darker ground,
+   so the narrow strip doesn't stand apart from the work beside it. */
 .project-frame > .sidebar {
   grid-area: rail;
-  background: var(--color-app);
+  background: var(--color-stage);
   border-right: 1px solid var(--color-border);
 }
 
