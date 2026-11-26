@@ -85,6 +85,9 @@ async function startTurn(app: ReturnType<typeof createApp>, project: ProjectStat
 describe("plugin page files API", () => {
   it("lists, reads, writes, moves and deletes the project's files, each change undoable", async () => {
     const { app, project, base, workspace, put } = await setup("write");
+    // The workspace's version, which only a restore changes.
+    const version = async () => (await app.inject({ method: "GET", url: base })).headers["x-workspace-version"];
+    const opened = await version();
     const written = await put("assets/levels/one.json", '{"level":1}');
     expect(written.statusCode, written.body).toBe(200);
     expect(written.json()).toEqual({ value: "assets/levels/one.json" });
@@ -128,6 +131,9 @@ describe("plugin page files API", () => {
     expect(history.every((change) => change.plugin === "acme/files")).toBe(true);
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${history[0]!.id}/undo` })).statusCode).toBe(200);
     expect(await readFile(workspace("levels/one.json"), "utf8")).toBe('{"level":1}');
+    // A page follows its own files, so neither its changes nor their undo
+    // reload the workspace under it, as a restore does; open editors still save.
+    expect(await version()).toBe(opened);
 
     // With a change left unrecorded, opening the list holds the workspace, and doesn't wait for itself however the address is spelled.
     const changes = path.join(project.storagePath!, "plugin-changes.json");
