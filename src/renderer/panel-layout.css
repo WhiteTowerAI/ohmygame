@@ -357,6 +357,12 @@
   display: none;
 }
 
+/* The ··· a panel's folded tools go to when it has no menu of its own. */
+.dock-tools-more {
+  flex: none;
+  margin-left: var(--space-1);
+}
+
 .dock-body {
   position: relative;
   display: flex;

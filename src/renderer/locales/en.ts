@@ -1765,6 +1765,7 @@ const en = {
     fromPlugin: "{{title}} · from {{plugin}}",
     close: "Close {{title}}",
     add: "Add panel",
+    moreTools: "More tools",
     resize: "Resize {{area}}",
     chat: "Chat",
     game: "Game",

@@ -6,7 +6,8 @@ import { getPluginPanels, getProjectPluginPreview, getProjectPlugins, listProjec
 import { language, t } from "./i18n.js";
 import { Spinner, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Alert, Button, DropdownMenu, Empty, IconButton, Skeleton } from "./ui/index.js";
+import { Alert, Button, Empty, IconButton, Skeleton } from "./ui/index.js";
+import { PanelTool, PanelToolsMenu } from "./panel-tools.js";
 import type { PanelId } from "./workspace-layout.js";
 import "./plugin-frame.css";
 
@@ -196,14 +197,17 @@ export function PluginPanelToolbar({ commands, onRun }: {
   if (!commands.length) return null;
   const rest = commands.slice(PLUGIN_TOOLBAR_BUTTONS);
   return <div className="plugin-toolbar">
+    {/* In a narrow area, the buttons fold into ··· from the last. */}
     {commands.slice(0, PLUGIN_TOOLBAR_BUTTONS).map((command) => {
       const busy = running.has(command.id);
-      return <Button key={command.id} variant="ghost" size="sm" title={command.title} aria-busy={busy} disabled={busy}
-        icon={busy ? <Spinner size="sm" /> : undefined} onClick={() => run(command)}>
-        <span className="plugin-toolbar-label">{command.title}</span>
-      </Button>;
+      return <PanelTool key={command.id} id={`command:${command.id}`} menu={[{ label: command.title, disabled: busy, onSelect: () => run(command) }]}>
+        <Button variant="ghost" size="sm" title={command.title} aria-busy={busy} disabled={busy}
+          icon={busy ? <Spinner size="sm" /> : undefined} onClick={() => run(command)}>
+          <span className="plugin-toolbar-label">{command.title}</span>
+        </Button>
+      </PanelTool>;
     })}
-    {rest.length ? <DropdownMenu placement="bottom-end" items={rest.map((command) => ({ label: command.title, disabled: running.has(command.id), onSelect: () => run(command) }))}
+    {rest.length ? <PanelToolsMenu placement="bottom-end" items={rest.map((command) => ({ label: command.title, disabled: running.has(command.id), onSelect: () => run(command) }))}
       trigger={(props) => <IconButton {...props} size="sm" label={t("pluginCommands.more")}><MoreHorizontal size="sm" /></IconButton>} /> : null}
   </div>;
 }

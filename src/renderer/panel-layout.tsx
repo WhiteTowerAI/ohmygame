@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X } from "./icons.js";
+import { MoreHorizontal, Plus, X } from "./icons.js";
+import { PanelTools, toolScopeOf, type ToolScope } from "./panel-tools.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./panel-layout.css";
@@ -65,7 +66,7 @@ const ToolbarSlot = createContext<HTMLElement | null>(null);
 
 export function PanelToolbar({ children }: { children: ReactNode }) {
   const slot = useContext(ToolbarSlot);
-  return slot ? createPortal(children, slot) : null;
+  return slot ? createPortal(<PanelTools from={slot}>{children}</PanelTools>, slot) : null;
 }
 
 /**
@@ -372,6 +373,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               ) : null}
               </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
+              <DockToolsMenu />
               {inTitlebar && area === endArea ? <div ref={setTitleEnd} className="dock-title-end" /> : null}
             </DockTabStrip>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}
@@ -426,37 +428,112 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
 /**
  * An area's tab strip. The active panel's toolbar shortens its titles first;
  * when it still does not fit beside the tabs, the tabs you aren't on keep only
- * their icons. They get their labels back once the strip is wider than when it
- * compacted, or the tabs change. A single tab reads as the area's title,
- * without a selected fill or close button.
+ * their icons, and then the toolbar's tools fold into a menu one at a time
+ * (see panel-tools.tsx). As the strip widens, the tools come back first, each
+ * once its toolbar has the room it lacked; then the tabs get their labels back
+ * once the strip is wider than when it compacted, or the tabs change. A single
+ * tab reads as the area's title, without a selected fill or close button.
  */
 function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { single: boolean; resetKey: string; titlebar: boolean; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
   const compactWidth = useRef(0);
+  // The active panel's tools, and their version, so folding one checks again.
+  const [tools, setTools] = useState<ToolScope>();
+  const [toolsVersion, setToolsVersion] = useState(0);
   useLayoutEffect(() => setCompact(false), [resetKey]);
   useLayoutEffect(() => {
     const element = strip.current;
     const list = element?.querySelector(".dock-tab-list");
     if (!element || !list) return;
+    const toolbar = element.querySelector<HTMLElement>(".dock-toolbar:not([hidden])");
+    // A view from outside the layout brings its toolbar's node after the slot appears.
+    let scope: ToolScope | undefined;
+    let unsubscribe: (() => void) | undefined;
+    const follow = () => {
+      const next = toolbar ? toolScopeOf(toolbar.querySelector(":scope > .dock-view-toolbar") ?? toolbar) : undefined;
+      if (next === scope) return;
+      unsubscribe?.();
+      scope = next;
+      unsubscribe = next?.subscribe(() => setToolsVersion(next.version));
+      setTools(next);
+    };
+    // One fold or unfold at a time: the next check waits for the tools to show it.
+    let waiting = false;
     const check = () => {
-      if (compact) {
-        if (element.clientWidth > compactWidth.current + 24) setCompact(false);
+      follow();
+      if (waiting) return;
+      const over = Math.max(overflow(element), toolbar ? overflow(toolbar) : 0);
+      if (over > 1) {
+        if (!compact && element.querySelector(".dock-tab:not(.is-active)")) {
+          compactWidth.current = element.clientWidth;
+          setCompact(true);
+        } else if (scope?.canFold() && toolbar) {
+          waiting = true;
+          scope.fold(toolbar.clientWidth + over);
+        }
         return;
       }
-      const toolbar = element.querySelector<HTMLElement>(".dock-toolbar:not([hidden])");
-      const overflows = (box: HTMLElement | null) => Boolean(box && box.scrollWidth > box.clientWidth + 1);
-      if (element.querySelector(".dock-tab:not(.is-active)") && (overflows(element) || overflows(toolbar))) {
-        compactWidth.current = element.clientWidth;
-        setCompact(true);
+      if (scope?.folded) {
+        if (toolbar && toolbar.clientWidth >= scope.nextNeed()) {
+          waiting = true;
+          scope.unfold();
+        }
+        return;
       }
+      if (compact && element.clientWidth > compactWidth.current + 24) setCompact(false);
     };
     check();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(check);
-    observer.observe(element);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, [compact, resetKey]);
-  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>{children}</div>;
+    const arrivals = new MutationObserver(check);
+    if (toolbar) arrivals.observe(toolbar, { childList: true });
+    // Folding changes the sizes being observed, so it waits for the next frame
+    // rather than changing them while the observer reports.
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(check);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(later);
+    observer?.observe(element);
+    observer?.observe(list);
+    if (toolbar) observer?.observe(toolbar);
+    return () => {
+      cancelAnimationFrame(frame);
+      arrivals.disconnect();
+      observer?.disconnect();
+      unsubscribe?.();
+    };
+  }, [compact, resetKey, toolsVersion]);
+  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
+    <StripTools.Provider value={{ scope: tools, version: toolsVersion }}>{children}</StripTools.Provider>
+  </div>;
 }
+
+/**
+ * How far `box`'s content runs past it. Content aligned to the end spills
+ * past its start, where scrollWidth doesn't count it.
+ */
+function overflow(box: HTMLElement): number {
+  const start = box.getBoundingClientRect().left + (parseFloat(getComputedStyle(box).paddingLeft) || 0);
+  let first = start;
+  for (const child of visibleChildren(box)) first = Math.min(first, child.getBoundingClientRect().left);
+  return Math.max(box.scrollWidth - box.clientWidth, 0) + (start - first);
+}
+
+function visibleChildren(box: Element): Element[] {
+  return [...box.children].flatMap((child) => getComputedStyle(child).display === "contents" ? visibleChildren(child)
+    : child.getClientRects().length ? [child] : []);
+}
+
+const StripTools = createContext<{ scope?: ToolScope; version: number }>({ version: 0 });
+
+/** The strip's ··· for tools that folded, when their panel has no menu of its own to take them. */
+function DockToolsMenu() {
+  const { scope } = useContext(StripTools);
+  const items = scope && !scope.menus ? scope.menu() : [];
+  if (!items.length) return null;
+  return <DropdownMenu placement="bottom-end" items={items} trigger={(props) => (
+    <IconButton {...props} size="sm" label={t("panels.moreTools")} className="dock-tools-more"><MoreHorizontal size="sm" /></IconButton>
+  )} />;
+}
+
