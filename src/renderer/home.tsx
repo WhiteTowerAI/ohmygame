@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, Pencil, Plus, RefreshCw } from "./icons.js";
+import { ChevronDown, ChevronUp, CircleHelp, Pencil, RefreshCw } from "./icons.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
@@ -12,14 +12,13 @@ import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
 import { ProjectCard, projectTime, useProjectActions } from "./project-card.js";
 import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
-import { openMoreProjectTypes } from "./project-type-choices.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
 import { GENERAL_PREFERENCES_EVENT, readGeneralPreferences, setGeneralPreference, type HomeContinue } from "./general-preferences.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import { Button, IconButton } from "./ui/index.js";
+import { Button, IconButton, Tooltip } from "./ui/index.js";
 import "./home.css";
 import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
@@ -101,9 +100,12 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   // Up to two full rows, so no example sits alone on a row; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, Math.min(columns * 2, Math.max(columns, examples.length - (examples.length % columns))));
 
-  // Describing a game skips choosing a type; More types finds plugins that add one.
+  // Describing a game skips choosing a type. Plugins can add types; the mark
+  // only says so, so Home doesn't send the person off to Plugins.
   const newGameActions = <>
-    <Button size="sm" variant="ghost" icon={<Plus size="sm" />} onClick={openMoreProjectTypes}>{t("projectTypeChoice.more")}</Button>
+    <Tooltip content={t("projectTypeChoice.pluginsAddTypes")}>
+      <IconButton size="sm" label={t("projectTypeChoice.more")} title=""><CircleHelp size="sm" /></IconButton>
+    </Tooltip>
     <Button size="sm" variant="ghost" icon={<Pencil size="sm" />} onClick={() => openNewGame({ type: "general" })}>
       {t("home.describe")}<kbd className="home-shortcut">{isMac() ? "⌘N" : "Ctrl N"}</kbd>
     </Button>

@@ -205,9 +205,13 @@ export function Tooltip({
         onPointerLeave: hide,
         onFocus: show,
         onBlur: hide,
+        // A click that does something hides the tip; on a mark that only
+        // explains, such as a help icon, it shows it.
         onClick: (event: React.MouseEvent) => {
+          const onClick = children.props.onClick as ((event: React.MouseEvent) => void) | undefined;
+          if (!onClick && !children.props.href) return show();
           hide();
-          (children.props.onClick as ((event: React.MouseEvent) => void) | undefined)?.(event);
+          onClick?.(event);
         },
         "aria-describedby": open ? id : undefined,
       })}

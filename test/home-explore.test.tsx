@@ -128,7 +128,7 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(container!.querySelector(".home-new .home-section-head")).toBeNull();
   expect(container!.querySelector(".prompt-stand-in")).toBeNull();
   const actions = [...container!.querySelectorAll<HTMLButtonElement>(".home-first button")].map((item) => item.textContent);
-  expect(actions).toEqual(["More types", expect.stringMatching(/^Describe it/)]);
+  expect(actions).toEqual(["", expect.stringMatching(/^Describe it/)]);
   // The grid holds only real types.
   const cards = [...container!.querySelectorAll<HTMLButtonElement>(".new-game-card")];
   expect(cards.map((card) => card.querySelector(".new-game-card-name")?.textContent)).toEqual(["Web Game", "Godot", "Interactive Story", "General Game", "Asset Canvas"]);
@@ -162,12 +162,14 @@ it("shows Continue to returning people as one row of cards, and folds it to a li
   await renderHome({ onOpen });
   const section = () => container!.querySelector<HTMLElement>(".home-continue");
   expect(container!.querySelector(".home-first")).toBeNull();
-  // Returning, New game has its own heading, with More types beside Describe it.
+  // Returning, New game has its own heading, with a note on more types beside Describe it.
   const head = container!.querySelector(".home-new .home-section-head")!;
   expect(head.querySelector("h2")?.textContent).toBe("New project");
-  await act(async () => [...head.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "More types")!.click());
-  expect(window.location.hash).toBe("#/plugins?adds=projectType");
-  window.location.hash = "";
+  // The note only says plugins add types; it doesn't send the person to Plugins.
+  const more = head.querySelector<HTMLButtonElement>('[aria-label="More types"]')!;
+  await act(async () => { more.focus(); more.click(); });
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Plugins can add more game types.");
+  expect(window.location.hash).toBe("");
   // One row of cards, as many as the shelf fits (four here), latest first.
   expect([...section()!.querySelectorAll(".home-continue-body .project-card-name")].map((name) => name.textContent)).toEqual(["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl"]);
   await act(async () => section()!.querySelector<HTMLButtonElement>(".project-card-open")!.click());

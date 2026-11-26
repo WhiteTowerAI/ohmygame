@@ -1028,6 +1028,7 @@ const en = {
     "godot-game": "Godot",
   },
   projectTypeChoice: {
+    pluginsAddTypes: "Plugins can add more game types.",
     more: "More types",
     moreHint: "Find plugins that add a project type",
   },

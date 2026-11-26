@@ -1013,6 +1013,7 @@ const zhCN: typeof en = {
     "godot-game": "Godot",
   },
   projectTypeChoice: {
+    pluginsAddTypes: "插件可以添加更多游戏类型。",
     more: "更多类型",
     moreHint: "查找添加项目类型的插件",
   },
