@@ -91,11 +91,10 @@ function PlayableNodePicture({ projectId, node, coverAsset }: {
 }
 
 /**
- * A Scene card's Exits, each with the port its connection leaves from and,
- * when the Agent wrote one, the condition it is taken on. A navigation Exit's
- * line is not drawn; the row names its target instead, and clicking the name
- * selects the connection. A Scene without Exits, such as an ending or a look
- * that goes back, shows none.
+ * A Scene card's Exits: only the port each connection leaves from, named when
+ * hovered. A navigation Exit's line is not drawn; the row names its target
+ * instead, and clicking the name selects the connection. A Scene without
+ * Exits, such as an ending or a look that goes back, shows none.
  */
 function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
   signals: readonly PlayableSignal[];
@@ -107,11 +106,8 @@ function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
     const route = connected[signal.id];
     const name = signal.label || signal.id;
     return <div className={`story-node-output${route ? "" : " is-unconnected"}`} key={signal.id}>
-      <span className="story-node-output-label" title={route
-        ? name
-        : t("sceneCard.unconnected", { name })}>{name}</span>
-      {signal.when ? <span className="playable-node-output-when" title={t("sceneCard.taken", { when: signal.when })}>{signal.when}</span> : null}
-      <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />
+      <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right}
+        title={route ? name : t("sceneCard.unconnected", { name })} aria-label={name} />
       {route && signal.role === "navigation" ? <button
         type="button"
         className={`playable-node-output-target nodrag nopan${route.selected ? " is-selected" : ""}`}

@@ -4262,7 +4262,6 @@ const en = {
     openCode: "Open in Code",
     unconnected:
       '"{{name}}" doesn\'t go anywhere yet. Drag from here to a Scene.',
-    taken: "Taken {{when}}",
     goesTo: '"{{name}}" goes to {{target}}',
     title: "Scene title",
     scene: "Scene",

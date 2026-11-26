@@ -60,10 +60,6 @@
     "shadow": 1,
     "zIndex": 3
   },
-  "src/renderer/playable-player.css": {
-    "color": 9,
-    "fontSize": 2
-  },
   "src/renderer/plugin-builder.css": {
     "radius": 1
   },
@@ -101,9 +97,9 @@
   },
   "src/renderer/styles.css": {
     "color": 200,
-    "fontSize": 356,
-    "fontWeight": 133,
-    "radius": 236,
+    "fontSize": 355,
+    "fontWeight": 132,
+    "radius": 235,
     "shadow": 35,
     "zIndex": 73
   },

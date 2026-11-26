@@ -98,9 +98,8 @@ Each Scene card shows:
 - its first image Asset, else the first frame of its first video, else a
   neutral card with its title;
 - the Scene title;
-- one output port per Exit, labeled with the Exit name (Signal label) and,
-  when the Exit depends on progress, its condition in small text
-  ([Variables](#variables));
+- one output port per Exit, unlabeled so the picture stays clear; hovering
+  the port names the Exit (Signal label);
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
@@ -116,11 +115,12 @@ A connection links an Exit port to a target Scene. Exits with **Allow Back**
 Connections always leave an Exit on the right of its Scene and enter the
 target on the left. An Exit marked **Navigation** is a way around the game
 rather than a step in the story, such as a **Home** Exit on many Scenes. It
-has no line; its Exit row names the target instead, such as `→ Platform`.
+has no line; beside its port the card names the target instead, such as
+`→ Platform`.
 It only changes how the canvas draws the connection, never where the Exit
 goes.
 
-Clicking a line, or the target an Exit row names, selects the connection;
+Clicking a line, or the target a navigation Exit names, selects the connection;
 Delete removes it, and dragging from the Exit again points it elsewhere.
 There is no connection panel. **Allow Back** and **Navigation** are the
 Agent's to set: the author asks for them in their own words ("let Archive
@@ -249,14 +249,8 @@ one-line description, in `graph.json`. The editor does not list them; ask
 the Agent what a playtest found them to be.
 
 A branch shows as Exits. A Scene that goes different ways declares one Exit
-per outcome, and the Agent writes when each is taken. The canvas shows it on
-the Exit row:
-
-```text
-Final talk
-  ├─ Trusted ending    if trust is 3 or more   → Good ending
-  └─ Not enough trust  if trust is below 3     → Bad ending
-```
+per outcome, and the Agent writes when each is taken in `graph.json`, such as
+"trust is 3 or more". The canvas doesn't show it.
 
 The condition is a description (Signal `when`), not a rule the editor runs:
 the Scene decides which Exit to take, and the Agent updates the words when it

@@ -13359,32 +13359,12 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
-.playable-node-card .story-node-output.is-unconnected .story-node-output-label {
+.playable-node-card .story-node-output.is-unconnected > .react-flow__handle {
   opacity: 0.55;
 }
 
 .playable-edge-push .react-flow__edge-path {
   stroke-dasharray: 6 5;
-}
-
-/* When the Scene takes an Exit, in the Agent's words. Display only. */
-.playable-node-card .story-node-output-label {
-  flex-shrink: 0;
-  max-width: 60%;
-}
-.playable-node-output-when {
-  min-width: 0;
-  margin-left: 4px;
-  padding: 2px 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  box-shadow: var(--menu-shadow);
-  color: var(--text-faint);
-  font-size: 9px;
-  font-style: italic;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* A navigation Exit names its target just outside the card instead of drawing a line. */
