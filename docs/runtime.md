@@ -1379,8 +1379,8 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 Community displays games in a responsive grid with 16:10 covers, titles, creator
 links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
-first-listed time filter, reset and the number of games stay in one row above
-the grid, under the page's title, and stick to the top while the list
+first-listed time filter and reset stay in one row above the grid (the time
+filter and search at its end), under the page's title, and stick to the top while the list
 scrolls. Clicking or tapping a card opens the game's page, including on the
 owner's profile, where the game starts. Creator links and likes stay
 independently clickable. On
@@ -1404,7 +1404,14 @@ A game page starts its game as it opens, in the page and nowhere else: the
 player is black with the controller's halftone loading animation (the website's
 player loader) until the game's page loads, and stays at least long enough not
 to flash. Beside the game's views and likes, under the player, are restart,
-share, and fullscreen (also with F). Likes and edits made on one page update the kept
+share, a new window (desktop app only) and fullscreen (also with F). The new
+window is a sandboxed window of the game's own, one per game, without the app's
+preload; it shows the published address (HTTPS, or loopback from local
+publishing) and nothing else: other sites open in the browser and only the
+account service's sign-in may open a popup, as in the app. It shares the
+player's session, so a game's saves carry over, and can go fullscreen itself.
+While it is open the page stops its copy and shows **Play here** and **Go to
+window**; closing the window brings the game back to the page. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.

@@ -60,7 +60,7 @@ export function CommunityToolbar({
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
   search?: boolean;
-  /** How many games the filters leave, shown at the row's end. */
+  /** How many games the filters leave, announced to screen readers. */
   count?: number;
 }) {
   const filtered =
@@ -82,17 +82,6 @@ export function CommunityToolbar({
           { value: "likes", label: t("community.mostLiked") },
         ]}
       />
-      <Select<CommunityFilters["period"]>
-        size="sm"
-        label={t("community.firstListed")}
-        value={value.period}
-        onChange={(period) => onChange({ ...value, period })}
-        options={[
-          { value: "all", label: t("community.anyTime") },
-          { value: "week", label: t("community.pastWeek") },
-          { value: "month", label: t("community.pastMonth") },
-        ]}
-      />
       {filtered ? (
         <Button
           size="sm"
@@ -104,10 +93,22 @@ export function CommunityToolbar({
       ) : null}
       <span className="community-spacer" />
       {count !== undefined ? (
-        <span className="community-count-label" role="status">
+        // Read out as the filters change; the grid itself shows how many there are.
+        <span className="visually-hidden" role="status">
           {t("community.gameCount", { count })}
         </span>
       ) : null}
+      <Select<CommunityFilters["period"]>
+        size="sm"
+        label={t("community.firstListed")}
+        value={value.period}
+        onChange={(period) => onChange({ ...value, period })}
+        options={[
+          { value: "all", label: t("community.anyTime") },
+          { value: "week", label: t("community.pastWeek") },
+          { value: "month", label: t("community.pastMonth") },
+        ]}
+      />
       {search ? (
         // A profile lists one creator's games, so its search is for games only.
         <CommunitySearch size="sm" value={value} onChange={onChange} placeholder={t("community.searchGames")} />

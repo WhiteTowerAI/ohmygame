@@ -804,16 +804,49 @@ describe("Community player", () => {
     await renderPlayer("listed");
     expect(container.querySelector("iframe")?.getAttribute("src")).toBe("about:blank");
     expect(button("Start game")).toBeUndefined();
-    // No bar under the player and no way out to another window.
+    // No bar under the player; outside the desktop app there is no window of its own.
     expect(container.querySelector(".community-player-bar")).toBeNull();
-    expect(button("Open in a new window")).toBeUndefined();
+    expect(button("Play in a new window")).toBeUndefined();
     const actions = container.querySelector(".community-game-actions")!;
     expect(actions.querySelector('[aria-label="Restart"]')).not.toBeNull();
-    expect(actions.textContent).toContain("Share");
+    expect(actions.querySelector('[aria-label="Share"]')).not.toBeNull();
     expect(actions.querySelector('[aria-label="Fullscreen (F)"]')).not.toBeNull();
     // Restarting loads the game again in a new frame.
     const frame = container.querySelector("iframe");
     await act(async () => button("Restart")!.click());
     expect(container.querySelector("iframe")).not.toBe(frame);
+  });
+
+  it("moves the game to a desktop window of its own and back", async () => {
+    let closed: ((gameId: string) => void) | undefined;
+    const gameWindow = {
+      open: vi.fn(async () => true),
+      focus: vi.fn(async () => true),
+      close: vi.fn(async () => true),
+      onClosed: (listener: (gameId: string) => void) => { closed = listener; return () => { closed = undefined; }; },
+    };
+    const desktop = window.ohMyGameDesktop;
+    window.ohMyGameDesktop = { ...desktop, communityGameWindow: gameWindow } as typeof window.ohMyGameDesktop;
+    try {
+      await act(async () => root.render(<GamesPage onNavigate={() => undefined} onOhMyGame={() => undefined} />));
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".community-card-open")].find((card) => card.textContent === "Public game")!.click());
+      await renderPlayer("listed");
+      await act(async () => button("Play in a new window")!.click());
+      expect(gameWindow.open).toHaveBeenCalledWith("listed", expect.any(String), "Public game");
+      // The page stops its copy while the window plays.
+      expect(container.querySelector("iframe")).toBeNull();
+      await act(async () => button("Go to window")!.click());
+      expect(gameWindow.focus).toHaveBeenCalledWith("listed");
+      await act(async () => button("Play here")!.click());
+      expect(gameWindow.close).toHaveBeenCalledWith("listed");
+      expect(container.querySelector("iframe")).not.toBeNull();
+      // Closing the window brings the game back too.
+      await act(async () => button("Play in a new window")!.click());
+      expect(container.querySelector("iframe")).toBeNull();
+      await act(async () => closed?.("listed"));
+      expect(container.querySelector("iframe")).not.toBeNull();
+    } finally {
+      window.ohMyGameDesktop = desktop;
+    }
   });
 });

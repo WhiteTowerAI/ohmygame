@@ -89,13 +89,6 @@
   background: var(--color-surface);
 }
 
-.community-count-label {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 /* cover cards: no box, the cover is the card and the text sits under it */
 /* Its own layer, so a card's controls stay under the sticky filters. */
 .community-grid {
@@ -363,6 +356,28 @@
   background: #000;
 }
 
+/* Where the game was, while it plays in a window of its own. */
+.community-player-away {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+.community-player-away > strong {
+  font-weight: var(--weight-medium);
+}
+
+.community-player-away-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .community-player iframe {
   display: block;
   width: 100%;
@@ -452,7 +467,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .community-game-actions > .community-stats {

@@ -261,6 +261,7 @@ export function GameStats({
       </span>
       {canLike && variant === "page" ? (
         <Button
+          variant="ghost"
           className={liked ? "is-liked" : undefined}
           icon={likeIcon}
           {...likeProps}

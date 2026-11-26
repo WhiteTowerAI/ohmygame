@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { GameIcon } from "./game-icon.js";
-import { Check, Copy, Gamepad2, Spinner, Maximize, RotateCcw, Search, Share2 } from "./icons.js";
+import { Check, Copy, ExternalLink, Gamepad2, Spinner, Maximize, RotateCcw, Search, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { gameShareUrl, readableUrl, type CommunityGameStats } from "../shared/publish-v1.js";
@@ -313,6 +313,10 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
   const [sharing, setSharing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [restarts, setRestarts] = useState(0);
+  // The desktop app can play the game in a window of its own; the page then stops its copy.
+  const gameWindow = window.ohMyGameDesktop?.communityGameWindow;
+  const [away, setAway] = useState<string>();
+  const isAway = game !== undefined && away === game.id;
   // A new deployment starts the game again; the owner's dialogs stay open.
   const frameKey = game ? `${game.id}:${game.deploymentId}:${restarts}` : undefined;
   const [loadedFrame, setLoadedFrame] = useState<string>();
@@ -336,6 +340,21 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
     return () => window.removeEventListener("keydown", key);
   }, []);
 
+  // The game's window closing brings it back to the page.
+  useEffect(() => gameWindow?.onClosed(closed => setAway(current => current === closed ? undefined : current)), [gameWindow]);
+
+  async function popOut() {
+    if (!game || !gameWindow) return;
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    if (await gameWindow.open(game.id, game.playUrl, game.title).then(() => true, () => false)) setAway(game.id);
+  }
+
+  async function playHere() {
+    if (!game) return;
+    await gameWindow?.close(game.id).catch(() => {});
+    setAway(undefined);
+  }
+
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await playerRef.current?.requestFullscreen().catch(() => {});
@@ -351,7 +370,15 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
     <div className="community-game">
       <div className={`community-player${fullscreen ? " is-fullscreen" : ""}`} ref={playerRef}>
         <div className="community-player-stage" aria-busy={!loaded}>
-          {game ? (
+          {game && isAway ? (
+            <div className="community-player-away" data-appearance="dark" role="status">
+              <strong>{t("community.poppedOut")}</strong>
+              <div className="community-player-away-actions">
+                <Button onClick={() => void playHere()}>{t("community.playHere")}</Button>
+                <Button variant="ghost" onClick={() => void gameWindow?.focus(game.id)}>{t("community.showWindow")}</Button>
+              </div>
+            </div>
+          ) : game ? (
             <iframe
               key={frameKey}
               src={game.playUrl}
@@ -366,7 +393,7 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
               allow="autoplay; fullscreen; clipboard-write"
             />
           ) : null}
-          <GameLoader loading={!loaded} />
+          <GameLoader loading={!loaded && !isAway} />
         </div>
       </div>
       {game ? (
@@ -381,9 +408,10 @@ function GameDetail({ game, relatedGames, actions, onOhMyGame, onPlayerLoad, onS
           <span className="community-spacer" />
           <div className="community-game-actions">
             <GameStats variant="page" game={game} onChange={stats => onStatsChange(game.id, stats)} />
-            <IconButton label={t("community.restart")} onClick={() => setRestarts(count => count + 1)}><RotateCcw size="md" /></IconButton>
-            <Button variant="ghost" icon={<Share2 size="sm" />} aria-haspopup="dialog" onClick={share}>{t("community.shareButton")}</Button>
-            <IconButton label={`${t("common.fullscreen")} (F)`} onClick={() => void toggleFullscreen()}><Maximize size="md" /></IconButton>
+            <IconButton label={t("community.restart")} disabled={isAway} onClick={() => setRestarts(count => count + 1)}><RotateCcw size="sm" /></IconButton>
+            <IconButton label={t("community.shareButton")} aria-haspopup="dialog" onClick={share}><Share2 size="sm" /></IconButton>
+            {gameWindow ? <IconButton label={t("community.openWindow")} onClick={() => void popOut()}><ExternalLink size="sm" /></IconButton> : null}
+            <IconButton label={`${t("common.fullscreen")} (F)`} disabled={isAway} onClick={() => void toggleFullscreen()}><Maximize size="sm" /></IconButton>
             {actions}
           </div>
         </div>

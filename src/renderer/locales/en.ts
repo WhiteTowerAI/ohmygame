@@ -2059,6 +2059,10 @@ const en = {
     gameCount_one: "{{count, number}} game",
     gameCount_other: "{{count, number}} games",
     restart: "Restart",
+    openWindow: "Play in a new window",
+    poppedOut: "Playing in its own window",
+    playHere: "Play here",
+    showWindow: "Go to window",
   },
   projectShell: {
     settings: "Project settings",

@@ -2038,6 +2038,10 @@ const zhCN: typeof en = {
     gameCount_one: "{{count, number}} 个游戏",
     gameCount_other: "{{count, number}} 个游戏",
     restart: "重新开始",
+    openWindow: "在新窗口玩",
+    poppedOut: "正在新窗口里玩",
+    playHere: "在这里玩",
+    showWindow: "切到窗口",
   },
   projectShell: {
     settings: "项目设置",
