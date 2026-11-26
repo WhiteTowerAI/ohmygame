@@ -18,7 +18,9 @@ vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), async (original) =
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects: async () => projects,
-  listProjectTypes: async () => [],
+  listProjectTypes: async () => projectTypes,
+  readProjectTypeCover: async () => new Blob(["png"], { type: "image/png" }),
+  readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,
   getExampleCover: async () => undefined,
   waitForRuntime: async () => undefined,
@@ -29,6 +31,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 }));
 const created = { id: "maze", name: "Maze", type: "web-game", updatedAt: "2026-10-31T00:00:00Z", workspacePath: "/tmp/maze", preview: { status: "waiting" } };
 let projects: typeof created[] = [];
+let projectTypes: import("../src/renderer/api.js").AvailableProjectType[] = [];
 const createProject = vi.fn(async (_input: unknown): Promise<typeof created> => created);
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
   PageFrame: ({ children, inert }: { children: React.ReactNode; inert?: boolean }) => <div className="page-frame" inert={inert}>{children}</div>,
@@ -56,6 +59,7 @@ afterEach(async () => {
   container?.remove();
   vi.unstubAllGlobals();
   projects = [];
+  projectTypes = [];
   localStorage.clear();
 });
 
@@ -94,6 +98,25 @@ it("leaves no example alone on a row: five examples show the first four", async 
   } finally {
     examples.push(...all);
   }
+});
+
+it("draws the app's types, shows a plugin type's cover, and its plugin's mark when it has none", async () => {
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:cover", revokeObjectURL: () => {} }));
+  projectTypes = [
+    { id: "acme/covers:drawn", title: "Drawn", plugin: { id: "acme/covers", version: "1.0.0", revision: "a" }, cover: true },
+    { id: "acme/plain:game", title: "Plain", plugin: { id: "acme/plain", version: "1.0.0", revision: "b" } },
+  ];
+  await renderHome();
+  await act(async () => {});
+  const card = (name: string) => [...container!.querySelectorAll(".new-game-card")].find((item) => item.querySelector(".new-game-card-name")?.textContent === name)!;
+  // App types are drawn, not photos, so the words over them keep the text colours.
+  expect(card("Web Game").querySelector(".new-game-art.is-drawn svg.project-type-art")).not.toBeNull();
+  expect(card("Web Game").querySelector("img")).toBeNull();
+  expect(card("Drawn").querySelector(".new-game-art.is-photo img")?.getAttribute("src")).toBe("blob:cover");
+  // Without a cover, the plugin's letter on a quiet ground.
+  expect(card("Plain").querySelector(".new-game-art.is-plugin .plugin-monogram")?.textContent).toBe("P");
+  // Every type's badge is the neutral tile; colour comes from the picture.
+  expect([...container!.querySelectorAll(".new-game-card-icon")].every((icon) => icon.classList.contains("is-neutral"))).toBe(true);
 });
 
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {

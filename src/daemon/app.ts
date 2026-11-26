@@ -1741,6 +1741,13 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const file = pluginAgentIconFile(await pluginServices.installed(), agentId);
     return file ? readPluginIconAsset(file.root, { type: "asset", path: file.path }) : undefined;
+  }, async (id, typeId) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    if (!entry || pluginServices.grants.plugin(entry.id)?.enabled === false) return undefined;
+    const cover = entry.manifest.contributes?.projectTypes?.find((type) => type.id === typeId)?.cover;
+    return cover ? readPluginScreenshot(entry.root, cover) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {

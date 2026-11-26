@@ -501,6 +501,12 @@
                 "minLength": 3,
                 "maxLength": 500
               },
+              "cover": {
+                "type": "string",
+                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|jpe?g|webp)$",
+                "minLength": 3,
+                "maxLength": 500
+              },
               "template": {
                 "type": "string",
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",

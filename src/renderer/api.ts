@@ -946,13 +946,24 @@ export interface AvailableProjectType {
   id: string;
   title: string;
   description?: string;
-  plugin?: { id: string; version: string };
+  /** The type's plugin: its icon's path when it has one, and its package digest. */
+  plugin?: { id: string; version: string; icon?: string; revision?: string };
+  /** The plugin gives the type a picture for its card. */
+  cover?: boolean;
   /** What the type's plugin asks for that the person hasn't allowed yet. */
   asks?: string[];
 }
 
 export async function listProjectTypes(): Promise<AvailableProjectType[]> {
   return request(`/project-types?locale=${encodeURIComponent(language)}`);
+}
+
+/** A plugin project type's picture, for its card and the new project dialog. `type` is `publisher/name:type`. */
+export async function readProjectTypeCover(type: string, signal?: AbortSignal): Promise<Blob> {
+  const at = type.lastIndexOf(":");
+  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(type.slice(0, at))}/project-types/${encodeURIComponent(type.slice(at + 1))}/cover`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 /** Turns a plugin on in a project, at a version or its newest, or off. `id` is `publisher/name`. */

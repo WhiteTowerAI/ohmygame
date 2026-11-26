@@ -1,26 +1,138 @@
-/* Starting a game: the type cards on Home and the new game dialog they open. */
+/* Starting a project: the type cards on Home and the new game dialog they open. */
 
-/* A type's picture: a bundled image, or the type's icon on a token gradient. */
+/*
+ * A type's picture. App types are drawn (project-type-art.tsx) from the
+ * type's hue mixed into the surface colours, so they follow the theme and the
+ * words over them use the text colours. A plugin's cover is a photo, so the
+ * words over it go light on a scrim; without a cover, the plugin's icon sits
+ * on a quiet ground. The values below are dark's; light follows.
+ */
 .new-game-art {
+  --art-hue: var(--color-text-secondary);
+  --art-accent: var(--color-text-secondary);
+  --art-bg: color-mix(in srgb, var(--art-hue) 12%, var(--color-surface));
+  --art-glow: color-mix(in srgb, var(--art-hue) 18%, var(--color-surface));
+  --art-soft: color-mix(in srgb, var(--art-hue) 26%, var(--color-surface));
+  --art-mid: color-mix(in srgb, var(--art-hue) 50%, var(--color-surface));
+  --art-ink: color-mix(in srgb, var(--art-hue) 30%, var(--color-text));
+  --art-paper: color-mix(in srgb, var(--art-hue) 8%, var(--color-border));
+  --art-edge: color-mix(in srgb, var(--art-hue) 30%, var(--color-border));
   position: relative;
   display: block;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, var(--color-surface-raised)));
+  background: var(--art-bg);
 }
 
-.new-game-art img {
+[data-appearance="light"] .new-game-art {
+  --art-bg: color-mix(in srgb, var(--art-hue) 13%, var(--color-surface));
+  --art-glow: color-mix(in srgb, var(--art-hue) 22%, var(--color-surface));
+  --art-soft: color-mix(in srgb, var(--art-hue) 30%, var(--color-surface));
+  --art-mid: color-mix(in srgb, var(--art-hue) 58%, var(--color-surface));
+  --art-ink: color-mix(in srgb, var(--art-hue) 40%, var(--color-text));
+  --art-paper: var(--color-surface);
+}
+
+.new-game-art.is-web-game { --art-hue: var(--hue-doc); --art-accent: var(--hue-data); }
+.new-game-art.is-godot-game { --art-hue: var(--hue-audio); --art-accent: var(--hue-doc); }
+.new-game-art.is-interactive-story { --art-hue: var(--hue-data); --art-accent: var(--hue-model); }
+.new-game-art.is-general { --art-hue: var(--hue-video); --art-accent: var(--hue-data); }
+.new-game-art.is-asset-canvas { --art-hue: var(--hue-model); --art-accent: var(--hue-image); }
+
+.new-game-art.is-photo {
+  background: var(--color-surface-raised);
+}
+
+.new-game-art img,
+.project-type-art {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.new-game-art img {
   object-fit: cover;
 }
 
+/* The scene's soft glow may spill past the box; the picture's frame clips it. */
+.project-type-art {
+  overflow: visible;
+}
+
+.art-glow { fill: var(--art-glow); }
+.art-soft { fill: var(--art-soft); }
+.art-mid { fill: var(--art-mid); }
+.art-strong { fill: var(--art-hue); }
+.art-ink { fill: var(--art-ink); }
+.art-paper { fill: var(--art-paper); }
+.art-accent { fill: var(--art-accent); }
+.art-accent-soft { fill: color-mix(in srgb, var(--art-accent) 35%, var(--color-surface)); }
+.art-accent-mid { fill: color-mix(in srgb, var(--art-accent) 65%, var(--color-surface)); }
+.art-sky { fill: color-mix(in srgb, var(--art-accent) 22%, var(--art-paper)); }
+.art-faint { opacity: 0.6; }
+
+.art-edge {
+  stroke: var(--art-edge);
+  stroke-width: 1.5;
+}
+
+.art-line {
+  fill: none;
+  stroke: var(--art-mid);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.art-dash {
+  stroke-dasharray: 2 6;
+}
+
+/* Pointing at a card lifts its scene a little, and one piece of it a little more. */
+.art-lift,
+.art-hop {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.new-game-card:hover .art-lift {
+  transform: translateY(-2px);
+}
+
+.new-game-card:hover .art-hop {
+  transform: translateY(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .art-lift,
+  .art-hop {
+    transition: none;
+  }
+
+  .new-game-card:hover :is(.art-lift, .art-hop) {
+    transform: none;
+  }
+}
+
+/* A plugin's icon stands in for a cover, in a tile on the right like the drawn scenes. */
 .new-game-art-mark {
+  position: absolute;
+  top: 50%;
+  right: 10%;
   display: grid;
   place-items: center;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 24%;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  translate: 0 -50%;
+}
+
+.new-game-art-mark > .plugin-monogram {
   width: 100%;
   height: 100%;
-  color: var(--color-text-secondary);
 }
 
 /* The cards: the picture fills the card, the name and one line sit over its foot. */
@@ -36,7 +148,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
-  color: var(--color-on-accent);
+  color: var(--color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -57,9 +169,9 @@
   inset: 0;
 }
 
-/* A scrim under the words, so they read over any picture. */
-.new-game-card > .new-game-art::after,
-.new-game-dialog .ui-dialog-media::after {
+/* Over a photo, a scrim under the words so they read over any picture. */
+.new-game-card > .new-game-art.is-photo::after,
+.new-game-dialog .ui-dialog-media:has(.is-photo)::after {
   position: absolute;
   inset: 0;
   background:
@@ -68,24 +180,20 @@
   content: "";
 }
 
-.new-game-card > .new-game-art img {
-  transition: transform var(--duration-base) var(--ease-out);
+.new-game-card:has(.is-photo) {
+  color: var(--color-on-accent);
 }
 
-.new-game-card:hover > .new-game-art img {
-  transform: scale(1.03);
-}
-
-.new-game-card > .new-game-art .new-game-art-mark {
-  display: none;
-}
-
-/* The type's game icon sits on the picture, so its tile is opaque. */
+/* The type's icon on a frosted neutral tile: the colour is the picture's. */
 .new-game-card-icon.game-icon {
   position: absolute;
   top: var(--space-3);
   left: var(--space-3);
-  background: color-mix(in srgb, var(--game-icon-hue) 20%, var(--color-surface));
+  outline: 1px solid var(--color-border);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  color: var(--color-text-secondary);
+  backdrop-filter: blur(8px);
 }
 
 .new-game-card-copy {
@@ -95,6 +203,9 @@
   gap: var(--space-1);
   min-width: 0;
   padding: var(--space-3) var(--space-4);
+}
+
+.new-game-card:has(.is-photo) .new-game-card-copy {
   text-shadow: 0 1px 2px var(--color-scrim);
 }
 
@@ -105,9 +216,14 @@
 
 .new-game-card-hint {
   overflow: hidden;
+  color: var(--color-text-secondary);
   font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.new-game-card:has(.is-photo) .new-game-card-hint {
+  color: inherit;
   opacity: 0.85;
 }
 
@@ -122,10 +238,18 @@
   height: 100%;
 }
 
+/* The banner's scene stops short of the close button at its right. */
+.new-game-dialog .project-type-art {
+  width: calc(100% - var(--space-6) * 2);
+}
+
 /* The type's name and line sit on the banner's foot, with the close button. */
 .new-game-dialog .ui-dialog-head {
   position: relative;
   margin-top: calc(var(--space-6) * -3);
+}
+
+.new-game-dialog:has(.ui-dialog-media .is-photo) .ui-dialog-head {
   color: var(--color-on-accent);
   text-shadow: 0 1px 2px var(--color-scrim);
 }
@@ -134,7 +258,7 @@
   font-size: var(--text-xl);
 }
 
-.new-game-dialog .ui-dialog-description {
+.new-game-dialog:has(.ui-dialog-media .is-photo) .ui-dialog-description {
   color: inherit;
   opacity: 0.85;
 }
@@ -196,6 +320,12 @@
 .new-game-type svg {
   width: 14px;
   height: 14px;
+}
+
+/* In the switcher a type's icon is just its glyph, like the other chrome. */
+.new-game-type .game-icon {
+  background: none;
+  color: inherit;
 }
 
 /* The prompt box inside the dialog: the random idea while it loads, and a row to connect a model. */
