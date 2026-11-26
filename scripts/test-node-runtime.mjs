@@ -207,6 +207,9 @@ try {
   assert.equal(await readFile(layoutFile, "utf8"), layoutBefore);
 
   const projectSettingsFile = path.join(original.workspacePath, ".ohmygame/settings.json");
+  // A new project writes its settings once one is saved, such as its name.
+  const renamed = await fetch(`${daemon.runtime.url}/projects/${original.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: original.name }) });
+  assert.equal(renamed.status, 200, "Renaming the project must save its settings");
   const projectSettings = JSON.parse(await readFile(projectSettingsFile, "utf8"));
   const videoDefault = { provider: "plugin.ohmygame.minimax.global", id: "MiniMax-H3" };
   const imageDefault = { provider: "plugin.ohmygame.seedance.ark", id: "doubao-seedream-5-0-pro-260628" };

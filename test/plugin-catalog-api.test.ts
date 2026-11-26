@@ -477,7 +477,7 @@ describe("plugin catalog API", () => {
       expect.objectContaining({ id: "acme/web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
       // Home knows no project yet, so it offers each with what it suits; a mention keeps its old form.
       expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
-      expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
+      expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "godot-game"] }),
       // One off in every project is offered too; preinstalled network access still needs consent.
       expect.objectContaining({ id: "ohmygame/unity", off: true }),
       expect.objectContaining({ id: "ohmygame/unreal-engine", off: true }),

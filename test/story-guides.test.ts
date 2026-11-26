@@ -37,6 +37,12 @@ describe("Story guides", () => {
     expect(STORY_GUIDES["AGENTS.md"]).not.toContain("playable_add_node");
   });
 
+  it("knows a guide OhMyGame wrote checked out with Windows line endings", async () => {
+    const folder = await story({ "AGENTS.md": written.agents.replaceAll("\n", "\r\n") });
+    await refreshStoryGuides(folder);
+    expect(await read(folder, "AGENTS.md")).toBe(STORY_GUIDES["AGENTS.md"]);
+  });
+
   it("notes the editor is gone in a changed AGENTS.md, once, and leaves other files as they are", async () => {
     const agents = `${written.agents}\n- Keep the narrator in second person.\n`;
     const folder = await story({ "AGENTS.md": agents, "README.md": "# Night Train\n" });

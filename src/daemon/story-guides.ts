@@ -56,7 +56,8 @@ export async function refreshStoryGuides(folder: string): Promise<void> {
     const file = path.join(folder, name);
     const current = await readFile(file, "utf8").catch(() => undefined);
     if (current === undefined) continue;
-    if (WRITTEN[name].has(createHash("sha256").update(current).digest("hex"))) await replace(file, STORY_GUIDES[name]);
+    // Git may have checked the file out with Windows line endings; OhMyGame wrote it with Unix ones.
+    if (WRITTEN[name].has(createHash("sha256").update(current.replaceAll("\r\n", "\n")).digest("hex"))) await replace(file, STORY_GUIDES[name]);
     else if (name === "AGENTS.md" && current.startsWith(EDITOR_GUIDE) && !current.includes(STORY_GUIDE_NOTE)) await replace(file, `${current.trimEnd()}${NOTE}`);
   }
 }
