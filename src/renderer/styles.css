@@ -10240,25 +10240,34 @@ summary.work-summary:hover {
 }
 
 .prompt-box-editor {
-  position: relative;
+  display: grid;
   flex: 1;
   min-width: 0;
 }
 
+/* A wrapped placeholder reserves the same lines as the editable text. */
+.prompt-box-editor > * {
+  grid-area: 1 / 1;
+}
+
+.prompt-editor,
+.prompt-editor-placeholder {
+  padding: 3px 2px;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 .prompt-editor {
+  z-index: 1;
   display: block;
   width: 100%;
   min-height: 32px;
   max-height: 132px;
   overflow: auto;
-  padding: 3px 2px;
   outline: 0;
   color: var(--text);
-  font: inherit;
-  font-size: var(--text-md);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
   cursor: text;
 }
 
@@ -10276,14 +10285,8 @@ summary.work-summary:hover {
 }
 
 .prompt-editor-placeholder {
-  position: absolute;
-  top: 3px;
-  left: 2px;
-  right: 2px;
   overflow: hidden;
   color: #a8adb7;
-  font-size: var(--text-md);
-  line-height: 1.55;
   opacity: 0.72;
   pointer-events: none;
   user-select: none;
