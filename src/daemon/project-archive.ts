@@ -30,19 +30,12 @@ import {
   extractArchive,
   type ArchiveExtractionFailure,
 } from "./archive-extraction.js";
-import type { AssetLibrary } from "./asset-library.js";
 import { compressArchiveFile } from "./archive-compression.js";
-import {
-  exportPathKey,
-  MissingLibraryAssetError,
-  packLibraryAssets,
-  type PackedLibraryAsset,
-} from "./library-asset-packing.js";
 import { sniffImageType } from "./image-format.js";
-import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { realFolders } from "./project-layout.js";
 import type { ProjectManager } from "./projects.js";
+import { refreshStoryGuides } from "./story-guides.js";
 import {
   AUTOMATIC_COVER_FILE,
   PROJECT_BUILD_DIRECTORY,
@@ -165,7 +158,6 @@ interface PreparedArchiveFile extends ArchiveFile {
 export async function exportProjectArchive(
   project: ProjectState,
   options: {
-    library?: AssetLibrary;
     limits?: ProjectArchiveLimits;
   } = {},
 ): Promise<Readable> {
@@ -173,11 +165,6 @@ export async function exportProjectArchive(
     throw new ProjectArchiveError("The project folder is not available.", 409);
   }
   const files = await archiveFiles(project.workspacePath);
-  const { graph, copies } = await packStoryGraph(
-    project,
-    files,
-    options.library,
-  );
   // The settings are written as the project has them now, whatever the folder's copy says.
   const entries: ArchiveFile[] = [
     {
@@ -189,10 +176,7 @@ export async function exportProjectArchive(
     if (file === PROJECT_SETTINGS_FILE) continue;
     entries.push({
       path: file,
-      source:
-        graph !== undefined && file === GRAPH_FILE
-          ? Buffer.from(graph, "utf8")
-          : path.join(project.workspacePath, ...file.split("/")),
+      source: path.join(project.workspacePath, ...file.split("/")),
     });
   }
   // Like every other file, it goes only when it and the folders it is in are no symbolic links.
@@ -202,9 +186,6 @@ export async function exportProjectArchive(
     (await lstat(automaticCover).then((stats) => stats.isFile(), () => false))
   ) {
     entries.push({ path: AUTOMATIC_COVER_FILE, source: automaticCover });
-  }
-  for (const copy of copies) {
-    entries.push({ path: copy.path, source: copy.absolutePath });
   }
   const limits = options.limits ?? DEFAULT_LIMITS;
   const prepared = await prepareArchiveFiles(entries, limits);
@@ -265,46 +246,8 @@ export async function exportProjectArchive(
 }
 
 /**
- * Copies an Interactive Story's Library assets into the archive.
- * Returns the rewritten graph.json when an asset was packed.
- */
-async function packStoryGraph(
-  project: ProjectState,
-  files: string[],
-  library: AssetLibrary | undefined,
-): Promise<{ graph?: string; copies: PackedLibraryAsset[] }> {
-  if (project.type !== "interactive-story" || !library) return { copies: [] };
-  if (!files.includes(GRAPH_FILE)) return { copies: [] };
-  let graph: unknown;
-  try {
-    graph = JSON.parse(
-      await readFile(path.join(project.workspacePath, GRAPH_FILE), "utf8"),
-    );
-  } catch (cause) {
-    // A damaged graph travels as it is, for the agent to repair after import.
-    if (cause instanceof SyntaxError) return { copies: [] };
-    throw cause;
-  }
-  let copies: PackedLibraryAsset[];
-  try {
-    copies = await packLibraryAssets(
-      graph,
-      new Set(files.map(exportPathKey)),
-      library,
-    );
-  } catch (cause) {
-    if (cause instanceof MissingLibraryAssetError) {
-      throw new ProjectArchiveError(cause.message, 409);
-    }
-    throw cause;
-  }
-  if (!copies.length) return { copies };
-  return { graph: `${JSON.stringify(graph, null, 2)}\n`, copies };
-}
-
-/**
  * Refuses an export that no import would accept, before anything is streamed.
- * Count generated contents, including the manifest and rewritten graph,
+ * Count generated contents, including the manifest,
  * exactly as the importer counts extracted files.
  */
 async function prepareArchiveFiles(
@@ -429,6 +372,8 @@ export async function importProjectArchive(
     if (manifest.project.appearance?.logo && !manifest.rootIsWorkspace) {
       logo = await readArchiveImage(path.join(root, PROJECT_ARCHIVE_LOGO), MAX_PROJECT_LOGO_BYTES);
     }
+    // compat: since beta.5.12, remove from beta.7 and 2026-12-27. A story's guides stop describing the Story editor.
+    await refreshStoryGuides(workspace);
     project = await projects.import(workspace, manifest.project);
   } finally {
     // The project may already exist, so a failed cleanup must not fail the
@@ -436,10 +381,6 @@ export async function importProjectArchive(
     await rm(staging, { recursive: true, force: true }).catch(() => {});
   }
   try {
-    // Agent instructions and schemas follow this app version, not the archive.
-    if (project.type === "interactive-story") {
-      await ensureNodeCodebaseContract(project.workspacePath);
-    }
     if (cover) await projects.setCover(project.id, cover.contents, cover.mode);
     // A logo the archive names but does not hold falls back to the default icon.
     if (project.appearance?.logo && (logo || !(await projects.logo(project.id)))) await projects.setLogo(project.id, logo);
@@ -453,7 +394,7 @@ export async function importProjectArchive(
 // compat: since beta.4.14, kept for archives until a major version (docs/compatibility.md). Archives without a manifest; see also renderer/api.ts.
 /**
  * Earlier versions export only Interactive Stories, as their bare workspace
- * with graph.json at the root of the archive.
+ * with graph.json at the root of the archive. A story is a web game now.
  */
 async function legacyStoryManifest(
   root: string,
@@ -470,8 +411,8 @@ async function legacyStoryManifest(
     format: PROJECT_ARCHIVE_FORMAT,
     version: PROJECT_ARCHIVE_VERSION,
     project: {
-      name: name?.trim() || defaultProjectName("interactive-story"),
-      type: "interactive-story",
+      name: name?.trim() || defaultProjectName("web-game"),
+      type: "web-game",
     },
     rootIsWorkspace: true,
   };
@@ -512,6 +453,8 @@ async function readFolderManifest(root: string): Promise<ArchiveManifest | undef
 
 /** The settings an archive names, checked like saved project settings when the project is created. */
 function archiveSettings(settings: Record<string, unknown>): ProjectArchiveSettings {
+  // compat: since beta.5.12, kept for archives until a major version (docs/compatibility.md). An Interactive Story is a web game now.
+  if (settings.type === "interactive-story") settings = { ...settings, type: "web-game" };
   if (!isProjectType(settings.type)) {
     throw new ProjectArchiveError("The project type is not supported.");
   }

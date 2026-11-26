@@ -7,7 +7,7 @@ import type { ExampleSummary } from "../src/shared/examples.js";
 
 const examples: ExampleSummary[] = [
   ...["circuit", "tidal", "ember", "wetland", "garden"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
-  { id: "last-bus", type: "interactive-story", name: "Last Bus", description: "" },
+  { id: "last-bus", type: "web-game", name: "Last Bus", description: "" },
   ...["harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
 ];
 

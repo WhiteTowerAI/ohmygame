@@ -21,7 +21,7 @@ export function CanvasNodeLabel({ icon: Icon, label, details, titleEditor, trail
   className?: string;
 }) {
   const title = localizedTemplateText(details?.title);
-  return <header className={`story-media-node-label canvas-node-label ${className}`} title={localizedTemplateText(details?.description)}>
+  return <header className={`canvas-media-node-label canvas-node-label ${className}`} title={localizedTemplateText(details?.description)}>
     <Icon size={14} />
     {title ? <span title={title}>{title}</span> : titleEditor ?? <span title={label}>{label}</span>}
     {trailing}

@@ -21,10 +21,10 @@ export const CONVERSATION_REFERENCES_DIRECTORY = ".ohmygame/local/references";
  * Media OhMyGame makes or copies in for a project: `generated/` and `imported/`,
  * and `files/` for the other files and folders the canvas imports. It travels
  * with the project but no build takes it: a game uses a file by copying it into
- * its own files. Interactive Stories, which publish only the media their graph
- * declares, keep theirs under `assets/` instead.
+ * its own files.
  */
 export const PROJECT_MEDIA_DIRECTORY = ".ohmygame/media";
+// compat: since beta.5.5, remove from beta.7 and 2026-12-06. Only where older projects' caches move to (project-layout.ts).
 export const NODE_THUMBNAILS_DIRECTORY = ".ohmygame/local/thumbnails";
 export const STORY_RUNTIME_UPDATES_DIRECTORY = ".ohmygame/local/story-runtime";
 

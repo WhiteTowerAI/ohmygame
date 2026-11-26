@@ -127,7 +127,7 @@ canvas/
   editor/<board-id>.json
   schemas/{index,board,layout,assets,table}.schema.json
   jobs.json
-.ohmygame/media/   media the canvas generates or copies in (assets/ in an Interactive Story)
+.ohmygame/media/   media the canvas generates or copies in
 ```
 
 `index.json` names boards, documents and optional tables. A board contains stable node IDs,
@@ -372,8 +372,7 @@ Ogg, M4A) and GLB models go to the Library as asset nodes, up to 200 MB each;
 `src/shared/media-files.ts` lists the media types, and the daemon checks each
 file's data against its type. Any other file, such as a source file, font,
 archive or editor project, is copied into the project under
-`.ohmygame/media/files/` (`assets/files/` in an Interactive Story; a repeated
-name gets a `-2` suffix) and shown as a file node whose `data.path` is that
+`.ohmygame/media/files/` (a repeated name gets a `-2` suffix) and shown as a file node whose `data.path` is that
 project-relative path. Like OhMyGame's other media it travels with the project
 but no build ships it; the game uses a file by copying it into its own files.
 Files imported into `assets/files/` before this stay there and keep shipping

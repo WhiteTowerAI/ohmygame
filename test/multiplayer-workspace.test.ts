@@ -152,7 +152,7 @@ describe("multiplayer workspace integration", () => {
       expect(both).toContain("Colyseus");
       expect(both).toContain("game.storage");
 
-      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify({ runtime: "playable-nodes" }));
+      await writeFile(path.join(directory, "public/manifest.json"), JSON.stringify([]));
       await expect(installGameSdk(project)).rejects.toThrow("supported Web Game manifest");
     } finally {
       await rm(directory, { recursive: true, force: true });

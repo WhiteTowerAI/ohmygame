@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "build": "bun run build:host && bun run build:renderer",
-    "build:host": "bun run build:packages && bun --bun node_modules/typescript/bin/tsc -p tsconfig.build.json && node --import tsx scripts/build-story-web.mjs && node --import tsx scripts/build-multiplayer-sdk.mjs",
+    "build:host": "bun run build:packages && bun --bun node_modules/typescript/bin/tsc -p tsconfig.build.json && node --import tsx scripts/build-multiplayer-sdk.mjs",
     "build:packages": "bun --bun node_modules/typescript/bin/tsc -p packages/game-sdk/tsconfig.build.json && node packages/game-sdk/build.mjs && bun --bun node_modules/typescript/bin/tsc -p packages/server/tsconfig.build.json && bun --bun node_modules/typescript/bin/tsc -p packages/games/tsconfig.build.json",
     "build:daemon": "bun run build:host",
     "build:renderer": "bun --bun node_modules/vite/bin/vite.js build",

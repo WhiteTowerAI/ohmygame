@@ -81,8 +81,7 @@ binary for the platform, the daemon falls back to `ffmpeg` on `PATH`. The
 binary is a GPL build (MP4 output uses libx264), distributed as a separate
 program with its license file beside it (`ffmpeg.LICENSE`, or
 `ffmpeg.exe.LICENSE` on Windows); the packaging check
-fails if either is missing. Interactive Story publishing does not use it and
-still looks for FFmpeg on `PATH`. Batch operations are
+fails if either is missing. Batch operations are
 limited to 100 frames, a 64 million pixel processing budget for image inputs
 and extracted frames, and 128 MiB of encoded output. FFmpeg temporary files are checked during processing against a 128 MiB
 budget; extracted videos are limited to 300 seconds.

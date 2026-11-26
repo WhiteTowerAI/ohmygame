@@ -264,15 +264,6 @@ launcher load their modules from that isolated copy. Dependencies imported by
 the daemon, including Mediabunny for audio validation, belong in `dependencies`
 even when the renderer also bundles them.
 
-`build:host` also generates `dist/story-web/resources.json`: the readable story
-runtime modules, with comments retained, and the bundled editor bridge. The
-desktop package includes this resource file. The built daemon reads it directly
-instead of asking esbuild to read modules inside `app.asar`; source development
-still generates the resources on demand. Stories keep their own editable runtime
-under `story/` and their existing manifest-based updates. The package hook checks
-the resource file against the build and, on native builds, exercises story
-creation, upgrading a legacy story, and serving the preview and editor bridge.
-
 ### Release notes
 
 Maintainers update `CHANGELOG.md` only when preparing a release. Summarize

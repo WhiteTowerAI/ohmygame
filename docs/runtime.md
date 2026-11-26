@@ -241,9 +241,9 @@ the person's own instructions, which come after OhMyGame's in every project,
 for OhMyGame's agent and the coding agents alike. They are told to give way
 to the current request. A project's `AGENTS.md` still adds its own.
 
-Detailed panel and Scene video-trimming contracts live in
-`src/daemon/project-guides.ts`. The base prompt routes relevant requests to the
-read-only `project_guide` tool (`panels` or `scene-media`), available in normal
+The plugin authoring contract lives in `src/daemon/project-guides.ts`. The
+base prompt routes relevant requests to the read-only `project_guide` tool
+(`plugins`), available in normal
 and planning mode, coding-agent tool bridges and external MCP. Browser service
 instructions and setup tools remain available when Web preview is disabled,
 but are omitted for known native plugin project types. Other General projects
@@ -368,8 +368,7 @@ engine-independent workspaces with Code, Design, Canvas, Assets and Web preview.
 The conversation pane can still be collapsed manually; see the
 [workspace example](assets/general-game-conversation.png).
 The bundled Game Studio plugin provides game production,
-architecture, and verification Skills for General Game, Godot, and Interactive
-Story projects. Web Game keeps its independent Web Game Studio plugin and
+architecture, and verification Skills for General Game and Godot projects. Web Game keeps its independent Web Game Studio plugin and
 existing creation instructions. Plugins are enabled by default; a saved disabled
 setting is respected when creating a project or agent session. Compatible
 Skills are listed for the agent, which reads the relevant ones for its task.
@@ -485,9 +484,8 @@ included in those capabilities and, for General Game, its Web preview switch
 is enabled, or when the project's plugin type brings a runtime of its own
 (below).
 
-The shipped adapter is `web` for `web-game`, `interactive-story` (the story
-opens its own page through the preview; one made before web stories is
-refused until the Story editor upgrades it), and configured Web previews in `general` projects
+The shipped adapter is `web` for `web-game` (a static game, such as a
+story from an earlier version, opens its own page through the preview) and configured Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. Their
 runtime bridges can come as [plugin game runtimes](#plugin-game-runtimes),
 for launch or attach, input, screenshots, state and shutdown. An editor MCP connection alone is not a runtime adapter and
@@ -582,7 +580,7 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── media/            media OhMyGame generated (generated/) or copied in from
 │                     the Library (imported/) for the game to use
 ├── cover.webp        uploaded cover, retained while automatic mode is enabled
-├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
+├── cover-frozen.webp frozen automatic cover
 ├── cover-state.json  explicit cover mode, including when no cover exists
 ├── logo.webp         uploaded logo, shown in the sidebar instead of the icon
 ├── settings.json     the name, run and preview settings, appearance and media
@@ -590,20 +588,16 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── build/            what plugins build, such as a Godot web build
 └── local/            this computer's files: the last automatic cover
                       (cover-auto.webp), agent attachments, images sent in
-                      conversations (references/), Node thumbnails, newer
-                      story runtime files
+                      conversations (references/)
 ```
 
 No build takes `.ohmygame/`, so nothing in `media/` ships until the game takes
 a copy into its own files, as the agent's instructions ask. Generated media is
-named after its prompt, such as `red-dragon-sprite.png`. An Interactive Story
-keeps the same folders under `assets/` (`assets/generated/`,
-`assets/imported/`): it publishes only the media its graph declares. Files a
-project already has in `assets/` stay there.
+named after its prompt, such as `red-dragon-sprite.png`.
 
 The project's type is in `ohmygame.json` at the folder's root, beside
-`.ohmygame/`; see [plugins](plugins.md#files). It names `interactive-story`,
-a plugin's type, or `general` for the app's General projects, Web games and
+`.ohmygame/`; see [plugins](plugins.md#files). It names a plugin's type, or
+`general` for the app's General projects, Web games and
 Asset Canvases, which `settings.json` tells apart with `kind` (`web-game` or
 `asset-canvas`). `kind` also names the types the file can't: a plugin's
 workspace (`plugin`) and a Godot project from before Godot was a plugin
@@ -616,6 +610,25 @@ plugin's type previews as `project.json` last recorded it until the app reads
 the version the file pins. Opening a folder whose file names a type as
 another type is refused, and the new-project dialog starts on the folder's
 type (`POST /projects/folder-type`).
+
+OhMyGame no longer has an Interactive Story type: a story is a web game. A
+folder whose `ohmygame.json` names `interactive-story` loads as one: the file
+is rewritten to name `general` and `settings.json` gets `kind: "web-game"`
+(left alone when it can't be read), and `project.json` follows. An archive
+naming the type imports as a web game. Opening an old local Story copies media
+still referenced by Library ID into `assets/library/` and updates its graph.
+If a referenced asset is missing, restore it or correct the graph and reopen
+the project. A Story without its own page still needs a web entry point.
+A web story keeps its own page and
+`story/` runtime, so it plays and publishes as any static web game. Publishing a static folder includes unused media and
+editor drafts under the ordinary web build rules. Review the publishing
+contents and keep private files outside the publish folder.
+
+The old project's `AGENTS.md` and `README.md` described the Story editor and its tools: in a web
+story (`graph.json`, `index.html` and `story/`), each one OhMyGame wrote and
+no one changed is replaced with the Interactive Story template's, and an
+`AGENTS.md` changed since gains a note that the editor is gone
+(`src/daemon/story-guides.ts`).
 
 Everything but `local/` and `build/` goes with the project into snapshots,
 exports and its repository, except that snapshots leave out the settings,
@@ -693,8 +706,7 @@ toolbar holds only what acts on that panel, and no action repeats across panels.
 
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
 for every project's name and appearance. Web games and General projects add
-**Preview**, and interactive stories add **Screen**: the workspace renders that
-tab into a slot in the dialog. The tabs stay mounted, so an unsaved Preview form survives moving
+**Preview**. The tabs stay mounted, so an unsaved Preview form survives moving
 between them, and the dialog stays open while a tab saves. The Plugin Builder
 has its own top bar and no project settings.
 
@@ -741,8 +753,7 @@ licenses and credit authors. An answer is reused for the source's
 `cacheSeconds` or ten minutes, and one conversation may ask a source ten times
 a minute, so an agent can't spend a site's request limit.
 
-`library_use` copies one into the project's `.ohmygame/media/imported/`
-(`assets/imported/` in an Interactive Story), as the canvas does: one of the person's saved assets at once, and a source's result,
+`library_use` copies one into the project's `.ohmygame/media/imported/`, as the canvas does: one of the person's saved assets at once, and a source's result,
 one library_search showed in the same conversation, only after the person
 allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
 no conversation to ask in, so it takes only saved assets. A copy whose asset
@@ -956,12 +967,11 @@ the order they open (`src/renderer/workspace-layout.ts`):
 | Project types | Panels |
 |---|---|
 | Web games, General projects, Godot | Chat, Game, Design, Canvas, Code, Assets |
-| Interactive Story | Chat, Story, Design, Canvas, Code, Assets |
 | Asset canvas | Chat, Canvas |
 
 The default puts Chat on the left and the rest in the middle, the first in
 front. A project without a preview, such as Godot without a web build, has no
-Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
+Game and opens on Code; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
@@ -988,9 +998,8 @@ model opens it in a dialog, where the model can be turned and played. A 3D
 model's tile shows the model itself, held still; a row of them loads two at a
 time as it nears the screen. Results
 are not repeated under the response; open a finished turn's work to see them.
-The files remain in the project's media (`.ohmygame/media/generated/`, or
-`assets/generated/` in an Interactive Story), and the conversation keeps their
-references.
+The files remain in the project's media (`.ohmygame/media/generated/`), and
+the conversation keeps their references.
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
@@ -1215,10 +1224,8 @@ logo.
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover
 replacement. The **Automatic** switch beside **Cover** can also stop replacement
-without uploading an image: it freezes the current cover, including an
-Interactive Story's Scene thumbnail, or keeps the cover empty if none exists.
-Turning it back on returns to the last automatic cover, or an Interactive
-Story's Scene thumbnail when available. Uploaded covers are retained: turning
+without uploading an image: it freezes the current cover, or keeps the cover
+empty if none exists. Turning it back on returns to the last automatic cover. Uploaded covers are retained: turning
 **Automatic** off again restores the uploaded image. Without an uploaded image,
 turning it off freezes the current automatic cover. Automatic captures
 cannot overwrite a custom cover, including captures already in flight. Existing
@@ -1233,7 +1240,7 @@ when an update is published; publication details show that snapshot.
 
 ## Publishing
 
-In web game, General, and interactive story chats, type `/publish` and select
+In web game and General chats, type `/publish` and select
 the command or send it to open the existing publish dialog. The command is
 handled locally and is not sent to the agent. It is available while the agent
 and publishing are idle; Godot projects do not offer it. Confirm the title,
@@ -1250,21 +1257,13 @@ The dialog shows what publishes before it does
 limit, the largest files and top-level folders, and what publishing optimizes.
 It reads files without building: a game with a build script shows its last
 `dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
-and optimization, so the ZIP is usually smaller. Stories list the files their
-graph publishes.
+and optimization, so the ZIP is usually smaller.
 
 Publishing optimizes temporary copies of media; workspace and Library
 originals and project exports are unchanged. For every game, PNG scanlines are
 recompressed losslessly, preserving transparency and metadata, and JPEGs lose
 their Exif, XMP and IPTC blocks (where a camera records place, device and
-author) but keep their image data, colour profile and orientation. A story's
-videos are also re-encoded, which loses some quality; a game's videos are left
-as they are. MP4 files in a story are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
-is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
-Video dimensions are rounded down to even pixels for H.264 compatibility.
-Encoding has a two-minute limit per video. Missing encoders, failed encodes,
-and larger results keep the original. PNGs and videos below 256 KiB are skipped; PNG
-optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
+author) but keep their image data, colour profile and orientation. PNG recompression applies to files from 256 KiB to 64 MiB.
 Other media formats keep their original encoding. ZIP compression alone offers
 little reduction for already compressed images, audio, or video.
 
@@ -1280,7 +1279,7 @@ install dependencies at the owning workspace root. The build script runs in the
 configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
-web games, General projects, and Interactive Stories, without the upload size
+web games and General projects, without the upload size
 limit or the publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link

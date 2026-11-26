@@ -104,9 +104,8 @@ opened as a project (`origin: "opened"`) or an imported archive
 (`origin: "imported"`). Pressing Play, Start or Retry, sending a message that
 the agent takes, or an agent's playtest records `engagedAt`, even when the
 start then fails; from then on automatic preview works as it does for a
-project made in OhMyGame, and a message also starts it if it can. What the app
-asks for by itself, as Scene thumbnails and the Scene view, asks with
-`background=1` and is refused with `PROJECT_NOT_STARTED` until then. Both fields are in
+project made in OhMyGame, and a message also starts it if it can. A background preview request
+(`background=1`) is refused with `PROJECT_NOT_STARTED` until then. Both fields are in
 the computer's `project.json` and never in the folder, so they don't follow the
 project anywhere, and **Duplicate** copies them. An `origin` a newer version
 wrote counts as `opened` and is kept as it is. Until then the preview says the

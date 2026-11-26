@@ -217,7 +217,7 @@ export interface MediaReferenceView {
 /** The workspace opens the viewer from onNodeClick, which already knows the node. */
 export function MediaViewButton() {
   return (
-    <button className="story-media-view-button nodrag" type="button" title={t("assetCanvas.viewAction")} aria-label={t("assetCanvas.viewAction")} onDoubleClick={(event) => event.stopPropagation()}>
+    <button className="canvas-media-view-button nodrag" type="button" title={t("assetCanvas.viewAction")} aria-label={t("assetCanvas.viewAction")} onDoubleClick={(event) => event.stopPropagation()}>
       <Maximize size={14} />
     </button>
   );

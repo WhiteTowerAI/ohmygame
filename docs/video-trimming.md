@@ -25,9 +25,6 @@ everything that uses it.
 - On an Asset Canvas, the new video is added as an asset node beside the node
   it came from, and the preview closes.
 
-A Scene uses a trimmed video like any other video, for example through
-**Media → As background** in its Workbench.
-
 ## How a trim is encoded
 
 The preview and yellow-handle timeline live in the controlled

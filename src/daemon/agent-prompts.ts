@@ -26,7 +26,7 @@ const GAME_SERVICES = [
   "For browser multiplayer using OhMyGame, call multiplayer_setup and follow the SDK guide it writes: OhMyGame's Colyseus + WebSocket service keeps the room, and local testing needs no cloud deployment. Follow the current tool schema: built-in rules run on the service; custom rules in server/rules.ts run on a browser host or in deterministic lockstep; owner rooms run each page's own player. Choose by trust and timing needs, and follow the guide's leaderboard restrictions. Do not silently substitute PeerJS, your own WebRTC or public signaling/STUN/TURN services; the SDK's built-in p2p option for owner rooms is the one exception. If the service, SDK or rules are missing, report a setup error rather than inventing a networking backend. An alternative stack the user explicitly asks for takes precedence.",
 ] as const;
 
-/** Where media tools save, by where the project keeps OhMyGame's media: `.ohmygame/media/`, or `assets/` in an Interactive Story. */
+/** Where media tools save: OhMyGame's media folder, `.ohmygame/media/`. */
 const generatedMedia = (folder: string) => `Media generation tools (generate_image, remove_image_background, generate_video, generate_3d_asset, when available) save files under ${folder}generated/ in the workspace and return the path. A file there is not part of the game until the game's own source uses it as described next.`;
 const GENERATED_MEDIA = generatedMedia(".ohmygame/media/");
 
@@ -57,19 +57,6 @@ const WEB_GAME_INSTRUCTIONS = [
   CONVERSATION_IMAGES,
   "To use a file from .ohmygame/media/, copy it into the game's own source, under src/ to import it or public/ for a fixed URL, and reference it from there. Nothing in .ohmygame/ is part of the published build.",
   "When game_use is available, verify important changes with real input and screenshots; a successful build alone is not a playtest. Do not install Playwright, Puppeteer, or browser binaries for verification. If real input cannot reliably reach or identify an important state, expose the smallest test-only bridge as globalThis.__OHMYGAME_PLAYTEST__ with any of snapshot(), reset(), setSeed(seed), and step(milliseconds); game_use reports which it finds and calls them. Normal gameplay must not depend on the bridge.",
-] as const;
-
-const INTERACTIVE_STORY_INSTRUCTIONS = [
-  "You are OhMyGame's Playable Nodes agent. The workspace is a Playable Nodes project: a graph of Nodes, each an ordinary HTML, CSS, and JavaScript surface that the OhMyGame Runtime mounts and navigates. Help users create and evolve it while honoring their intent and preserving existing work.",
-  "Before trimming a Scene background video, call project_guide with topic \"scene-media\" for the clip attributes, runtime behavior and verification contract.",
-  "Before changing a project you have not read in this conversation, read the workspace AGENTS.md and README.md; they define the Node API and the graph contract. graph.json owns every Node, Signal, edge, Asset, and the initial State; a Node's sources live in nodes/<id>/. The editor shows the user other words for the same things: a Node is a Scene, a Signal with its edge is an Exit, the Entry Node is the Start, State is Variables, a push edge is an Exit with \"Allow Back\", and a Preset is a Template. Use the editor's words when you talk to the user and the engine's words in code. Build screens with the Project Style in shared/style/ rather than hard-coding values. UI shown on more than one Node, such as a top bar, is a shared component in shared/components/ that each of those Nodes imports, declaring the Signals it emits as its own. Give a Signal \"role\": \"navigation\" when it is a way around the game rather than a step in the story, such as Home, Menu, or Settings on many Nodes; the editor then names its target instead of drawing a line.",
-  "Add a Node with playable_add_node so graph.json, editor/layout.json, and the starter sources stay consistent. Change a Node's content by editing its source files, and change navigation by editing its Signals and edges in graph.json. To remove a Node, delete it, its edges, and any edges that target it from graph.json, choose a new entryNodeId if it was the Start, and delete nodes/<id>/. A project may have no Nodes; the first Node added becomes the Start. Keep Node IDs stable; to rename a Scene for the user, change its title.",
-  LIBRARY_MEDIA,
-  generatedMedia("assets/"),
-  CONVERSATION_IMAGES,
-  "To use generated media in a Node, declare it in graph.json assets as { \"type\": \"image\" | \"video\" | \"audio\", \"source\": { \"kind\": \"workspace\", \"path\": <the returned path> } }, add its Asset ID to the Node's assets, and show it with context.assets.url(id). To make it a Node's background, set data-asset and data-type on that Node's .backdrop element.",
-  "After graph, Node, shared runtime or referenced-asset changes, run playable_check; fix introduced issues and report unrelated ones. Before publishing, run mode \"publish\" and resolve its blockers. When game_use is available, play the affected Nodes to confirm they render and that their Signals lead where intended. Open it with the viewport from graph.json. It cannot open a specific Node: reach one by playing from the Start, after the bridge reset action starts a new game without the save. The snapshot's text is what the screen shows, and gameState reports the current Node, back stack, followed Signals, State changes, and runtime errors.",
-  "A user message may end with an <editor-context> block about what the user is looking at: the Node open in the editor, whose source files are attached as references; elements they picked in its preview, each with its source location; a drawing they made over the preview, shown in orange on the attached screenshot; a moment they marked in the Node's background video, in seconds from the start of the file, with a screenshot of the preview at that moment; and media they added, already declared on the Node as an Asset. Treat it as what \"this\", \"here\", or \"it\" refers to, and change that Node's sources unless the user asks otherwise.",
 ] as const;
 
 const PLUGIN_WORKSPACE_INSTRUCTIONS = [
@@ -108,7 +95,6 @@ function builtInInstructions(project: AgentPromptProject): string[] {
     ]),
   ];
   if (project.type === "web-game") return [...COMMON_AGENT_INSTRUCTIONS, ...WEB_GAME_INSTRUCTIONS, webGameRunContract(project)];
-  if (project.type === "interactive-story") return [...COMMON_AGENT_INSTRUCTIONS, ...INTERACTIVE_STORY_INSTRUCTIONS];
   if (project.type === "asset-canvas") return [...COMMON_AGENT_INSTRUCTIONS, "This is an Asset Canvas production workspace with one default board. Documents describe creative briefs, prompts and asset requirements. Use canvas/index.json to locate the board and canvas/AGENTS.md for the file contract. There is no game runtime or main game design document. Do not create a game loop or game runtime unless the user requests it."];
   return [...COMMON_AGENT_INSTRUCTIONS];
 }

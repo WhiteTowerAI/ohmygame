@@ -172,7 +172,7 @@ it("lets only the main window relabel the application menu", async () => {
   const setLabels = host.handlers.get("ohmygame:set-application-menu-labels")!;
   expect(fileMenuLabel()).toBeUndefined();
 
-  // A hidden thumbnail window runs Scene code.
+  // Another window, such as a plugin page, can't name the menus.
   await expect((async () => setLabels({ sender: { id: 99 } }, { file: "Scene" }))()).rejects.toThrow("Invalid application menu labels");
   await expect((async () => setLabels({ sender: host.sender }, { file: 1 }))()).rejects.toThrow("Invalid application menu labels");
   expect(fileMenuLabel()).toBeUndefined();
@@ -264,33 +264,6 @@ it("blocks an update when background services cannot stop safely", async () => {
   await expect(installing).rejects.toThrow();
   expect(host.quit).not.toHaveBeenCalled();
 });
-
-it("cancels active and queued thumbnail captures and frees slots for the next batch", async () => {
-  const capture = (id: string, batch: string) => host.handlers.get("ohmygame:capture-node-thumbnail")!(
-    { sender: host.sender }, "p", id, { width: 1280, height: 720 }, batch,
-  ) as Promise<unknown>;
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  try {
-    const previous = [capture("a", "old"), capture("b", "old"), capture("c", "old")];
-    expect(host.thumbnails).toHaveLength(2);
-    host.handlers.get("ohmygame:cancel-node-thumbnails")!({ sender: host.sender }, "old");
-    await expect(Promise.all(previous)).resolves.toEqual(Array(3).fill({ captured: false, error: "The capture was cancelled." }));
-    expect(host.thumbnails.every(window => window.destroy.mock.calls.length === 1)).toBe(true);
-    expect(warn).not.toHaveBeenCalled();
-    const next = capture("next", "new");
-    expect(host.thumbnails).toHaveLength(3);
-    host.handlers.get("ohmygame:finish-node-thumbnail")!({ sender: host.thumbnails[2]!.webContents }, true);
-    await expect(next).resolves.toEqual({ captured: true });
-    // A failure carries the hidden window's reason to the editor and the log.
-    const failing = capture("broken", "new");
-    host.handlers.get("ohmygame:finish-node-thumbnail")!({ sender: host.thumbnails[3]!.webContents }, false, "The preview could not start.");
-    await expect(failing).resolves.toEqual({ captured: false, error: "The preview could not start." });
-    expect(warn).toHaveBeenCalledExactlyOnceWith('Node thumbnail "broken" was not captured: The preview could not start.');
-  } finally {
-    warn.mockRestore();
-  }
-});
-
 
 const background = (value?: unknown, event = { sender: host.sender, senderFrame: host.sender.mainFrame }) =>
   host.handlers.get("ohmygame:background-running")!(event, value) as Promise<boolean>;

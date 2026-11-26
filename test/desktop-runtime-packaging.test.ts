@@ -73,23 +73,13 @@ describe("desktop runtime packaging", () => {
     }
   });
 
-  it.each(["dist/story-web/resources.json", "dist/multiplayer-sdk/resources.json"])("includes runtime resource %s and the template licenses in the application", async (relative) => {
-    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
+  it("includes the multiplayer runtime resource in the application", async () => {
+    const relative = "dist/multiplayer-sdk/resources.json";
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-runtime-packaging-"));
     try {
       const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
       await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
-      await writeFile(path.join(directory, relative), "story resources");
-      const notices = await Promise.all(["NOTICE.txt", "LICENSE.txt"].map(async (name) => {
-        const contents = await readFile(path.join("src/daemon/assets/scene-templates", name));
-        const relative = `dist/daemon/assets/scene-templates/${name}`;
-        await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
-        await writeFile(path.join(directory, relative), contents);
-        return {
-          archivePath: path.join("dist", "daemon", "assets", "scene-templates", name),
-          relative,
-          contents,
-        };
-      }));
+      await writeFile(path.join(directory, relative), "runtime resources");
       const destination = path.join(directory, "app");
       const matchers = getFileMatchers(config, "files", destination, {
         defaultSrc: directory,
@@ -98,16 +88,13 @@ describe("desktop runtime packaging", () => {
         globalOutDir: path.join(directory, "release"),
       });
       await copyFiles(matchers.filter((matcher: { from: string }) => matcher.from === directory));
-      expect(await readFile(path.join(destination, relative), "utf8")).toBe("story resources");
+      expect(await readFile(path.join(destination, relative), "utf8")).toBe("runtime resources");
       const archive = path.join(directory, "app.asar");
       await createPackage(destination, archive);
       // ASAR's promise can resolve before its output stream has finished writing.
       await vi.waitFor(() => {
         // ASAR looks files up by the system's path separators.
-        expect(extractFile(archive, path.join(...relative.split("/"))).toString()).toBe("story resources");
-        for (const { archivePath, contents } of notices) {
-          expect(extractFile(archive, archivePath)).toEqual(contents);
-        }
+        expect(extractFile(archive, path.join(...relative.split("/"))).toString()).toBe("runtime resources");
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

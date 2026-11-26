@@ -52,7 +52,6 @@ repository maintenance can omit an area when none applies.
 | `area: agent`   | Conversations, prompt input, agent execution, context, and tools.        |
 | `area: canvas`  | Design and Asset Canvas, documents, nodes, and the Asset Library.        |
 | `area: models`  | Providers, model configuration and authentication, and media generation. |
-| `area: story`   | Interactive Story editing, scene graphs, state, and navigation.          |
 | `area: runtime` | Game execution, previews, playtesting, and project processes.            |
 | `area: desktop` | Desktop windows, installation, startup, and updates.                     |
 | `area: publish` | Publishing, sharing, and Community integration.                          |

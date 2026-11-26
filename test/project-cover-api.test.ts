@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../src/shared/local-debug.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -89,25 +88,6 @@ describe("project cover API", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/logo` })).rawPayload).toEqual(webp("logo"));
   });
 
-  it.each([false, true])("freezes the Interactive Story cover with an existing thumbnail: %s", async (existing) => {
-    const { app, project, url } = await fixture("interactive-story");
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const thumbnail = (label: string) => app.inject({
-      method: "PUT", url: `/projects/${project.id}/playable/thumbnails/menu?hash=0123abcd0123ab`,
-      headers: { "content-type": "image/webp" }, payload: webp(label),
-    });
-    if (existing) await thumbnail("scene");
-    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "custom" } })).statusCode).toBe(204);
-    await thumbnail("updated scene");
-    // Retrying the same preference must not populate a cover that was frozen empty.
-    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "custom" } })).statusCode).toBe(204);
-    const frozen = await app.inject({ method: "GET", url });
-    if (existing) expect(frozen.rawPayload).toEqual(webp("scene"));
-    else expect(frozen.statusCode).toBe(404);
-    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "auto" } })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("updated scene"));
-  });
-
   it("saves custom covers independently of publishing and resumes automatic covers on reset", async () => {
     const { app, url, put } = await fixture();
     expect((await app.inject({ method: "GET", url: `${url}/state` })).json()).toEqual({ mode: "auto" });
@@ -137,20 +117,6 @@ describe("project cover API", () => {
     expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("uploaded"));
     await put(webp("late capture"), "auto");
     expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("uploaded"));
-  });
-
-  it("restores the Interactive Story thumbnail fallback without stopping node thumbnail updates", async () => {
-    const { app, project, url, put } = await fixture("interactive-story");
-    await writePlayableFixtureWorkspace(project.workspacePath);
-    const thumbnailUrl = `/projects/${project.id}/playable/thumbnails/menu?hash=0123abcd0123ab`;
-    const thumbnail = (label: string) => app.inject({ method: "PUT", url: thumbnailUrl, headers: { "content-type": "image/webp" }, payload: webp(label) });
-    expect((await thumbnail("scene")).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("scene"));
-    await put(webp("custom"));
-    expect((await thumbnail("updated scene")).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("custom"));
-    await app.inject({ method: "DELETE", url });
-    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("updated scene"));
   });
 
   it("keeps the Community cover at its published snapshot until the next publication", async () => {

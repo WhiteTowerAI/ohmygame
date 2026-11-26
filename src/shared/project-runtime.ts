@@ -69,7 +69,7 @@ export function appWidePluginSuits(
  * types (a Web game, an Asset Canvas) are `general` there.
  */
 export function projectFileTypeFor(type: string): string {
-  return type === "interactive-story" || type.includes(":") || type in PLUGIN_PROJECT_KINDS ? type : "general";
+  return type.includes(":") || type in PLUGIN_PROJECT_KINDS ? type : "general";
 }
 
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {

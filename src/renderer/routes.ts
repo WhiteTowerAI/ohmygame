@@ -35,8 +35,6 @@ export type AppRoute =
   | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string; conversationId?: string }
   | { page: "game"; gameId: string }
-  | { page: "playtest"; projectId: string }
-  | { page: "thumbnail"; projectId: string; nodeId: string }
   | { page: "project"; projectId: string; conversationId?: string; view?: "design" };
 
 export function parseAppRoute(hash: string): AppRoute {
@@ -91,26 +89,6 @@ export function parseAppRoute(hash: string): AppRoute {
   if (gameMatch?.[1]) {
     try {
       return { page: "game", gameId: decodeURIComponent(gameMatch[1]) };
-    } catch {
-      return { page: "home" };
-    }
-  }
-  const playtestMatch = /^#\/playtest\/([^/]+)$/.exec(hash);
-  if (playtestMatch?.[1]) {
-    try {
-      return { page: "playtest", projectId: decodeURIComponent(playtestMatch[1]) };
-    } catch {
-      return { page: "home" };
-    }
-  }
-  const thumbnailMatch = /^#\/thumbnail\/([^/]+)\/([^/]+)$/.exec(hash);
-  if (thumbnailMatch?.[1] && thumbnailMatch[2]) {
-    try {
-      return {
-        page: "thumbnail",
-        projectId: decodeURIComponent(thumbnailMatch[1]),
-        nodeId: decodeURIComponent(thumbnailMatch[2]),
-      };
     } catch {
       return { page: "home" };
     }
@@ -188,10 +166,6 @@ export function gameHash(gameId: string): string {
 
 export function communityHash(): string {
   return "#/community/games";
-}
-
-export function playtestHash(projectId: string): string {
-  return `#/playtest/${encodeURIComponent(projectId)}`;
 }
 
 export function communityProfileHash(authorId: string): string {

@@ -5,3 +5,7 @@ config/plugin-assets/** -text
 # The plugin JSON Schema is generated with LF endings and checked against its
 # source byte for byte, so it keeps them on every platform.
 schemas/*.json text eol=lf
+
+# Guides OhMyGame wrote into stories, matched by their exact bytes; the tests
+# check Windows line endings separately.
+test/fixtures/story-guides/** text eol=lf

@@ -32,7 +32,6 @@ const explicitTestGroups = {
   "elevenlabs-settings.test.ts": "daemon",
   "network-runtime.test.ts": "daemon",
   "desktop-runtime-packaging.test.ts": "desktop",
-  "playable-vite.test.ts": "renderer",
   "renderer-styles.test.ts": "renderer",
   "blender-export.test.ts": "daemon",
   "desktop-typebox.test.ts": "desktop",
@@ -84,21 +83,6 @@ assert(
 
 // One feature or safeguard is removed per mutation. Exact matches fail closed after source changes.
 const mutants = [
-  {
-    id: "S1",
-    file: "src/shared/playable-navigation.ts",
-    feature: "Navigation push history",
-    before: "[...state.backStack, state.currentNodeId]",
-    after: "[...state.backStack]",
-    verify: "shared",
-  },
-  {
-    id: "S2",
-    file: "src/shared/playable-state.ts",
-    feature: "State snapshot cloning",
-    before: "return structuredClone(value);",
-    after: "return value;",
-  },
   {
     id: "S3",
     file: "src/shared/agent-models.ts",

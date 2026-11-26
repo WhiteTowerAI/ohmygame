@@ -118,7 +118,7 @@ import { AssetCanvasPresetDialog } from "./asset-canvas-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
 import { fetchTemplateExample } from "./template-example-cache.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
-import { LibraryAssetPicker } from "./node-workbench.js";
+import { LibraryAssetPicker } from "./library-asset-picker.js";
 import { type PluginCommandTarget, usePluginSlot, useProjectPluginsRevision } from "./project-plugin-contributions.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -208,7 +208,7 @@ function canvasCreationGroups(pluginCanvas: ProjectPluginCanvas = { nodes: [], p
   ];
 }
 
-const STORY_NODE_TYPES: NodeTypes = {
+const CANVAS_NODE_TYPES: NodeTypes = {
   group: CanvasGroupNode,
   table: CanvasTableNode,
   document: CanvasDocumentNode,
@@ -2346,14 +2346,14 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
       disconnect: (id) => onEdgesChange([{ type: "remove", id }]),
       canDisconnect: (targetId) => !nodeBusy(targetId) && !referenceTargetId && !resolving && !conflicted,
     }}>
-    <section className="viewer-pane interactive-story-workspace" hidden={hidden} aria-label={t("canvas.assetCanvasWorkspace")}>
+    <section className="viewer-pane canvas-pane" hidden={hidden} aria-label={t("canvas.assetCanvasWorkspace")}>
       {expandedTextId && nodes.find((node) => node.id === expandedTextId)?.type === "text" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={t("assetCanvas.expandedText")}>
         <header className="design-expanded-toolbar"><Type size={16} /><strong>{t("assetCanvas.node.text")}</strong></header>
         <div className="design-expanded-body"><CanvasTextarea autoFocus aria-label={t("assetCanvas.expandedText")} value={nodes.find((node) => node.id === expandedTextId)?.data.text ?? ""} onChange={(text) => setNodes((current) => current.map((node) => node.id === expandedTextId ? { ...node, data: { ...node.data, text } } : node))} /></div>
         <button type="button" className="design-expanded-close" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTextId(undefined)}><X size={16} /></button>
       </div> : null}
-      <div className="interactive-story-body">
-        <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${selectedNodes.length === 1 ? " has-single-selection" : ""}${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
+      <div className="canvas-pane-body">
+        <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`canvas-surface${selectedNodes.length === 1 ? " has-single-selection" : ""}${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
           // Only presses on the canvas itself: React also delivers them from dialogs portaled out of its nodes.
           onPointerDownCapture={(event) => { if (event.currentTarget.contains(event.target as globalThis.Node) && !isTextEntry(event.target) && !eventWithin(event, "button, a, .nokey")) event.currentTarget.focus({ preventScroll: true }); }}
           onCopy={copySelection} onCut={(event) => { if (!referenceTargetId) copySelection(event, true); }} onPaste={pasteFromClipboard}
@@ -2388,8 +2388,8 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             <Button size="sm" variant="primary" onClick={finishReferenceSelection}>{t("common.done")}</Button>
           </div> : null}
           {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><LoaderCircle size={13} className="spin" /><span>{t("assetCanvas.importing")}</span></div> : null}
-          {phase === "loading" ? <div className="story-canvas-state">{t("assetCanvas.loading")}</div> : null}
-          {phase === "error" ? <div className="story-canvas-state story-canvas-state-error" role="alert"><span>{t("assetCanvas.loadFailed", { error: loadError })}</span><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("assetCanvas.reload")}</button></div> : null}
+          {phase === "loading" ? <div className="canvas-state">{t("assetCanvas.loading")}</div> : null}
+          {phase === "error" ? <div className="canvas-state canvas-state-error" role="alert"><span>{t("assetCanvas.loadFailed", { error: loadError })}</span><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("assetCanvas.reload")}</button></div> : null}
           {phase === "ready" ? (
             <EditorCanvas<AssetCanvasFlowNode>
               nodes={renderedNodes}
@@ -2399,7 +2399,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
               connectOnClick={false}
               connectionRadius={28}
               connectionDragThreshold={CANVAS_CONNECTION_DRAG_THRESHOLD}
-              nodeTypes={STORY_NODE_TYPES}
+              nodeTypes={CANVAS_NODE_TYPES}
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
                 project={project}
@@ -2436,10 +2436,10 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
               onNodeClick={(event, node) => {
                 if (referenceTargetId) { pickReference(node); return; }
                 activateNode(node.id);
-                if (eventWithin(event, ".story-media-view-button")) openViewer(node);
+                if (eventWithin(event, ".canvas-media-view-button")) openViewer(node);
               }}
               // Only the preview opens the viewer; the prompt, chips, and video controls below keep their own double-click.
-              onNodeDoubleClick={(event, node) => { if (referenceTargetId) return; if (node.type === "group") setNodeDetails({ id: node.id, title: node.data.name ?? "", description: node.description ?? "" }); else if (eventWithin(event, ".story-media-stage")) openViewer(node); }}
+              onNodeDoubleClick={(event, node) => { if (referenceTargetId) return; if (node.type === "group") setNodeDetails({ id: node.id, title: node.data.name ?? "", description: node.description ?? "" }); else if (eventWithin(event, ".canvas-media-stage")) openViewer(node); }}
               onPaneClick={() => { setCanvasContextMenu(undefined); setPortMenu(undefined); if (!referenceTargetId) clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
                 if (referenceTargetId) return;
@@ -2492,7 +2492,7 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
             </EditorCanvas>
           ) : null}
           {portMenu && portNode ? <CanvasContextMenu screenPosition={portMenu.position} label={t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")} onClose={() => setPortMenu(undefined)}>
-            <div className="story-canvas-context-menu-label">{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
+            <div className="canvas-context-menu-label">{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
             {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId, portMenu.handle)}><MousePointer2 size={14} /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
             {portOptions.map(({ action, label, icon: Icon }) => <button key={action.type} type="button" role="menuitem" onClick={() => void addConnectedNode(action.type)}><Icon size={14} /><span>{label}</span></button>)}
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
@@ -3053,12 +3053,12 @@ function AssetCanvasAddControl({
   }
 
   return <>
-      <div ref={addMenu} className="story-add-node">
+      <div ref={addMenu} className="canvas-add-node">
         {addOpen ? (
-          <div className="story-add-node-menu-shell">
-            <div className="story-add-node-menu" role="menu" aria-label={t("assetCanvas.addNode")}>
+          <div className="canvas-add-node-menu-shell">
+            <div className="canvas-add-node-menu" role="menu" aria-label={t("assetCanvas.addNode")}>
               {creationGroups.map((group) => <Fragment key={group.label}>
-                <span className="story-add-node-menu-label">{group.label}</span>
+                <span className="canvas-add-node-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   if (!isCanvasNodeCreationLeaf(item)) return <button
@@ -3069,18 +3069,18 @@ function AssetCanvasAddControl({
                     aria-expanded={openCreationBranch?.branch === item}
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
-                  ><Icon size={15} /><span>{item.label}</span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  ><Icon size={15} /><span>{item.label}</span><ChevronRight className="canvas-add-node-submenu-arrow" size={13} /></button>;
                   return <button type="button" role="menuitem" key={item.label} title={item.description} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span>{item.label}</span></button>;
                 })}
               </Fragment>)}
-              <span className="story-add-node-menu-label">{t("assetCanvas.group.assets")}</span>
+              <span className="canvas-add-node-menu-label">{t("assetCanvas.group.assets")}</span>
               <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</span></button>
               <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); void loadLibraryAssets().then(setLatestLibrary, () => undefined); }}><Folder size={15} /><span>{t("assetCanvas.fromLibrary")}</span></button>
               {/* The project's plugins' ways to add to this board. */}
               {addSlot.commands.map((command) => <button type="button" role="menuitem" key={command.id} onPointerEnter={() => setOpenCreationBranch(undefined)}
                 onClick={() => { setAddOpen(false); void addSlot.run(command, canvasBoardTarget(boardId)); }}><Plug size={15} /><span>{command.title}</span></button>)}
             </div>
-            {openCreationBranch ? <div className="story-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
+            {openCreationBranch ? <div className="canvas-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
               {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} title={child.description} onClick={() => addItem(child)}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
             </div> : null}
           </div>
@@ -3258,7 +3258,7 @@ function AssetCanvasContextMenu({
   };
   const creationItems = <>
     {creationGroups.map((group) => <Fragment key={group.label}>
-      <span className="story-canvas-context-menu-label">{group.label}</span>
+      <span className="canvas-context-menu-label">{group.label}</span>
       {group.items.map((item) => {
         const Icon = item.icon;
         if (!isCanvasNodeCreationLeaf(item)) return <button
@@ -3274,7 +3274,7 @@ function AssetCanvasContextMenu({
       })}
     </Fragment>)}
   </>;
-  const creationBranch = openCreationBranch ? <div className="story-canvas-context-branch-menu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
+  const creationBranch = openCreationBranch ? <div className="canvas-context-branch-menu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
     {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} title={child.description} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
   </div> : null;
 
@@ -3297,10 +3297,10 @@ function AssetCanvasContextMenu({
     [
       canDownload ? <button type="button" role="menuitem" key="download" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>{t("assetCanvas.download")}</span></button> : null,
       // Both places to add the node to share one entry.
-      canSendToProject && onUseInDocument ? <div className="story-canvas-context-submenu-root" key="add-to" onPointerEnter={() => setAddToOpen(true)}>
+      canSendToProject && onUseInDocument ? <div className="canvas-context-submenu-root" key="add-to" onPointerEnter={() => setAddToOpen(true)}>
         <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addToOpen} onClick={() => setAddToOpen(true)}><FolderPlus size={15} /><span>{t("assetCanvas.addTo")}</span><ChevronRight size={13} /></button>
-        {addToOpen ? <div className="story-canvas-context-add-menu">
-          <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
+        {addToOpen ? <div className="canvas-context-add-menu">
+          <div className="canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addTo")}>{projectItem(t("assetCanvas.addToProjectTarget"))}{documentItem(t("assetCanvas.addToDocumentTarget"))}</div>
         </div> : null}
       </div> : canSendToProject ? projectItem(t("assetCanvas.addToProject")) : documentItem(t("assetCanvas.addToDocument")),
     ],
@@ -3320,10 +3320,10 @@ function AssetCanvasContextMenu({
     <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("assetCanvas.nodeActions")} onClose={onClose}>
       {menu.kind === "pane" ? <>
         {canUngroup ? ungroupItem : null}
-        <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
+        <div className="canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
           <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>{t("assetCanvas.addNode")}</span><ChevronRight size={13} /></button>
-          {addOpen ? <div className="story-canvas-context-add-menu">
-            <div className="story-canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addNode")}>{creationItems}</div>
+          {addOpen ? <div className="canvas-context-add-menu">
+            <div className="canvas-context-submenu" role="menu" aria-label={t("assetCanvas.addNode")}>{creationItems}</div>
             {creationBranch}
           </div> : null}
         </div>
@@ -3340,12 +3340,12 @@ function AssetCanvasContextMenu({
             onClose();
           }}
         />
-        <div className="playable-project-menu-separator" role="separator" />
+        <div className="canvas-project-menu-separator" role="separator" />
         <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
         <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
       </> : nodeSections.map((section, index) => <Fragment key={index}>
-        {index ? <div className="playable-project-menu-separator" role="separator" /> : null}
+        {index ? <div className="canvas-project-menu-separator" role="separator" /> : null}
         {section}
       </Fragment>)}
     </CanvasContextMenu>

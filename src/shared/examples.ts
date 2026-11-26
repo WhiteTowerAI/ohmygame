@@ -3,7 +3,7 @@ import type { ProjectType } from "./contracts.js";
 export const EXAMPLE_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** Project types an example can start. Examples are copied into a workspace and run as is. */
-export const EXAMPLE_PROJECT_TYPES = ["web-game", "interactive-story"] as const satisfies readonly ProjectType[];
+export const EXAMPLE_PROJECT_TYPES = ["web-game"] as const satisfies readonly ProjectType[];
 
 export interface ExampleSummary {
   id: string;
@@ -16,7 +16,7 @@ export interface ExampleSummary {
 export interface ProjectTemplateSummary {
   /** `publisher/name:template`. */
   id: string;
-  type: "general" | "web-game" | "interactive-story";
+  type: "general" | "web-game";
   name: string;
   description?: string;
   plugin: { id: string; displayName: string; version: string; icon?: { type: "asset"; path: string }; iconRevision?: string };
@@ -29,8 +29,8 @@ export interface PreparedExample extends ExampleSummary {
   cover: string;
   /**
    * Static build played without creating a project. Web games are built when
-   * the app is packaged; an interactive story has none and plays as its own
-   * page from its files.
+   * the app is packaged; one without a build, such as an interactive story,
+   * plays as its own page from its files.
    */
   play?: string;
 }
@@ -63,7 +63,7 @@ export function isPreparedExampleCatalog(value: unknown): value is PreparedExamp
     if (!isExampleSummary(example)) return false;
     const prepared = example as unknown as Record<string, unknown>;
     if (!isRelativePath(prepared.directory) || !isRelativePath(prepared.cover)) return false;
-    if (example.type === "web-game" ? !isRelativePath(prepared.play) : prepared.play !== undefined) return false;
+    if (prepared.play !== undefined && !isRelativePath(prepared.play)) return false;
     if (ids.has(example.id)) return false;
     ids.add(example.id);
   }

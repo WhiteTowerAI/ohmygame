@@ -20,6 +20,11 @@ import {
   type ProjectFile,
   type ProjectFileResult,
 } from "../shared/project-file.js";
+import { PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import type { AssetLibrary } from "./asset-library.js";
+import { realFolders } from "./project-layout.js";
+import { localizeStoryAssets } from "./legacy-story-assets.js";
+import { refreshStoryGuides } from "./story-guides.js";
 import type {
   PluginIndex,
   PluginIndexEntry,
@@ -58,10 +63,13 @@ async function writeAtomic(file: string, content: string, mode?: number) {
   }
 }
 
-/** Reads `ohmygame.json`; undefined when the folder has none. */
+type InspectedProjectFile = ProjectFileResult & { legacyStory?: true };
+
+/** Reads and validates the project file without changing the folder. */
 export async function readProjectFile(
   folder: string,
-): Promise<ProjectFileResult | undefined> {
+  acceptLegacyStory = false,
+): Promise<InspectedProjectFile | undefined> {
   let text: string;
   try {
     text = await readFile(path.join(folder, PROJECT_FILE_NAME), "utf8");
@@ -75,7 +83,48 @@ export async function readProjectFile(
   } catch {
     return { ok: false, issues: [`${PROJECT_FILE_NAME} is not JSON`] };
   }
+  // compat: since beta.5.12, keep for project archives until a major version.
+  if (acceptLegacyStory && (value as { type?: unknown } | null)?.type === "interactive-story") {
+    const checked = validateProjectFile({ ...(value as Record<string, unknown>), type: "general" });
+    return { ...checked, legacyStory: true };
+  }
   return validateProjectFile(value);
+}
+
+/** compat: since beta.5.12, remove local Story migration from beta.7 and 2026-12-27.
+ * Archives opt in independently. Only opening a local project may copy its Library assets.
+ */
+export async function migrateStoryProjectFile(folder: string, library?: AssetLibrary): Promise<void> {
+  const key = await projectFolderKey(folder);
+  await withProjectFileWrite(key, async () => {
+    const current = await readProjectFile(key, true);
+    if (!current?.ok || current.file.type !== "general") throw new Error("The project file changed during Story migration");
+    if (current.legacyStory) await migrateStoryFolder(key, current.file, library);
+  });
+}
+
+/**
+ * compat: since beta.5.12, remove from beta.7 and 2026-12-27. Interactive
+ * Stories became web games, and OhMyGame no longer has the type. A story's
+ * `ohmygame.json` names `general`, as a web game's does, and its settings
+ * say it is a web game. The guides OhMyGame wrote stop describing the Story
+ * editor, and outstanding Library references become project files.
+ */
+async function migrateStoryFolder(folder: string, file: ProjectFile, library?: AssetLibrary): Promise<void> {
+  const settingsFile = path.join(folder, ...PROJECT_SETTINGS_FILE.split("/"));
+  let settings: Record<string, unknown> | undefined;
+  try {
+    const value: unknown = JSON.parse(await readFile(settingsFile, "utf8"));
+    if (value && typeof value === "object" && !Array.isArray(value) && (value as { version?: unknown }).version === PROJECT_SETTINGS_VERSION) settings = value as Record<string, unknown>;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") settings = { version: PROJECT_SETTINGS_VERSION, name: path.basename(folder) };
+  }
+  await localizeStoryAssets(folder, library);
+  await refreshStoryGuides(folder);
+  if (settings && settings.kind === undefined && await realFolders(folder, path.dirname(PROJECT_SETTINGS_FILE))) {
+    await writeAtomic(settingsFile, `${JSON.stringify({ ...settings, kind: "web-game" }, null, 2)}\n`);
+  }
+  await writeAtomic(path.join(folder, PROJECT_FILE_NAME), `${JSON.stringify(file, null, 2)}\n`);
 }
 
 const projectWrites = new Map<string, Promise<unknown>>();
@@ -99,9 +148,11 @@ function writeProjectFileAt(
   update: (file: ProjectFile) => ProjectFile,
   initial?: ProjectFile,
 ): Promise<ProjectFile> {
-  const run = (projectWrites.get(folder) ?? Promise.resolve()).then(() =>
-    updateProjectFile(folder, update, initial),
-  );
+  return withProjectFileWrite(folder, () => updateProjectFile(folder, update, initial));
+}
+
+function withProjectFileWrite<T>(folder: string, action: () => Promise<T>): Promise<T> {
+  const run = (projectWrites.get(folder) ?? Promise.resolve()).then(action);
   const settled = run.catch(() => {});
   projectWrites.set(folder, settled);
   void settled.then(() => {

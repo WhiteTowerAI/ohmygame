@@ -12,7 +12,7 @@
     },
     "type": {
       "type": "string",
-      "pattern": "^(?:general|interactive-story|[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)$",
+      "pattern": "^(?:general|[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)$",
       "description": "A core type, or publisher/name:type from a plugin"
     },
     "plugins": {

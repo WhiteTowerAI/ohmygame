@@ -1801,10 +1801,9 @@ describe("project types", () => {
       const types = await availableProjectTypes(services, "zh-CN");
       expect(types.map((type) => type.id)).toEqual([
         "general",
-        "interactive-story",
         "acme/board:board",
       ]);
-      const board = types[2]!;
+      const board = types[1]!;
       expect(board).toMatchObject({
         title: "桌游",
         preview: "web-build",

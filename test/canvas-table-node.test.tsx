@@ -48,7 +48,7 @@ describe("table display and editing", () => {
       "Table generation instruction",
     ])
       expect(html).toContain(`aria-label="${label}"`);
-    expect(html).toContain("story-text-output");
+    expect(html).toContain("canvas-text-output");
     expect(html).toContain("Sword");
     expect(html).not.toContain('aria-label="Add row"');
     expect(html).not.toContain('aria-label="Column 1 type"');

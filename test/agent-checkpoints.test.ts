@@ -926,43 +926,6 @@ describe("Agent checkpoints", () => {
     expect(requests).toEqual([]);
   });
 
-  it("restores an Interactive Story project", async () => {
-    const { project, userMessages, send, idle, file, missing, restore } =
-      await studio(
-        [
-          {
-            write: {
-              "nodes/intro/index.html": "<main>changed by the Agent</main>",
-              "notes.txt": "first",
-            },
-          },
-          { say: "Changed the intro." },
-        ],
-        "interactive-story",
-      );
-    const graph = await file("graph.json");
-    await mkdir(path.join(project.workspacePath, "nodes/intro"), {
-      recursive: true,
-    });
-    await writeFile(
-      path.join(project.workspacePath, "nodes/intro/index.html"),
-      "<main>written by the author</main>",
-    );
-    await send("Change the intro");
-    await idle(1);
-    expect(await file("nodes/intro/index.html")).toBe(
-      "<main>changed by the Agent</main>",
-    );
-
-    const [message] = await userMessages();
-    expect((await restore(message!.checkpointId!)).statusCode).toBe(204);
-    expect(await missing("notes.txt")).toBe(true);
-    expect(await file("graph.json")).toBe(graph);
-    expect(await file("nodes/intro/index.html")).toBe(
-      "<main>written by the author</main>",
-    );
-  });
-
   it("refuses to restore while the Agent is working and for checkpoints it does not have", async () => {
     const { base, app, userMessages, send, idle, file, restore } = await studio(
       [
@@ -2526,7 +2489,7 @@ describe("The end of a turn", () => {
     async (route) => {
       const { app, project, send, ended } = await studio(
         turn(),
-        "interactive-story",
+        "web-game",
       );
       const reached = gate();
       const released = gate();

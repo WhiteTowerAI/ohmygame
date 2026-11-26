@@ -216,11 +216,10 @@ bound project does not have returns an error that says why.
 | `browser_use` | Uses the selected project’s visible Browser panel in the desktop app; shared tabs remain open when the MCP session ends |
 | `panel_screenshot` | Captures one of the selected project’s plugin panels as the desktop app shows it; needs the project open there |
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
-| `project_guide` | Read-only authoring contracts: `topic: "panels"`, `"plugins"` or `"scene-media"`; available in every project |
+| `project_guide` | Read-only authoring contracts: `topic: "plugins"`; available in every project |
 | `fork_plugin` | Copies an installed plugin into the project's `.ohmygame/plugins/`, where the client edits it; recorded as a plugin change the app can undo |
 | `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
 | `library_use` | Copies one of the person's saved Library assets into the project and records its credit; a source's result is added from the Library page instead |
-| `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |
 
 OhMyGame and external agents can call `inspect_media_models` when they need
 the current model or its capabilities. It and generation choose the model the

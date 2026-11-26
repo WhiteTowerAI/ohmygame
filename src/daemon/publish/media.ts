@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,12 +5,10 @@ import { promisify } from "node:util";
 import { crc32, deflate, inflate } from "node:zlib";
 import { PUBLISH_ARTIFACT_MAX_BYTES } from "../../shared/publish-v1.js";
 import { PNG_SIGNATURE } from "../image-format.js";
-import { projectProcessEnvironment } from "../project-process.js";
 
 const deflateAsync = promisify(deflate);
 const inflateAsync = promisify(inflate);
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 /** Recompress PNG scanlines without changing pixels, animation, or metadata. */
 export async function compressPublishPng(bytes: Buffer): Promise<Buffer> {
@@ -141,52 +138,21 @@ function orientationSegment(orientation: number): Buffer {
 export class PublishMediaOptimizer {
   readonly #files = new Map<string, string>();
   #temporary?: string;
-  #encoderMissing = false;
-
-  /**
-   * `video` re-encodes MP4s, which loses quality: only for a story, whose
-   * videos OhMyGame plays. A game's own files are only changed losslessly.
-   */
-  constructor(
-    private readonly track: (child: ChildProcess) => void,
-    private readonly video = true,
-  ) {}
-
   async optimize(source: string): Promise<string> {
     const cached = this.#files.get(source);
     if (cached) return cached;
     const extension = path.extname(source).toLowerCase();
     if (extension === ".jpg" || extension === ".jpeg") return this.#stripJpeg(source);
-    if (extension !== ".png" && (extension !== ".mp4" || !this.video)) return source;
+    if (extension !== ".png") return source;
     const { size } = await stat(source);
-    // Small assets do not justify a decode or a video encode.
-    if (
-      size < 256 * 1024 ||
-      size > (extension === ".png" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES)
-    )
-      return source;
-    this.#temporary ??= await mkdtemp(
-      path.join(tmpdir(), "ohmygame-publish-media-"),
-    );
-    const destination = path.join(
-      this.#temporary,
-      `${this.#files.size}${extension}`,
-    );
+    if (size < 256 * 1024 || size > MAX_IMAGE_BYTES) return source;
+    const original = await readFile(source);
+    const compressed = await compressPublishPng(original);
     let result = source;
-    if (extension === ".png") {
-      const original = await readFile(source);
-      const compressed = await compressPublishPng(original);
-      if (compressed.length < original.length) {
-        await writeFile(destination, compressed);
-        result = destination;
-      }
-    } else if (
-      !this.#encoderMissing &&
-      (await this.#encodeVideo(source, destination))
-    ) {
-      const outputSize =
-        (await stat(destination).catch(() => undefined))?.size ?? 0;
-      if (outputSize > 0 && outputSize < size) result = destination;
+    if (compressed.length < original.length) {
+      this.#temporary ??= await mkdtemp(path.join(tmpdir(), "ohmygame-publish-media-"));
+      result = path.join(this.#temporary, `${this.#files.size}.png`);
+      await writeFile(result, compressed);
     }
     this.#files.set(source, result);
     return result;
@@ -214,57 +180,4 @@ export class PublishMediaOptimizer {
       await rm(this.#temporary, { recursive: true, force: true });
   }
 
-  async #encodeVideo(source: string, destination: string): Promise<boolean> {
-    const child = spawn(
-      process.env.OHMYGAME_FFMPEG_PATH || "ffmpeg",
-      [
-        "-nostdin",
-        "-v",
-        "error",
-        "-y",
-        "-i",
-        source,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "23",
-        "-vf",
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-pix_fmt",
-        "yuv420p",
-        "-fps_mode",
-        "passthrough",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        destination,
-      ],
-      {
-        env: projectProcessEnvironment(),
-        stdio: "ignore",
-        detached: process.platform !== "win32",
-        windowsHide: true,
-      },
-    );
-    this.track(child);
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => child.kill("SIGKILL"), 2 * 60_000);
-      child.once("error", (error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") this.#encoderMissing = true;
-      });
-      child.once("close", (code) => {
-        clearTimeout(timeout);
-        resolve(code === 0);
-      });
-    });
-  }
 }

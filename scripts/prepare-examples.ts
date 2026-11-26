@@ -2,16 +2,15 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { isExampleSummary, isPreparedExampleCatalog, type PreparedExample, type PreparedExampleCatalog } from "../src/shared/examples.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 // Downloads the pinned commit of the examples repository and packages the
 // examples its catalog lists into .runtime/examples for the daemon and the
 // desktop build: each example's source (copied into new projects), its cover,
-// and for web games a static build played straight from Home. Interactive
-// stories are checked with the Playable Nodes compiler here and compiled again
-// by the daemon when played. Pass --require to fail when the repository is unreachable;
+// and for web games with a build script a static build played straight from
+// Home; one without, such as an interactive story, plays from its own files.
+// Pass --require to fail when the repository is unreachable;
 // otherwise a missing download only disables examples.
 
 interface LockFile {
@@ -59,8 +58,6 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
     const examples: PreparedExample[] = [];
     for (const sourceEntry of listed.examples as Array<Record<string, unknown>>) {
       const entry = { ...sourceEntry };
-      // The examples repository still uses the former interactive story type.
-      if (entry.type === "interactive-drama") entry.type = "interactive-story";
       if (!isExampleSummary(entry) || typeof entry.path !== "string" || typeof entry.cover !== "string") {
         throw new Error(`Invalid catalog entry: ${JSON.stringify(entry)}`);
       }
@@ -74,17 +71,12 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       });
       await cp(coverFile, path.join(prepared, cover));
       const summary = { id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover };
-      if (entry.type === "interactive-story") {
-        console.log(`Checking ${entry.id}…`);
-        try {
-          if (!(await buildPlayableProject(path.join(prepared, directory), "publish"))) throw new Error("graph.json is missing");
-        } catch (error) {
-          throw new Error(`${entry.id} does not compile: ${error instanceof Error ? error.message : String(error)}`);
-        }
+      // A game without package.json, such as an interactive story, plays as it is from its index.html.
+      if (!(await stat(path.join(exampleDirectory, "package.json")).catch(() => undefined))?.isFile()) {
+        await stat(path.join(exampleDirectory, "index.html"));
         examples.push(summary);
         continue;
       }
-      if (!(await stat(path.join(exampleDirectory, "package.json"))).isFile()) throw new Error(`${entry.id} has no package.json`);
       const play = `${entry.id}/play`;
       console.log(`Building ${entry.id}…`);
       await npm(["ci", "--no-audit", "--no-fund"], exampleDirectory);
@@ -137,7 +129,7 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     const catalog: unknown = JSON.parse(await readFile(path.join(directory, "catalog.json"), "utf8"));
     if (!isPreparedExampleCatalog(catalog)) return false;
     for (const example of catalog.examples) {
-      await stat(path.join(directory, example.directory, example.type === "web-game" ? "package.json" : "graph.json"));
+      await stat(path.join(directory, example.directory, example.play ? "package.json" : "index.html"));
       await stat(path.join(directory, example.cover));
       if (example.play) await stat(path.join(directory, example.play, "index.html"));
     }

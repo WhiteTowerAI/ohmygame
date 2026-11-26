@@ -19,7 +19,6 @@ const READ_ONLY_TOOLS = new Set([
   "get_job",
   "wait_job",
   "canvas_check",
-  "playable_check",
 ]);
 const PROJECT_INDEPENDENT_TOOLS = new Set([
   "list_projects",

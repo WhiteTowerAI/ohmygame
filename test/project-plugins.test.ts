@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProjectManager } from "../src/daemon/projects.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 import {
@@ -196,6 +197,16 @@ describe("project file", () => {
     await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ ...JSON.parse(text), $schema: "https://ohmygame.dev/schema/project-1.json" }));
     await writeProjectFile(folder, (file) => file);
     expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).$schema).toBe(PROJECT_FILE_SCHEMA_URL);
+  });
+
+  it("leaves an invalid legacy Story manifest and its settings untouched", async () => {
+    const folder = await temporary();
+    const manifest = path.join(folder, "ohmygame.json");
+    const text = JSON.stringify({ type: "interactive-story", plugins: { "acme/demo": "^1.0.0" } });
+    await writeFile(manifest, text);
+    await expect(new ProjectManager(await temporary()).create(undefined, "web-game", folder)).rejects.toThrow("Invalid Story project file");
+    expect(await readFile(manifest, "utf8")).toBe(text);
+    await expect(stat(path.join(folder, ".ohmygame"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("publishes a JSON Schema that matches its source", async () => {
@@ -562,22 +573,17 @@ describe("project plugins", () => {
       const unreal = services.index.get(UNREAL_PLUGIN)!;
       const godot = services.index.get(GODOT_PLUGIN)!;
       expect(unreal.manifest.appliesTo).toEqual(["general"]);
-      // An Interactive Story can't turn on Unreal, which suits General projects.
-      const web = await temporary();
-      await writeProjectFile(web, (file) => file, { type: "interactive-story" });
-      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in interactive-story projects");
-      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
-      await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
-      await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
-      expect(await stateOf(web, services)).toEqual([[UNREAL_PLUGIN, "not-applicable"]]);
-      expect(await services.mcpServers(web)).toEqual({});
-      await services.setProjectPlugin(web, UNREAL_PLUGIN, false);
-      expect(await stateOf(web, services)).toEqual([]);
       // Godot names its own type, so a Godot project keeps it and can't add Unreal.
       const typed = await temporary();
       await createProjectPlugins({ folder: typed, type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: godot.version }, index: services.index, grants: services.grants });
       expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
       await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, true, { version: unreal.version })).rejects.toThrow("doesn't work in");
+      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
+      await writeProjectFile(typed, (file) => ({ ...file, plugins: { ...file.plugins, [UNREAL_PLUGIN]: unreal.version } }));
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"], [UNREAL_PLUGIN, "not-applicable"]]);
+      await services.setProjectPlugin(typed, UNREAL_PLUGIN, false);
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
       // A General project can turn on both.
       const general = await temporary();
       await services.setProjectPlugin(general, UNREAL_PLUGIN, true, { version: unreal.version, initialType: "general" });

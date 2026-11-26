@@ -1,4 +1,4 @@
-.story-canvas .react-flow__node-group { padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; pointer-events: none !important; }
+.canvas-flow .react-flow__node-group { padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; pointer-events: none !important; }
 .design-workspace { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .canvas-group-node { box-sizing: border-box; width: 100%; height: 100%; border: 1px solid color-mix(in srgb, var(--theme-accent) 48%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--theme-accent) 5%, transparent); }
 .canvas-group-node .react-flow__resize-control { pointer-events: auto; }
@@ -6,10 +6,10 @@
 /* Groups organize large areas and are read zoomed out, so their names use the large size. */
 .canvas-group-heading { pointer-events: auto; cursor: grab; display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; color: var(--text); background: color-mix(in srgb, var(--theme-accent) 11%, var(--surface)); border-bottom: 1px solid var(--border); font-size: var(--text-lg); }
 .canvas-group-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.design-workspace > .viewer-pane.interactive-story-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.design-workspace > .viewer-pane.canvas-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .design-workspace > .viewer-pane[hidden] { display: none; }
-.design-workspace .interactive-story-body { flex: 1; }
-.design-workspace .interactive-story-canvas { position: relative; }
+.design-workspace .canvas-pane-body { flex: 1; }
+.design-workspace .canvas-surface { position: relative; }
 .design-loading { flex: 1; display: grid; place-items: center; }
 /* One stack of notices floats over the top of the canvas, and over an expanded document or table, so a failed save is never hidden. */
 .canvas-notice-anchor { position: relative; z-index: var(--z-canvas-notice); height: 0; }
@@ -21,10 +21,9 @@
 .design-notice button { flex-shrink: 0; }
 .design-document-issue { padding: 8px 12px; color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text)); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; }
-.story-media-reference.is-unavailable { border: 1px solid var(--danger); }
-.story-media-reference .canvas-reference-retry { left: 4px; right: auto; }
-.story-save-notice { display: flex; align-items: flex-start; gap: 8px; }
-.story-canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
+.canvas-media-reference.is-unavailable { border: 1px solid var(--danger); }
+.canvas-media-reference .canvas-reference-retry { left: 4px; right: auto; }
+.canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
 .design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
 /* The board's name floats over the board as a light chip that picks another. */
 .design-board-switcher > svg { flex-shrink: 0; color: var(--color-text-tertiary); }
@@ -34,7 +33,7 @@
 .design-board-switcher .canvas-chip svg { color: var(--color-text-tertiary); }
 .design-document-node-footer button, .design-expanded-toolbar button, .design-expanded-close, .design-ai-result button, .design-modal header button { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--color-text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 :is(.design-document-node-footer, .design-expanded-toolbar, .design-ai-result) button:hover, .design-expanded-close:hover { background: var(--color-hover); color: var(--color-text); }
-.design-document-node > .story-text-output { overflow: visible; }
+.design-document-node > .canvas-text-output { overflow: visible; }
 .design-document-node-content { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .design-document-node-header input, .design-document-node-header > span { flex: 1; min-width: 0; height: 18px; padding: 0; font: inherit; line-height: 18px; }
 .design-document-node-header input { border: 0; outline: 0; background: transparent; color: inherit; }
@@ -86,7 +85,7 @@
 .design-modal p { font-size: 12px; line-height: 1.6; }
 .design-insert-text { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 @media (max-width: 640px) {
-  .design-workspace .react-flow__panel.story-canvas-zoom { bottom: 62px; }
+  .design-workspace .react-flow__panel.canvas-zoom { bottom: 62px; }
   .design-board-switcher { top: 10px; left: 10px; }
   .design-board-switcher .canvas-chip { max-width: 220px; }
   .design-expanded-toolbar { gap: 4px; padding-left: 8px; }
@@ -116,7 +115,7 @@
   opacity: 0;
   cursor: pointer;
 }
-.story-node:hover .canvas-node-details,
+.canvas-node:hover .canvas-node-details,
 .canvas-node-details:focus-visible {
   opacity: 1;
 }
@@ -166,16 +165,16 @@
 }
 
 /* The saved node frame covers reading content; selection tools sit below it. */
-.story-text-node { width: 100%; height: 100%; }
-.story-text-node > .story-text-output { display: flex; flex-direction: column; height: 100%; }
-.story-text-output > textarea { flex: 1; min-height: 0; }
+.canvas-text-node { width: 100%; height: 100%; }
+.canvas-text-node > .canvas-text-output { display: flex; flex-direction: column; height: 100%; }
+.canvas-text-output > textarea { flex: 1; min-height: 0; }
 .design-document-node-footer.is-hidden { visibility: hidden; }
 .canvas-node-auxiliary { position: absolute; top: 100%; left: 0; width: 100%; }
 .canvas-node-resize-handle { width: 5px !important; height: 5px !important; border: 1px solid color-mix(in srgb, var(--theme-accent) 45%, var(--border)) !important; border-radius: 1px !important; background: var(--surface) !important; }
 .canvas-node-resize-handle:not(.top.left, .top.right, .bottom.left, .bottom.right) { opacity: 0; }
 .canvas-node-resize-handle:hover { border-color: var(--theme-accent) !important; }
 .canvas-node-resize-line { border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent) !important; }
-.story-node > .story-text-output-handle { top: 50%; }
+.canvas-node > .canvas-text-output-handle { top: 50%; }
 
 .canvas-table-node .design-document-node-body { display: flex; flex-direction: column; }
 .canvas-table-preview { width: 100%; height: 100%; min-height: 0; }
@@ -211,10 +210,10 @@
 .canvas-table-editor > .canvas-table-scroll { margin: 0 16px; }
 
 /* Handle bounds end at the node edge; the icon and hit area sit outside it. */
-.story-node .react-flow__handle.canvas-port { width: 16px; height: 16px; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; z-index: 5; }
-.story-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / -2); }
-.story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / 2); }
-.story-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
+.canvas-node .react-flow__handle.canvas-port { width: 16px; height: 16px; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; z-index: 5; }
+.canvas-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / -2); }
+.canvas-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / 2); }
+.canvas-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
 .canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: calc(var(--canvas-port-size) / 2); height: calc(var(--canvas-port-size) / 2); translate: -50% -50%; scale: 0.6; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface-raised); color: var(--color-text-secondary); box-shadow: var(--shadow-float); opacity: 0; pointer-events: none; transition: opacity var(--duration-fast), scale var(--duration-fast), background-color var(--duration-fast), color var(--duration-fast); }
 /* Hovering a node, or selecting only it, shows where it connects; the port under the pointer turns ink, like the selection ring. */
 :is(.react-flow__node:hover, .has-single-selection .react-flow__node.selected) .canvas-port-icon { opacity: 1; scale: 1; }
@@ -234,7 +233,7 @@
 .canvas-composer-toolbar { position: absolute; z-index: 2; top: 8px; right: 8px; display: flex; align-items: center; gap: 2px; }
 .canvas-composer-toolbar + * { padding-right: 56px; }
 /* In the dialog the composer is the body, so it drops its own card. */
-.ui-dialog .canvas-composer.is-expanded:is(.story-media-composer, .story-text-composer, *) { margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.ui-dialog .canvas-composer.is-expanded:is(.canvas-media-composer, .canvas-text-composer, *) { margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
 .canvas-composer.is-expanded > .canvas-composer-toolbar { position: static; margin-bottom: var(--space-2); }
 .canvas-composer.is-expanded > .canvas-composer-toolbar + * { padding-right: 0; }
 .canvas-composer.is-expanded > textarea, .canvas-composer.is-expanded .video-reference-prompt textarea { min-height: min(45dvh, 420px); font-size: var(--text-md); line-height: 1.7; resize: vertical; }
@@ -254,6 +253,6 @@
 .react-flow__node.canvas-reference-selected::after { box-shadow: 0 0 0 2px var(--color-ink); }
 .react-flow__node.canvas-reference-target::after { outline: 2px dashed var(--color-border-strong); }
 .react-flow__node.canvas-reference-unavailable { opacity: 0.35; filter: grayscale(1); cursor: not-allowed; }
-.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .story-node { pointer-events: none; }
+.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .canvas-node { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .canvas-port-icon, .react-flow__node::after { transition: none; } }
 @media (max-width: 600px) { .canvas-composer-anchor { width: max(100%, 340px); } .canvas-reference-mode { width: calc(100% - 24px); } .canvas-reference-mode > div > span { display: none; } }
