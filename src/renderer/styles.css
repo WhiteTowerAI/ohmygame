@@ -7855,6 +7855,17 @@ button {
   padding: 18px var(--chat-inset) 24px;
 }
 
+/* A conversation with nothing in it yet: its question sits in the middle of the column. */
+.timeline:has(> .chat-start) {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-start {
+  display: flex;
+  flex: 1;
+}
+
 .agent-timeline-selection-root {
   display: contents;
 }

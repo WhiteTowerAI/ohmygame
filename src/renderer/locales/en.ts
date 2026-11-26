@@ -2078,6 +2078,15 @@ const en = {
     folderMissing: "The selected workspace folder is no longer available.",
     runtimeUnreachable: "Could not reach the local runtime.",
     newConversation: "New conversation",
+    start: {
+      title: "What should we make?",
+      "web-game": "Say what web game you want; play it on the right once it's made.",
+      "godot-game": "Say what you want; the agent edits the Godot project's scenes and scripts.",
+      "interactive-story": "Say what the story is about; its scenes and branches appear on the right.",
+      general: "Say what game you want; the agent suggests what to build it with.",
+      "asset-canvas": "Say what assets you need; they land on the canvas.",
+      other: "Say what you want; the agent works in this project.",
+    },
     hideAgent: "Hide agent",
     promptPaused:
       "Your first message wasn't sent while the service restarted, so it's back in the message box.",

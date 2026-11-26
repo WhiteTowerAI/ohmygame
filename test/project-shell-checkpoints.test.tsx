@@ -346,6 +346,20 @@ describe("project shell layout", () => {
     ).toContain("history-entry");
   });
 
+  it("asks what to make in a conversation with nothing in it yet, and not once it has turns", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    await openProject(() => undefined, { ...detail("history"), turns: [] });
+    await settle();
+    expect(container.querySelector(".chat-start .ui-empty-title")?.textContent).toBe("What should we make?");
+    // The line says what happens for the project's type, here a General project.
+    expect(container.querySelector(".chat-start .ui-empty-description")?.textContent).toBe("Say what game you want; the agent suggests what to build it with.");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await openProject(() => undefined, detail("history"));
+    await settle();
+    expect(container.querySelector(".chat-start")).toBeNull();
+  });
+
   it("applies streamed text together on a frame, at most every 50 ms, before any later event", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("history"));

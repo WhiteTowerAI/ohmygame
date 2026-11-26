@@ -2043,6 +2043,7 @@ export function ProjectShell({
       }}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
+            {project && state.phase !== "loading" && state.turns.length === 0 && state.pendingPrompts.length === 0 ? <ChatStart type={project.type} /> : null}
             <Activity mode={chatShown ? "visible" : "hidden"}>
               <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
               <AgentTimeline
@@ -2264,4 +2265,12 @@ export function mergeFileChanges(
   const all = [...new Set([...earlier.paths, ...later.paths])].sort();
   const truncated = earlier.truncated || later.truncated || all.length > HOOK_FILES_MAX;
   return { paths: all.slice(0, HOOK_FILES_MAX), ...(truncated ? { truncated: true } : {}) };
+}
+
+const CHAT_START_TYPES = ["web-game", "godot-game", "interactive-story", "general", "asset-canvas"] as const;
+
+/** A conversation with nothing in it yet asks what to make, with a line on what happens for the project's type. */
+function ChatStart({ type }: { type: string }) {
+  const key = (CHAT_START_TYPES as readonly string[]).includes(type) ? type as typeof CHAT_START_TYPES[number] : "other";
+  return <div className="chat-start"><Empty fill title={t("projectShell.start.title")} description={t(`projectShell.start.${key}`)} /></div>;
 }
