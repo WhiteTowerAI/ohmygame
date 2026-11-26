@@ -47,6 +47,7 @@ export {
   Collapsible,
   Disclosure,
   Empty,
+  ErrorDetails,
   Item,
   Kbd,
   Progress,

@@ -82,7 +82,7 @@ import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./work
 import type { PanelNodes } from "./panel-layout.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, Empty, IconButton, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -1100,6 +1100,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           {onLogs ? <Button variant="ghost" size="sm" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
           {onSettings ? <Button variant="ghost" size="sm" onClick={onSettings}>{t("projectSettings.title")}</Button> : null}
         </div> : null}
+        {preview?.status === "error" && preview.error ? <PreviewErrorDetails error={preview.error} /> : null}
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
         <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
@@ -1986,17 +1987,27 @@ function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen 
 }
 
 /** A panel's loading, failed, or nothing-here state; `art` is a game icon for a panel that has nothing yet. */
-function WorkspaceState({ title, label, description, error, loading, icon, art }: { title?: string; label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode }) {
+function WorkspaceState({ title, label, description, error, loading, icon, art, detailsApart }: { title?: string; label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode; detailsApart?: boolean }) {
   // A long message, such as a build's output, shows its first line; the rest is in the details.
   const text = error ?? label ?? "";
-  const [first, ...rest] = text.split("\n");
-  const details = rest.join("\n").trim();
-  const more = details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null;
+  const [first, details] = splitMessage(text);
   // With a title of its own, such as a failed preview's, the message reads under it instead of as it.
   return <Empty fill tone={error ? "error" : undefined} art={art}
     icon={loading ? <Spinner size="md" /> : error ? <TriangleAlert size="md" /> : icon}
     title={title ?? (details ? first : text)}
-    description={title ? <><p>{first}</p>{more}</> : more ?? description} />;
+    description={title ? first : description}
+    details={detailsApart ? undefined : details} />;
+}
+
+function PreviewErrorDetails({ error }: { error: string }) {
+  const details = splitMessage(error)[1];
+  return details ? <ErrorDetails text={details} /> : null;
+}
+
+/** A long message, such as a build's output: its first line, and the rest for its details. */
+function splitMessage(text: string): [string, string | undefined] {
+  const [first = "", ...rest] = text.split("\n");
+  return [first, rest.join("\n").trim() || undefined];
 }
 
 /**
@@ -2050,7 +2061,8 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
     update(); const timer = setInterval(update, 1_000); return () => clearInterval(timer);
   }, [status, startedAt]);
   switch (status) {
-    case "error": return <WorkspaceState title={t("workspace.previewFailed")} error={error ?? t("workspace.processStopped")} />;
+    // Its details go under the panel's actions.
+    case "error": return <WorkspaceState title={t("workspace.previewFailed")} error={error ?? t("workspace.processStopped")} detailsApart />;
     case "starting": return <div className="preview-starting" role="status"><Spinner size="sm" /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;

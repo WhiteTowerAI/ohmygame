@@ -7,6 +7,7 @@ import type {
 } from "../shared/web-search.js";
 import { getWebSearchSettings, updateWebSearchSettings } from "./api.js";
 import { t } from "./i18n.js";
+import { Spinner } from "./icons.js";
 import { Badge, Button, Checkbox, Field, Input, RadioGroup, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
@@ -68,7 +69,7 @@ export function WebSearchSettingsPanel() {
   }
 
   if (!form || !settings) {
-    return error ? <SettingsNote tone="danger">{error}</SettingsNote> : <div className="settings-loading-row">{t("webSearch.loading")}</div>;
+    return error ? <SettingsNote tone="danger">{error}</SettingsNote> : <div className="settings-loading-row"><Spinner size="md" />{t("webSearch.loading")}</div>;
   }
 
   function update(patch: Partial<FormState>) {

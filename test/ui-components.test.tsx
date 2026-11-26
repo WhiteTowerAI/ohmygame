@@ -490,7 +490,7 @@ it("draws every empty state the same way: one tile, a title, a line, actions in 
   await act(async () => root.render(<>
     <Empty icon={<svg />} title="Loading" />
     <Empty art={<span className="game-icon" />} title="No media yet" description="Make some" action={<><Button>One</Button><Button>Two</Button></>} fill />
-    <Empty tone="error" icon={<svg />} title="Could not load" />
+    <Empty tone="error" icon={<svg />} title="Could not load" action={<Button>Retry</Button>} details="stack" />
   </>));
   const [plain, art, error] = [...container.querySelectorAll(".ui-empty")];
   expect(plain!.querySelector(".ui-empty-icon > svg")).not.toBeNull();
@@ -503,4 +503,7 @@ it("draws every empty state the same way: one tile, a title, a line, actions in 
   expect([...art!.querySelectorAll(".ui-empty-actions > button")].map((button) => button.textContent)).toEqual(["One", "Two"]);
   expect(error!.getAttribute("role")).toBe("alert");
   expect(error!.className).toBe("ui-empty is-error");
+  // An error's text is folded last, under the actions, so opening it moves nothing above.
+  expect(error!.lastElementChild?.matches("details.ui-empty-details")).toBe(true);
+  expect(error!.lastElementChild?.querySelector("summary")?.textContent).toBe("Error details");
 });

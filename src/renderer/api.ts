@@ -1756,6 +1756,16 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The request got no answer. Not an ApiError: the service may still have
+ * acted on it, so callers that tell a refusal from a lost request still can.
+ */
+export class ServiceUnreachableError extends Error {
+  constructor() {
+    super(t("api.serviceUnavailable"));
+  }
+}
+
 export async function request<T>(path: string, init: WorkspaceRequestInit = {}): Promise<T> {
   const projectId = /^\/projects\/([^/?]+)/.exec(path)?.[1];
   const observedVersion = projectId ? workspaceVersion(projectId) : undefined;
@@ -1768,6 +1778,10 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
       ...(projectId ? { "x-workspace-version": init.workspaceVersion ?? observedVersion! } : {}),
       ...init.headers,
     },
+  }).catch((error: unknown) => {
+    // The browser's "Failed to fetch" means the service didn't answer; say so in the person's language.
+    if (error instanceof TypeError) throw new ServiceUnreachableError();
+    throw error;
   });
   const version = response.headers.get("x-workspace-version");
   if (projectId && version && (!init.method || init.method === "GET") && workspaceVersion(projectId) === observedVersion) observeWorkspaceVersion(projectId, version);

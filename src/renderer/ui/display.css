@@ -288,8 +288,40 @@
   margin: 0;
 }
 
+/* Details stay centred under the line. */
 .ui-empty-description > :is(.ui-disclosure, details) {
   max-width: min(560px, 100%);
+  margin-top: var(--space-1);
+  text-align: start;
+}
+
+.ui-empty-description > .ui-disclosure > .ui-disclosure-summary {
+  margin-inline: auto;
+}
+
+/* An error's details come last; opened, the text hangs below them, so
+   nothing above moves. */
+.ui-empty-details {
+  position: relative;
+  align-self: stretch;
+  margin-top: var(--space-1);
+}
+
+.ui-empty-details > .ui-disclosure-summary {
+  margin-inline: auto;
+}
+
+.ui-disclosure.is-inline.ui-empty-details[open] > .ui-disclosure-summary {
+  margin-bottom: 0;
+}
+
+.ui-disclosure.is-inline.ui-empty-details > pre {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: min(560px, 100%);
+  margin-top: var(--space-2);
+  transform: translateX(-50%);
   text-align: start;
 }
 

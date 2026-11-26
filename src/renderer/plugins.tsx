@@ -1,7 +1,7 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { MinePlugins } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
@@ -527,8 +527,12 @@ function PluginState({ children }: { children: ReactNode }): ReactNode {
   return <div className="plugins-state"><Spinner size={14} label={typeof children === "string" ? children : undefined} />{children}</div>;
 }
 
+/** The page couldn't load: the same failed state as Community's and Projects'. */
 function PluginError({ message, onRetry }: { message?: string; onRetry: () => void }): ReactNode {
-  return <Alert tone="danger" title={message ?? t("common.somethingWrong")} action={<Button size="sm" onClick={onRetry}>{t("common.retry")}</Button>} />;
+  return <div className="plugins-error-state">
+    <Empty fill tone="error" icon={<TriangleAlert size="md" />} title={message ?? t("common.somethingWrong")}
+      action={<Button onClick={onRetry}>{t("common.retry")}</Button>} />
+  </div>;
 }
 
 type AddDialogOptions = { listed?: MarketPlugin; source?: PluginAddSource; preview?: PluginAddPreview };

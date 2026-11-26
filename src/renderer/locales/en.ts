@@ -2076,7 +2076,7 @@ const en = {
     promptReturned: "Your first message hasn't been sent yet, so it's back in the message box.",
     promptReturnedBecause: "Your first message hasn't been sent yet, so it's back in the message box. {{reason}}",
     folderMissing: "The selected workspace folder is no longer available.",
-    runtimeUnreachable: "Could not reach the local runtime.",
+    runtimeUnreachable: "Couldn't reach the background service.",
     newConversation: "New conversation",
     start: {
       title: "What should we make?",
@@ -2893,7 +2893,7 @@ const en = {
     seedanceRetiredRetry: "This built-in Seedream or Seedance task cannot be resumed. Check its result and billing in Ark or BytePlus before starting a new generation with the plugin.",
     minimaxRetiredProvider: "MiniMax now runs through its plugin. Choose a MiniMax plugin model; the built-in provider is no longer available.",
     minimaxRetiredRetry: "This built-in MiniMax task cannot be resumed. Check its status in MiniMax before starting a new generation with the MiniMax plugin.",
-    runtimeUnreachable: "Could not reach the local runtime",
+    runtimeUnreachable: "Couldn't reach the background service",
     requestFailed: "Request failed with {{status}}",
     serviceUnavailable: "Background service unavailable",
     serviceUnavailableLong:

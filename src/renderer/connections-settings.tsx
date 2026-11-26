@@ -13,7 +13,7 @@ import {
   updateConnection,
 } from "./api.js";
 import { t } from "./i18n.js";
-import { CirclePlus, Plug } from "./icons.js";
+import { CirclePlus, Plug, Spinner } from "./icons.js";
 import { PluginConfigurationPanel } from "./plugin-controls.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
@@ -48,7 +48,7 @@ export function ConnectionsSettings() {
         actions={<Button size="sm" icon={<CirclePlus size="sm" />} onClick={() => setAdding(true)}>{t("connections.add")}</Button>}
       >
         {!connections ? (
-          <div className="settings-loading-row">{t("connections.loading")}</div>
+          <div className="settings-loading-row"><Spinner size="md" />{t("connections.loading")}</div>
         ) : !connections.length ? (
           <SettingsRow title={t("connections.empty")} description={t("connections.emptyHint")} />
         ) : connections.map((connection) => (

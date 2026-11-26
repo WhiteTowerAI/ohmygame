@@ -605,7 +605,8 @@ describe("plugins in the project shell", () => {
     );
     await settle();
     expect(handled).toHaveBeenCalledOnce();
-    expect(container.querySelector(".composer-error")?.textContent).toContain("Failed to fetch");
+    // Said in the person's words, not the browser's "Failed to fetch".
+    expect(container.querySelector(".composer-error")?.textContent).toContain("Background service unavailable");
     expect(container.querySelector(".composer-info")).toBeNull();
     expect(promptText(container)).toBe("");
   });

@@ -1999,7 +1999,9 @@ export function ProjectShell({
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} />
+        // While the project loads, a spinner shows only if it takes a moment.
+        : <div className="panels-loading"><Spinner size="md" /></div>} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">

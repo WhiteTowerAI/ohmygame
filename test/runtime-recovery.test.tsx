@@ -707,8 +707,9 @@ describe("game panel without a web build", () => {
     await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
     // A failed preview says so in a short title; the message reads under it, the build's output in the details.
     expect(container.querySelector('[role="alert"] .ui-empty-title')?.textContent).toBe("The preview didn't start");
-    expect(container.querySelector('[role="alert"] .ui-empty-description > p')?.textContent).toBe("Godot's web export templates aren't installed.");
-    expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
+    expect(container.querySelector('[role="alert"] .ui-empty-description')?.textContent).toBe("Godot's web export templates aren't installed.");
+    // The build's output is folded last, under the actions, so opening it moves nothing above.
+    expect(container.querySelector(".preview-status-panel > details:last-child")?.textContent).toContain("export: line 2");
     // The engine's command joins Retry in one row; the logs and settings sit below as links.
     expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toEqual(["Retry preview", "Run in Engine"]);
     expect([...container.querySelectorAll(".preview-recovery-links button")].map((button) => button.textContent)).toEqual(["Project settings"]);

@@ -72,6 +72,11 @@
   font-size: var(--text-sm);
 }
 
+.plugins-error-state {
+  display: flex;
+  min-height: min(420px, 60vh);
+}
+
 .plugins-state {
   display: flex;
   align-items: center;

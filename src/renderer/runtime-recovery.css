@@ -61,6 +61,11 @@
   min-width: 0;
   min-height: 180px;
 }
+
+/* The whole app failing fills the window, so its message sits in the middle. */
+:is(#root, .desktop-close-content, .desktop-window-content) > .pane-error-boundary {
+  min-height: 100vh;
+}
 .preview-recovery-actions,
 .unfinished-restore-actions {
   display: flex;

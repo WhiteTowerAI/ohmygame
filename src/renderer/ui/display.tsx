@@ -229,6 +229,7 @@ export function Empty({
   title,
   description,
   action,
+  details,
   fill = false,
   tone,
 }: {
@@ -237,6 +238,8 @@ export function Empty({
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  /** An error's full text, folded under the actions. */
+  details?: string;
   /** Takes the room its container gives and sits in the middle of it. */
   fill?: boolean;
   tone?: "error";
@@ -247,7 +250,20 @@ export function Empty({
       <strong className="ui-empty-title">{title}</strong>
       {description ? <div className="ui-empty-description">{description}</div> : null}
       {action ? <div className="ui-empty-actions">{action}</div> : null}
+      {details ? <ErrorDetails text={details} /> : null}
     </div>
+  );
+}
+
+/**
+ * An error's full text, folded, last under a state's actions: opened, the text
+ * hangs below, so nothing above it moves.
+ */
+export function ErrorDetails({ text }: { text: string }) {
+  return (
+    <Disclosure className="ui-empty-details" summary={t("common.errorDetails")}>
+      <pre>{text}</pre>
+    </Disclosure>
   );
 }
 
