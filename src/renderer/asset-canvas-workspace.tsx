@@ -3340,12 +3340,12 @@ function AssetCanvasContextMenu({
             onClose();
           }}
         />
-        <div className="playable-project-menu-separator" role="separator" />
+        <div className="canvas-project-menu-separator" role="separator" />
         <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
         <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
       </> : nodeSections.map((section, index) => <Fragment key={index}>
-        {index ? <div className="playable-project-menu-separator" role="separator" /> : null}
+        {index ? <div className="canvas-project-menu-separator" role="separator" /> : null}
         {section}
       </Fragment>)}
     </CanvasContextMenu>

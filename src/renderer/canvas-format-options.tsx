@@ -17,7 +17,7 @@ export function CanvasFormatOptions({
     <div
       className="canvas-format-options"
       role="radiogroup"
-      aria-label={t("storySettings.canvasFormat")}
+      aria-label={t("canvasSettings.canvasFormat")}
     >
       {CANVAS_FORMAT_PRESETS.map((preset) => (
         <button

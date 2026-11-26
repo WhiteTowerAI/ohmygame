@@ -164,7 +164,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       if (event.isMainFrame || !event.frame) return;
       if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
     });
-  // A hidden window, such as a Scene thumbnail capture, runs the game out of
+  // A hidden window, such as an agent's playtest, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);
   else window.once("ready-to-show", () => window.show());

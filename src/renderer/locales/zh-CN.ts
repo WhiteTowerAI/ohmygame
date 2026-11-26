@@ -1715,7 +1715,6 @@ const zhCN: typeof en = {
     resize: "调整{{area}}大小",
     chat: "对话",
     game: "游戏",
-    story: "故事",
     canvas: "画布",
     plugin: "概览",
     design: "设计",
@@ -1818,7 +1817,7 @@ const zhCN: typeof en = {
     stopPreview: "停止预览",
     reinstall: "重新安装依赖并重启",
   },
-  storySettings: {
+  canvasSettings: {
     projectFileSuffix: "项目",
     canvasFormat: "画布格式",
   },

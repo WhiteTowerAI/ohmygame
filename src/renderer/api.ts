@@ -345,7 +345,7 @@ export async function exportProject(projectId: string, version?: string): Promis
 export function archiveProjectName(fileName: string): string {
   let name = fileName.replace(/\.zip$/i, "");
   for (const lng of ["en", "zh-CN"]) {
-    const suffix = ` (${t("storySettings.projectFileSuffix", { lng })})`;
+    const suffix = ` (${t("canvasSettings.projectFileSuffix", { lng })})`;
     if (name.endsWith(suffix)) {
       name = name.slice(0, -suffix.length);
       break;

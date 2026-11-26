@@ -12825,7 +12825,7 @@ summary.work-summary:hover {
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 
-.playable-project-menu-separator {
+.canvas-project-menu-separator {
   height: 1px;
   margin: 4px 6px;
   background: var(--border);

@@ -1735,7 +1735,6 @@ const en = {
     resize: "Resize {{area}}",
     chat: "Chat",
     game: "Game",
-    story: "Story",
     canvas: "Canvas",
     plugin: "Overview",
     design: "Design",
@@ -1838,7 +1837,7 @@ const en = {
     stopPreview: "Stop preview",
     reinstall: "Reinstall dependencies and restart",
   },
-  storySettings: {
+  canvasSettings: {
     projectFileSuffix: "project",
     canvasFormat: "Canvas format",
   },
