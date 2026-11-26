@@ -21,9 +21,8 @@ import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_SETTING_KEYS, PROJECT_SETTING_KINDS, projectSettingKind, projectSettings, projectSettingsFileText, type ProjectArchiveSettings, type ProjectSettingKind, type ProjectSettings } from "../shared/project-archive.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
-import { readProjectFile, openProjectFile, writeProjectFile } from "./project-plugins.js";
+import { readProjectFile, migrateStoryProjectFile, writeProjectFile } from "./project-plugins.js";
 import { AGENT_ATTACHMENTS_DIRECTORY, ASSET_PREVIEWS_DIRECTORY, CONVERSATION_REFERENCES_DIRECTORY, isConversationReferencePath, PROJECT_DATA_DIRECTORY, PROJECT_MEDIA_DIRECTORY, PROJECT_LOCAL_DIRECTORY, PROJECT_PLUGINS_DIRECTORY, PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
-import { StoryAssetMigrationError } from "./legacy-story-assets.js";
 import { migrateProjectLayout, realFolders } from "./project-layout.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -262,9 +261,7 @@ export class ProjectManager {
       : path.join(projectDirectory, "workspace");
     const updatedAt = new Date().toISOString();
     // A folder is the type its `ohmygame.json` names, and a folder that was a project before brings back its name and settings.
-    const named = hasExternalWorkspace ? await readFolderType(workspacePath, this.assetLibrary) : "missing";
-    const asked = fileTypeOf({ type, pluginType });
-    if (typeof named === "object" && asked && named.type !== asked) throw new ProjectWorkspaceError(`The folder's ohmygame.json says it is ${named.type}`);
+    if (hasExternalWorkspace) await readFolderType(workspacePath, this.assetLibrary, fileTypeOf({ type, pluginType }));
     const found = hasExternalWorkspace ? await readFolderSettings(workspacePath) : undefined;
     const kept = typeof found === "object" ? found : undefined;
     const metadata: ProjectMetadata = {
@@ -1682,15 +1679,24 @@ async function mayPreviewOnWeb(workspacePath: string, recognizesEngine?: (folder
 }
 
 /** The type a folder's `ohmygame.json` names, or why there is none. */
-async function readFolderType(workspacePath: string, library?: AssetLibrary): Promise<{ type: string } | "missing" | "unreadable"> {
-  try {
-    const read = await openProjectFile(workspacePath, library);
-    if (!read) return "missing";
-    return read.ok ? { type: read.file.type } : "unreadable";
-  } catch (cause) {
-    if (cause instanceof StoryAssetMigrationError) throw cause;
+async function readFolderType(workspacePath: string, library?: AssetLibrary, expected?: string): Promise<{ type: string } | "missing" | "unreadable"> {
+  const read = await readProjectFile(workspacePath, true).catch(() => null);
+  if (read === undefined) return "missing";
+  if (!read?.ok) {
+    if (read?.legacyStory) throw new ProjectWorkspaceError(`Invalid Story project file: ${read.issues.join("; ")}`);
     return "unreadable";
   }
+  const type = read.file.type;
+  if (expected && type !== expected) throw new ProjectWorkspaceError(`The folder's ohmygame.json says it is ${type}`);
+  // compat: since beta.5.12, remove from beta.7 and 2026-12-27. ZIP import has its own lifetime.
+  if (read.legacyStory) {
+    try {
+      await migrateStoryProjectFile(workspacePath, library);
+    } catch (cause) {
+      throw new ProjectWorkspaceError(`Cannot migrate Story project: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
+  return { type };
 }
 
 /**
@@ -1718,7 +1724,7 @@ export async function projectFolderType(workspacePath: string): Promise<string |
  */
 async function nameFolderType(workspacePath: string, metadata: ProjectMetadata): Promise<void> {
   const type = fileTypeOf(metadata);
-  if (!type || (await readFolderType(workspacePath)) !== "missing") return;
+  if (!type || await readProjectFile(workspacePath).catch(() => null) !== undefined) return;
   // Another writer may make it meanwhile; the update keeps what it wrote.
   await writeProjectFile(workspacePath, (file) => file, { type }).catch(() => {});
 }

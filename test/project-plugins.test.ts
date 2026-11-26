@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProjectManager } from "../src/daemon/projects.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 import {
@@ -20,7 +21,6 @@ import {
   createProjectPlugins,
   projectFolderKey,
   projectSkills,
-  openProjectFile,
   readProjectFile,
   resolveProjectPlugins,
   setProjectPlugin,
@@ -204,7 +204,7 @@ describe("project file", () => {
     const manifest = path.join(folder, "ohmygame.json");
     const text = JSON.stringify({ type: "interactive-story", plugins: { "acme/demo": "^1.0.0" } });
     await writeFile(manifest, text);
-    expect(await openProjectFile(folder)).toMatchObject({ ok: false });
+    await expect(new ProjectManager(await temporary()).create(undefined, "web-game", folder)).rejects.toThrow("Invalid Story project file");
     expect(await readFile(manifest, "utf8")).toBe(text);
     await expect(stat(path.join(folder, ".ohmygame"))).rejects.toMatchObject({ code: "ENOENT" });
   });

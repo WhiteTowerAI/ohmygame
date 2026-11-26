@@ -86,7 +86,7 @@ export async function readProjectFile(
   // compat: since beta.5.12, keep for project archives until a major version.
   if (acceptLegacyStory && (value as { type?: unknown } | null)?.type === "interactive-story") {
     const checked = validateProjectFile({ ...(value as Record<string, unknown>), type: "general" });
-    return checked.ok ? { ...checked, legacyStory: true } : checked;
+    return { ...checked, legacyStory: true };
   }
   return validateProjectFile(value);
 }
@@ -94,14 +94,12 @@ export async function readProjectFile(
 /** compat: since beta.5.12, remove local Story migration from beta.7 and 2026-12-27.
  * Archives opt in independently. Only opening a local project may copy its Library assets.
  */
-export async function openProjectFile(folder: string, library?: AssetLibrary): Promise<ProjectFileResult | undefined> {
-  const read = await readProjectFile(folder, true);
-  if (!read?.legacyStory) return read;
+export async function migrateStoryProjectFile(folder: string, library?: AssetLibrary): Promise<void> {
   const key = await projectFolderKey(folder);
-  return withProjectFileWrite(key, async () => {
+  await withProjectFileWrite(key, async () => {
     const current = await readProjectFile(key, true);
-    if (current?.ok && current.legacyStory) await migrateStoryFolder(key, current.file, library);
-    return current;
+    if (!current?.ok || current.file.type !== "general") throw new Error("The project file changed during Story migration");
+    if (current.legacyStory) await migrateStoryFolder(key, current.file, library);
   });
 }
 

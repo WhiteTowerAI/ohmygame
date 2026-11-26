@@ -8,46 +8,40 @@ import { isRecord } from "@ohmygame/game-sdk/protocol";
 import { assetDigest, type AssetLibrary } from "./asset-library.js";
 import { realFolders } from "./project-layout.js";
 
-export class StoryAssetMigrationError extends Error {}
-
 /** Commit the graph only after every referenced asset has a complete project copy. */
 export async function localizeStoryAssets(folder: string, library?: AssetLibrary): Promise<void> {
   const file = path.join(folder, "graph.json");
+  const entry = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  if (!entry) return;
+  if (!entry.isFile()) throw new Error("graph.json is not a regular file");
+  const original = await readFile(file, "utf8");
+  const graph: unknown = JSON.parse(original);
+  if (!isRecord(graph) || (graph.version !== undefined && graph.version !== 1) ||
+      (graph.assets !== undefined && !isRecord(graph.assets))) throw new Error("Unrecognized graph.json");
+  const copies = new Map<string, string>();
+  for (const asset of Object.values(graph.assets ?? {})) {
+    if (!isRecord(asset) || !isRecord(asset.source) || asset.source.kind !== "library") continue;
+    const id = asset.source.assetId;
+    if (!library || typeof id !== "string") throw new Error("Cannot resolve a Library reference");
+    let relative = copies.get(id);
+    if (!relative) {
+      const { asset: stored, absolutePath } = await library.content(id);
+      relative = await copyStoryAsset(folder, absolutePath, path.extname(stored.name));
+      copies.set(id, relative);
+    }
+    const { assetId: _oldId, ...source } = asset.source;
+    asset.source = { ...source, kind: "workspace", path: relative };
+  }
+  if (!copies.size) return;
+  const temporary = `${file}.${randomUUID()}.tmp`;
   try {
-    const entry = await lstat(file).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-    if (!entry) return;
-    if (!entry.isFile()) throw new Error("graph.json is not a regular file");
-    const original = await readFile(file, "utf8");
-    const graph: unknown = JSON.parse(original);
-    if (!isRecord(graph) || (graph.version !== undefined && graph.version !== 1) ||
-        (graph.assets !== undefined && !isRecord(graph.assets))) throw new Error("Unrecognized graph.json");
-    const copies = new Map<string, string>();
-    for (const asset of Object.values(graph.assets ?? {})) {
-      if (!isRecord(asset) || !isRecord(asset.source) || asset.source.kind !== "library") continue;
-      const id = asset.source.assetId;
-      if (!library || typeof id !== "string") throw new Error("Cannot resolve a Library reference");
-      let relative = copies.get(id);
-      if (!relative) {
-        const { asset: stored, absolutePath } = await library.content(id);
-        relative = await copyStoryAsset(folder, absolutePath, path.extname(stored.name));
-        copies.set(id, relative);
-      }
-      const { assetId: _oldId, ...source } = asset.source;
-      asset.source = { ...source, kind: "workspace", path: relative };
-    }
-    if (!copies.size) return;
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, `${JSON.stringify(graph, null, 2)}\n`, { flag: "wx" });
-      if (await readFile(file, "utf8") !== original) throw new Error("graph.json changed during migration");
-      await rename(temporary, file);
-    } finally {
-      await rm(temporary, { force: true });
-    }
-  } catch (cause) {
-    throw new StoryAssetMigrationError(`Cannot migrate Story assets: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    await writeFile(temporary, `${JSON.stringify(graph, null, 2)}\n`, { flag: "wx" });
+    if (await readFile(file, "utf8") !== original) throw new Error("graph.json changed during migration");
+    await rename(temporary, file);
+  } finally {
+    await rm(temporary, { force: true });
   }
 }
 
