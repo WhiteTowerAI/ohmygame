@@ -485,8 +485,8 @@ included in those capabilities and, for General Game, its Web preview switch
 is enabled, or when the project's plugin type brings a runtime of its own
 (below).
 
-The shipped adapter is `web` for `web-game` (a static game, such as an
-interactive story, opens its own page through the preview) and configured Web previews in `general` projects
+The shipped adapter is `web` for `web-game` (a static game, such as a
+story from an earlier version, opens its own page through the preview) and configured Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. Their
 runtime bridges can come as [plugin game runtimes](#plugin-game-runtimes),
 for launch or attach, input, screenshots, state and shutdown. An editor MCP connection alone is not a runtime adapter and
@@ -844,8 +844,7 @@ the dialog empty, and **Choose project** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt
 box's type menu adds the enabled plugins that set up their own projects, such
-as TapTap Maker, and then their templates, such as the Interactive Story
-plugin's Story. Beside it, a plugin menu chooses any number of plugins to
+as TapTap Maker, and then their templates. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot and the engine and mini-game plugins); their
 mentions lead the first message in the order chosen. **Ideas**, in the row under
