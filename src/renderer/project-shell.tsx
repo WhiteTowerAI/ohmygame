@@ -1951,14 +1951,13 @@ export function ProjectShell({
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} />
         // While the project loads, its loading state shows only if it takes a moment.
         : <Loading />} /> : null}
-    {createPortal(<div className="pane-header-actions chat-header-actions">
-            <span className="chat-header-spacer" />
-            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
-              <AgentAccountMenu runtime={accountRuntime} profiles={accountProfiles} value={selectedProfileId}
-                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)}
-                // Checking again clears the daemon's cache; the usual reload then reads the fresh accounts and models.
-                onRefresh={async () => { await listAccountProfiles(accountRuntime, true); window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); }} />
-            </div> : null}
+    {createPortal(<div className="chat-header-actions">
+            {accountRuntime && accountProfiles.length > 1 ? <AgentAccountMenu
+              runtime={accountRuntime} profiles={accountProfiles} value={selectedProfileId}
+              disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)}
+              // Checking again clears the daemon's cache; the usual reload then reads the fresh accounts and models.
+              onRefresh={async () => { await listAccountProfiles(accountRuntime, true); window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); }}
+            /> : null}
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1974,16 +1973,13 @@ export function ProjectShell({
               } : undefined}
               onShowInstructions={() => setInstructionsOpen(true)}
             />
-            <button
-              className="icon-button pane-header-action"
-              type="button"
+            <IconButton size="sm"
               disabled={!project || creatingConversation}
               onClick={() => void newConversation()}
-              title={t("projectShell.newConversation")}
-              aria-label={t("projectShell.newConversation")}
+              label={t("projectShell.newConversation")}
             >
               {creatingConversation ? <Spinner size="sm" /> : <MessageSquarePlus size="sm" />}
-            </button>
+            </IconButton>
     </div>, nodes.chat.toolbar)}
     {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>

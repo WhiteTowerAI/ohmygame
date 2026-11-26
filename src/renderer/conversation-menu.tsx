@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
 import { editedAgo } from "./app-sidebar.js";
-import { Popover } from "./ui/index.js";
+import { IconButton, Popover } from "./ui/index.js";
 
 /** Below this many conversations the list fits at a glance and needs no search. */
 const SEARCH_FROM = 8;
@@ -57,7 +57,6 @@ export function ConversationMenu({
   const archived = archivedSource?.map(localizedTitle);
   const [busyId, setBusyId] = useState<string>();
   const [confirmingId, setConfirmingId] = useState<string>();
-  const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -130,21 +129,20 @@ export function ConversationMenu({
   const visibleConversations = conversations.filter((conversation) => !normalizedQuery || conversation.title.toLowerCase().includes(normalizedQuery));
 
   return (
-    <div className="conversation-menu" ref={root}>
-      <button
+    <>
+      <IconButton
         ref={trigger}
-        className="icon-button pane-header-action"
-        type="button"
-        aria-label={t("conversations.history")}
+        size="sm"
+        label={t("conversations.history")}
+        className={open ? "is-active" : undefined}
         disabled={disabled}
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
         aria-haspopup="dialog"
-        title={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
         <History size="sm" />
-      </button>
+      </IconButton>
 
       <Popover open={open} onClose={close} anchor={trigger} placement="bottom-end" className="conversation-popover" label={t("conversations.label")}>
         <div id="conversation-menu-popover">
@@ -268,6 +266,6 @@ export function ConversationMenu({
           {error ? <p className="conversation-menu-error" role="alert">{error}</p> : null}
         </div>
       </Popover>
-    </div>
+    </>
   );
 }

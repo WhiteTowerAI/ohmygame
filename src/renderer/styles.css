@@ -6791,29 +6791,10 @@ button {
     color-mix(in srgb, var(--border) 58%, transparent);
 }
 
-.pane-header-actions {
+.chat-header-actions {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
-}
-
-.pane-header-actions .pane-header-action {
-  border: 0;
-  box-shadow: none;
-}
-
-/* The chat panel's header: conversation history and a new conversation at the
-   far end. */
-.pane-header-actions.chat-header-actions {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-left: 4px;
-}
-
-.chat-header-spacer {
-  flex: 1;
 }
 
 .viewer-title {
@@ -7000,10 +6981,6 @@ button {
   scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-}
-
-.conversation-menu {
-  position: relative;
 }
 
 .conversation-popover {
@@ -12408,8 +12385,6 @@ summary.work-summary:hover {
 .agent-account-profile-form .settings-detail-inline > button,
 .agent-account-profile-form > input,
 .agent-account-profile-form .ui-disclosure > input { height: 34px; font-size: var(--text-sm); }
-.chat-account-selector { min-width: 0; }
-
 /* The chat header's account menu (agent-account-menu.tsx). */
 .agent-account-trigger {
   display: inline-flex;

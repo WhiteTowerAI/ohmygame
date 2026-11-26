@@ -519,22 +519,24 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
-    // The page picker leads the toolbar; reload sits with the actions on the right.
-    const controls = [...container.querySelector(".preview-controls")!.children];
-    expect(controls[0]!.className).toBe("preview-location");
-    expect(controls.findIndex((child) => child.getAttribute("aria-label") === "Reload preview")).toBe(controls.length - 2);
+    const controls = container.querySelector(".preview-controls")!;
+    expect(controls.firstElementChild?.className).toBe("preview-location");
+    expect(controls.querySelector('[aria-label="Reload preview"]')).toBeNull();
+    const more = controls.querySelector<HTMLButtonElement>('[aria-label="More"]')!;
+    const menuItem = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.trim() === name)!;
+    await act(async () => more.click());
+    expect(menuItem("Restart preview service")).toBeDefined();
+    expect(menuItem("Preview logs")).toBeDefined();
     // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
-    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
-    // The game's More menu also opens the preview's logs.
-    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toEqual(["Open in browser", "Restart preview service", "Preview logs"]);
-    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
+    await act(async () => menuItem("Open in browser").click());
     const page = new URL(String(open.mock.calls[0][0]));
     expect(`${page.pathname}?level=${page.searchParams.get("level")}${page.hash}`).toBe("/scene-2?level=2#boss");
     expect(page.searchParams.get("__ohmygame_view")).toBe("external");
     expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
     expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
     expect(openExternal).not.toHaveBeenCalled();
-    await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
+    await act(async () => more.click());
+    await act(async () => menuItem("Reload preview").click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);
     expect(reloaded.pathname).toBe("/scene-2");

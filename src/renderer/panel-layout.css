@@ -314,31 +314,19 @@
   min-width: max-content;
 }
 
-.chat-header-actions .pane-header-action {
-  width: 26px;
-  height: 26px;
-}
-
-.chat-account-selector .agent-account-trigger-name {
+.chat-header-actions .agent-account-trigger-name {
   max-width: max(0px, calc(100cqi - 360px));
 }
 
 @container dock-area (max-width: 320px) {
-  .chat-account-selector .agent-account-trigger :is(.agent-account-trigger-name, .agent-account-trigger-usage, svg:last-child) {
+  .chat-header-actions .agent-account-trigger :is(.agent-account-trigger-name, .agent-account-trigger-usage, svg:last-child) {
     display: none;
   }
 }
 
 /* Titles in a toolbar shorten before the tabs give up their labels. */
-.dock-toolbar > *,
-.dock-toolbar .pane-header-actions > * {
+.dock-toolbar > * {
   flex: none;
-}
-
-.dock-toolbar .design-doc-spacer,
-.dock-toolbar .chat-header-spacer {
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 .dock-toolbar[hidden] {

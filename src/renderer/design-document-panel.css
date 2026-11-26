@@ -21,8 +21,8 @@
   min-height: 0;
 }
 
-.design-doc-spacer {
-  flex: 1;
+.design-doc-picker {
+  margin-inline-end: auto;
 }
 
 .design-doc-outline {

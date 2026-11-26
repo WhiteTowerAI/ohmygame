@@ -351,9 +351,12 @@ export function CodingWorkspace({
   }
 
   function refreshPreview(): void {
-    if (player.open) void player.reload();
-    else if (nativePreview) setReload((value) => value + 1);
-    else { setPreviewPath(actualPreviewPath); setReload((value) => value + 1); }
+    if (player.open) {
+      void player.reload();
+      return;
+    }
+    if (!nativePreview) setPreviewPath(actualPreviewPath);
+    setReload((value) => value + 1);
   }
 
   function playGame(): void {

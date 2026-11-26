@@ -129,13 +129,12 @@
 }
 /* A state shares the panel with the reasons and actions below it. */
 .preview-status-panel > .ui-empty.is-fill {
-  flex: initial;
   align-self: center;
   min-height: 0;
   overflow: visible;
 }
-.preview-status-panel > .ui-empty.is-fill:only-child {
-  flex: 1;
+.preview-status-panel > .ui-empty.is-fill:not(:only-child) {
+  flex: initial;
 }
 .preview-status-panel > p {
   margin: 0;

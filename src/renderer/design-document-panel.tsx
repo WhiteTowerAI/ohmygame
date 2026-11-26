@@ -93,7 +93,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const views: { value: View; label: string }[] = [{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }];
   const toolbar = doc ? <>
     <DropdownMenu placement="bottom-start" trigger={(props) => (
-      <IconButton {...props} size="sm" label={t("designDoc.switchDocument", { title: doc.title || t("canvasDocs.untitled") })}>
+      <IconButton {...props} size="sm" className="design-doc-picker" label={t("designDoc.switchDocument", { title: doc.title || t("canvasDocs.untitled") })}>
         <FileText size="sm" />
       </IconButton>
     )} items={[
@@ -107,7 +107,6 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
       "separator" as const,
       { label: t("designDoc.newDocument"), icon: <Plus size="sm" />, onSelect: create },
     ]} />
-    <span className="design-doc-spacer" />
     <PanelTool id="view" menu={[{ heading: t("canvasDoc.view") }, ...views.map((option) => ({
       label: option.label, radio: true, checked: option.value === view, onSelect: () => setView(option.value),
     }))]}>
