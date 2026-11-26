@@ -617,7 +617,12 @@ folder whose `ohmygame.json` names `interactive-story` loads as one: the file
 is rewritten to name `general` and `settings.json` gets `kind: "web-game"`
 (left alone when it can't be read), and `project.json` follows. An archive
 naming the type imports as a web game. The story keeps its own page and
-`story/` runtime, so it plays and publishes as any static web game.
+`story/` runtime, so it plays and publishes as any static web game. Its
+`AGENTS.md` and `README.md` described the Story editor and its tools: in a web
+story (`graph.json`, `index.html` and `story/`), each one OhMyGame wrote and
+no one changed is replaced with the Interactive Story template's, and an
+`AGENTS.md` changed since gains a note that the editor is gone
+(`src/daemon/story-guides.ts`).
 
 Everything but `local/` and `build/` goes with the project into snapshots,
 exports and its repository, except that snapshots leave out the settings,

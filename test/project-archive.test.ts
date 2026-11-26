@@ -25,6 +25,7 @@ import {
 import { ProjectManager } from "../src/daemon/projects.js";
 import { writeWorkspaceNotice } from "../src/daemon/workspace-notice.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../src/shared/project-archive.js";
+import { STORY_GUIDES } from "../src/daemon/story-guides.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -551,12 +552,18 @@ describe("project archive import", () => {
           type: "interactive-story",
         }),
         "workspace/README.md": "My story",
+        "workspace/AGENTS.md": await readFile("test/fixtures/story-guides/AGENTS.md", "utf8"),
+        "workspace/index.html": "<p>",
+        "workspace/graph.json": "{}",
+        "workspace/story/runtime.js": "",
       }),
     );
     expect(project.type).toBe("web-game");
     expect(
       await readFile(path.join(project.workspacePath, "README.md"), "utf8"),
     ).toBe("My story");
+    // The guide OhMyGame wrote stops describing the Story editor.
+    expect(await readFile(path.join(project.workspacePath, "AGENTS.md"), "utf8")).toBe(STORY_GUIDES["AGENTS.md"]);
   });
 
   it.each([

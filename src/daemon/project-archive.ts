@@ -36,6 +36,7 @@ import { sniffImageType } from "./image-format.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { realFolders } from "./project-layout.js";
 import type { ProjectManager } from "./projects.js";
+import { refreshStoryGuides } from "./story-guides.js";
 import {
   AUTOMATIC_COVER_FILE,
   PROJECT_BUILD_DIRECTORY,
@@ -372,6 +373,8 @@ export async function importProjectArchive(
     if (manifest.project.appearance?.logo && !manifest.rootIsWorkspace) {
       logo = await readArchiveImage(path.join(root, PROJECT_ARCHIVE_LOGO), MAX_PROJECT_LOGO_BYTES);
     }
+    // compat: since beta.5.12, remove from beta.7 and 2026-12-27. A story's guides stop describing the Story editor.
+    await refreshStoryGuides(workspace);
     project = await projects.import(workspace, manifest.project);
   } finally {
     // The project may already exist, so a failed cleanup must not fail the

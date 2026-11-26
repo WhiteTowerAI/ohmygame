@@ -21,6 +21,7 @@ import {
   type ProjectFileResult,
 } from "../shared/project-file.js";
 import { PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
+import { refreshStoryGuides } from "./story-guides.js";
 import type {
   PluginIndex,
   PluginIndexEntry,
@@ -84,8 +85,9 @@ export async function readProjectFile(
  * compat: since beta.5.12, remove from beta.7 and 2026-12-27. Interactive
  * Stories became web games, and OhMyGame no longer has the type. A story's
  * `ohmygame.json` names `general`, as a web game's does, and its settings
- * say it is a web game; nothing else in the folder changes, since a web story
- * already plays as its own page. Settings that can't be read are left alone,
+ * say it is a web game. The guides OhMyGame wrote stop describing the Story
+ * editor; nothing else in the folder changes, since a web story already plays
+ * as its own page. Settings that can't be read are left alone,
  * and the folder opens as a General project.
  */
 async function migrateStoryFolder(folder: string, file: ProjectFile): Promise<ProjectFile> {
@@ -97,6 +99,7 @@ async function migrateStoryFolder(folder: string, file: ProjectFile): Promise<Pr
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") settings = { version: PROJECT_SETTINGS_VERSION, name: path.basename(folder) };
   }
+  await refreshStoryGuides(folder);
   if (settings && settings.kind === undefined) await writeAtomic(settingsFile, `${JSON.stringify({ ...settings, kind: "web-game" }, null, 2)}\n`);
   const next = { ...file, type: "general" };
   await writeAtomic(path.join(folder, PROJECT_FILE_NAME), `${JSON.stringify(next, null, 2)}\n`);

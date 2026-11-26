@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProjectManager, projectFolderType } from "../src/daemon/projects.js";
+import { STORY_GUIDES } from "../src/daemon/story-guides.js";
 
 describe("Web Game project codebase", () => {
   it("persists name ownership and leaves legacy projects unchanged", async () => {
@@ -443,6 +444,11 @@ describe("Web Game project codebase", () => {
       await writeFile(record, JSON.stringify({ ...stored, type: "interactive-story" }));
       await mkdir(path.join(oldStory.workspacePath, ".ohmygame"), { recursive: true });
       await writeFile(path.join(oldStory.workspacePath, ".ohmygame", "settings.json"), JSON.stringify({ version: 1, name: "Night Train" }));
+      // A web story's guide OhMyGame wrote stops describing the Story editor.
+      await mkdir(path.join(oldStory.workspacePath, "story"));
+      await writeFile(path.join(oldStory.workspacePath, "index.html"), "<p>");
+      await writeFile(path.join(oldStory.workspacePath, "graph.json"), "{}");
+      await writeFile(path.join(oldStory.workspacePath, "AGENTS.md"), await readFile("test/fixtures/story-guides/AGENTS.md", "utf8"));
       const next = new ProjectManager(directory);
       await next.load();
       expect(next.get(web.id)).toMatchObject({ type: "web-game", name: "Sky Garden" });
@@ -450,6 +456,7 @@ describe("Web Game project codebase", () => {
       expect(JSON.parse(await readFile(path.join(oldStory.workspacePath, "ohmygame.json"), "utf8"))).toEqual({ type: "general", plugins: { "acme/notes": true } });
       expect(JSON.parse(await readFile(path.join(oldStory.workspacePath, ".ohmygame", "settings.json"), "utf8"))).toMatchObject({ name: "Night Train", kind: "web-game" });
       expect(JSON.parse(await readFile(path.join(directory, "projects", oldStory.id, "project.json"), "utf8"))).toMatchObject({ type: "web-game" });
+      expect(await readFile(path.join(oldStory.workspacePath, "AGENTS.md"), "utf8")).toBe(STORY_GUIDES["AGENTS.md"]);
 
       // Settings that can't be read keep the kind the app last knew.
       const canvas = await manager.create("Board", "asset-canvas");
