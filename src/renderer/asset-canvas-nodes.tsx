@@ -14,6 +14,7 @@ import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
+import { ProviderMark } from "./model-selector.js";
 import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
@@ -113,7 +114,7 @@ function BackgroundRemovalNode({ data, selected }: Pick<NodeProps<AssetCanvasFlo
     <div className="story-media-controls">
       <CanvasChipSelect label={t("assetCanvas.imageModel")} wide value={selectedModel ? modelRefKey(selectedModel) : undefined}
         placeholder={data.model ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noBackgroundRemovalModel")}
-        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName }))}
+        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }))}
         notes={providerNotes(runtime?.providers)} action={MANAGE_PROVIDERS} disabled={runtime?.busy}
         onChange={(key) => { const model = models.find((candidate) => modelRefKey(candidate) === key); if (model && runtime) runtime.onChange({ ...data, imageRuntime: undefined, model: modelRef(model) }); }} />
       <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
@@ -226,7 +227,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.model ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noImageModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -330,7 +331,7 @@ export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           wide
           value={selectedModel ? modelKey(selectedModel) : undefined}
           placeholder={runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noVideoModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: mediaModelName(model), group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -461,7 +462,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
-          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
+          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }))}
           notes={audioProviderNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -536,7 +537,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={processing ? t("assetCanvas.selectConnection") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.no3dModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, ...(model.id === MODEL3D_CONNECTION_ID ? {} : { group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }) }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -647,7 +648,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls is-wrapping">
-        <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
+        <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, ...(model.id === MODEL3D_CONNECTION_ID ? {} : { group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> }) }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
           const model = runtime?.models.find((model) => modelRefKey(model) === value);
           if (model) update({ animationModel: modelRef(model), actionIds: [], model3DOptions: undefined });
         }} />

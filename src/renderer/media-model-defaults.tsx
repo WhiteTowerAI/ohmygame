@@ -73,9 +73,9 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
   const effectiveLabel = !catalog ? loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable") : effective?.name ?? (automatic ? t("mediaDefaults.modelUnavailable", { id: automatic.id }) : t("mediaDefaults.noModel"));
   const automaticLabel = catalog ? inherit ? t("mediaDefaults.useGlobal", { label: effectiveLabel }) : t("mediaDefaults.automatic", { label: effectiveLabel }) : effectiveLabel;
   const options: CanvasChipOption<string>[] = [
-    { value: "", label: automaticLabel, shortLabel: effectiveLabel },
+    { value: "", label: automaticLabel, shortLabel: effectiveLabel, ...(effective ? { mark: <ProviderMark provider={effective.provider} name={effective.providerName} size={12} /> } : {}) },
     ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }), group: selected.provider }] : []),
-    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName })) ?? []),
+    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName, mark: <ProviderMark provider={model.provider} name={model.providerName} size={12} /> })) ?? []),
   ];
   return <div className="media-default-field">
     <span>{usageLabel(usage)}</span>

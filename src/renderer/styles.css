@@ -5823,6 +5823,9 @@ button {
 }
 
 .canvas-chip-menu-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: 3px 8px 2px;
   overflow: hidden;
   color: var(--text-muted);
