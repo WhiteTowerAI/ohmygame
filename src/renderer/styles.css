@@ -4844,6 +4844,24 @@ button {
   color: var(--danger);
 }
 
+/* Why the story can't be opened, and the offer to have the AI fix it. */
+.story-canvas-error {
+  display: grid;
+  max-width: min(560px, calc(100% - 48px));
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.story-canvas-error p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.story-canvas-error-sent {
+  color: var(--text-muted);
+}
+
 .story-save-notice {
   position: absolute;
   z-index: 5;

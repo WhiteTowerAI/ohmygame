@@ -20,6 +20,7 @@ let disk = codebase;
 const update = vi.fn(async () => ({ revision: "saved" }));
 /** How the daemon describes the story: one made before web stories is not `web` yet. */
 let storyStatus = { web: true };
+let loadError: Error | undefined;
 let move!: (
   event: unknown,
   viewport: { x: number; y: number; zoom: number },
@@ -40,7 +41,7 @@ vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
 }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getNodeCodebase: async () => ({
+  getNodeCodebase: async () => loadError ? Promise.reject(loadError) : ({
     ...structuredClone(disk),
     revision: "disk",
   }),
@@ -66,6 +67,7 @@ function storyNodes(): Record<StoryView, PanelNodes> {
 beforeEach(async () => {
   disk = codebase;
   storyStatus = { web: true };
+  loadError = undefined;
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
@@ -278,6 +280,20 @@ it("keeps the view a story saved while its panels decide what shows", async () =
   expect(update).toHaveBeenCalledOnce();
   expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ editorLayout: { view: "code" } });
   expect(onShow).not.toHaveBeenCalled();
+});
+
+it("offers to have the AI fix a story the editor can't open", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  loadError = new Error('/nodes/0/story: Unexpected property "story".');
+  const onAskAgent = vi.fn();
+  await renderEditor({ onAskAgent });
+  const error = container.querySelector(".story-canvas-error")!;
+  expect(error.textContent).toContain('Unexpected property "story".');
+  await act(async () => error.querySelector<HTMLButtonElement>("button")!.click());
+  expect(onAskAgent).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('- /nodes/0/story: Unexpected property "story".'));
+  expect(error.querySelector("button")).toBeNull();
+  expect(error.textContent).toContain("Added to the chat");
 });
 
 it("says a story made before web stories can no longer be opened, and how to upgrade it", async () => {

@@ -44,6 +44,8 @@ export function validateNodeGraph(
     return {
       ok: false,
       issues: schemaErrors.flatMap((error) => {
+        // An extra property also fails `additionalProperties: false` as a schema of its own ("schema is false"); the error below names it.
+        if (error.keyword === "boolean" && error.schemaPath.endsWith("/additionalProperties")) return [];
         if (error.keyword === "additionalProperties") {
           return error.params.additionalProperties.map((property) => ({
             code: "schema" as const,

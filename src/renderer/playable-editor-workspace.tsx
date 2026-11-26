@@ -1,7 +1,9 @@
 import { workspaceVersion } from "./workspace-version.js";
 import {
   LoaderCircle,
+  Sparkles,
 } from "./icons.js";
+import { Button } from "./ui/index.js";
 import {
   Fragment,
   useCallback,
@@ -202,6 +204,8 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [story, setStory] = useState<StoryStatus>();
   const [notice, setNotice] = useState<string>();
+  /** The load error the author asked the AI to fix, so its button gives way to a note. */
+  const [askedFix, setAskedFix] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
   const [nodes, setNodes] = useState<PlayableFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -1134,7 +1138,14 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
         <div className="interactive-story-body">
           <div className="interactive-story-canvas">
             {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
-            {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
+            {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">
+              <div className="story-canvas-error">
+                <p>{notice}</p>
+                {onAskAgent && notice && story?.web !== false ? askedFix === notice
+                  ? <span className="story-canvas-error-sent">{t("storyEditor.askedFix")}</span>
+                  : <Button size="sm" icon={<Sparkles size={13} />} onClick={() => { onAskAgent(askToFixStoryLoad(notice)); setAskedFix(notice); }}>{t("storyEditor.askFix")}</Button> : null}
+              </div>
+            </div> : null}
             {phase !== "loading" && story && !story.web ? <CanvasNotice
               className="story-canvas-notice"
               tone="warning"
@@ -1330,4 +1341,9 @@ async function readNodeSources(projectId: string, node: PlayableNode): Promise<R
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The chat request behind the Story canvas's "Ask AI to fix" when the story can't be opened. */
+export function askToFixStoryLoad(error: string): string {
+  return ["The Story editor can't open this story. Find the cause and fix it, keeping the story as it is.", "", "Error:", `- ${error}`].join("\n");
 }

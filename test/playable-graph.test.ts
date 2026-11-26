@@ -39,9 +39,11 @@ describe("Node Graph contract", () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues.every((item) => item.code === "schema")).toBe(true);
-    expect(result.issues.some((item) => item.path === "/unexpected")).toBe(
-      true,
-    );
+    // An extra property is named once, never as "schema is false".
+    expect(result.issues.filter((item) => item.path === "/unexpected")).toEqual([
+      { code: "schema", path: "/unexpected", message: 'Unexpected property "unexpected".' },
+    ]);
+    expect(result.issues.some((item) => item.message === "schema is false")).toBe(false);
     expect(
       result.issues.some((item) => item.path.includes("/source/html")),
     ).toBe(true);

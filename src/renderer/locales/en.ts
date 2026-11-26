@@ -4300,6 +4300,8 @@ const en = {
     trimmedFrom: "Trimmed from",
   },
   storyEditor: {
+    askFix: "Ask AI to fix",
+    askedFix: "Added to the chat",
     tooOld:
       "This story was made before stories played as their own web page, and this version of OhMyGame can't open it. Open it once in OhMyGame beta.5.11 or earlier, which upgrades it, then come back.",
     libraryMedia:

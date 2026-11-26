@@ -4229,6 +4229,8 @@ const zhCN: typeof en = {
     trimmedFrom: "剪辑自",
   },
   storyEditor: {
+    askFix: "让 AI 修复",
+    askedFix: "已添加到聊天中",
     tooOld:
       "这个故事是在故事改为网页运行之前创建的，当前版本的 OhMyGame 已无法打开。请先用 OhMyGame beta.5.11 或更早的版本打开一次，它会自动升级，然后再回来。",
     libraryMedia:
