@@ -1,4 +1,11 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { DropdownMenu, type MenuEntry } from "./ui/index.js";
 
 // A panel's toolbar shares its area's tab strip. When the strip is too narrow
@@ -49,13 +56,16 @@ export class ToolScope {
   unregister(id: string): void {
     if (!this.tools.delete(id)) return;
     // Fewer tools than folds would leave unfolds with nothing to show.
-    if (this.needs.length > this.tools.size) this.needs = this.needs.slice(0, this.tools.size);
+    if (this.needs.length > this.tools.size)
+      this.needs = this.needs.slice(0, this.tools.size);
     this.notify();
   }
 
   /** Tools in the order they fold. */
   private ranked(): string[] {
-    return [...this.tools].sort(([, a], [, b]) => a.priority - b.priority || b.seq - a.seq).map(([id]) => id);
+    return [...this.tools]
+      .sort(([, a], [, b]) => a.priority - b.priority || b.seq - a.seq)
+      .map(([id]) => id);
   }
 
   isFolded(id: string): boolean {
@@ -87,8 +97,15 @@ export class ToolScope {
   /** The folded tools' entries, in toolbar order, each tool's apart. */
   menu(): MenuEntry[] {
     const folded = new Set(this.ranked().slice(0, this.folded));
-    const groups = [...this.tools].filter(([id]) => folded.has(id)).sort(([, a], [, b]) => a.seq - b.seq).map(([, tool]) => tool.menu());
-    return groups.filter((group) => group.length).flatMap((group, index) => index ? ["separator" as const, ...group] : [...group]);
+    const groups = [...this.tools]
+      .filter(([id]) => folded.has(id))
+      .sort(([, a], [, b]) => a.seq - b.seq)
+      .map(([, tool]) => tool.menu());
+    return groups
+      .filter((group) => group.length)
+      .flatMap((group, index) =>
+        index ? ["separator" as const, ...group] : [...group],
+      );
   }
 }
 
@@ -99,7 +116,8 @@ export function toolScopeOf(element: Element): ToolScope {
   let scope = scopes.get(element);
   if (!scope) {
     scope = new ToolScope();
-    scopes.set(element, scope);  }
+    scopes.set(element, scope);
+  }
   return scope;
 }
 
@@ -113,13 +131,18 @@ export const TOOLBAR_SCOPE = ".dock-view-toolbar, .dock-toolbar";
 const ScopeContext = createContext<ToolScope | null>(null);
 
 /** Lets the tools in `children` fold into the toolbar that holds `from`. */
-export function PanelTools({ from, children }: { from: Element | null; children: ReactNode }) {
-  const [scope, setScope] = useState<ToolScope | null>(null);
-  useLayoutEffect(() => {
-    const element = from?.closest(TOOLBAR_SCOPE);
-    setScope(element ? toolScopeOf(element) : null);
-  }, [from]);
-  return <ScopeContext.Provider value={scope}>{children}</ScopeContext.Provider>;
+export function PanelTools({
+  from,
+  children,
+}: {
+  from: Element | null;
+  children: ReactNode;
+}) {
+  const element = from?.closest(TOOLBAR_SCOPE);
+  const scope = element ? toolScopeOf(element) : null;
+  return (
+    <ScopeContext.Provider value={scope}>{children}</ScopeContext.Provider>
+  );
 }
 
 /**
@@ -127,7 +150,12 @@ export function PanelTools({ from, children }: { from: Element | null; children:
  * `priority` stays longer. `menu` is what it becomes there: a segmented
  * control's choices as radio items, a button as one item.
  */
-export function PanelTool({ id, priority = 0, menu, children }: {
+export function PanelTool({
+  id,
+  priority = 0,
+  menu,
+  children,
+}: {
   id: string;
   priority?: number;
   menu: readonly MenuEntry[];
@@ -144,7 +172,11 @@ export function PanelTool({ id, priority = 0, menu, children }: {
     if (!scope) return;
     return () => scope.unregister(id);
   }, [scope, id]);
-  const folded = useSyncExternalStore(scope?.subscribe ?? noSubscription, () => scope?.isFolded(id) ?? false, () => false);
+  const folded = useSyncExternalStore(
+    scope?.subscribe ?? noSubscription,
+    () => scope?.isFolded(id) ?? false,
+    () => false,
+  );
   // A folded tool's entries change with it, a choice's check for one: the
   // menu showing them reads them again.
   const shown = useRef("");
@@ -158,15 +190,27 @@ export function PanelTool({ id, priority = 0, menu, children }: {
 }
 
 function menuSignature(entries: readonly MenuEntry[]): string {
-  return JSON.stringify(entries.map((entry) => typeof entry === "string" || "heading" in entry ? entry
-    : [typeof entry.label === "string" ? entry.label : "", entry.checked, entry.disabled]));
+  return JSON.stringify(
+    entries.map((entry) =>
+      typeof entry === "string" || "heading" in entry
+        ? entry
+        : [
+            typeof entry.label === "string" ? entry.label : "",
+            entry.checked,
+            entry.disabled,
+          ],
+    ),
+  );
 }
 
 /**
  * The panel's own ··· menu: `items` after the tools that folded into it.
  * While a panel has one, the strip doesn't add a ··· of its own.
  */
-export function PanelToolsMenu({ items, ...props }: Parameters<typeof DropdownMenu>[0]) {
+export function PanelToolsMenu({
+  items,
+  ...props
+}: Parameters<typeof DropdownMenu>[0]) {
   const scope = useContext(ScopeContext);
   useLayoutEffect(() => {
     if (!scope) return;
@@ -177,9 +221,18 @@ export function PanelToolsMenu({ items, ...props }: Parameters<typeof DropdownMe
       scope.notify();
     };
   }, [scope]);
-  useSyncExternalStore(scope?.subscribe ?? noSubscription, () => scope?.version ?? 0, () => 0);
+  useSyncExternalStore(
+    scope?.subscribe ?? noSubscription,
+    () => scope?.version ?? 0,
+    () => 0,
+  );
   const folded = scope?.menu() ?? [];
-  return <DropdownMenu {...props} items={folded.length ? [...folded, "separator", ...items] : items} />;
+  return (
+    <DropdownMenu
+      {...props}
+      items={folded.length ? [...folded, "separator", ...items] : items}
+    />
+  );
 }
 
 const noSubscription = () => () => {};

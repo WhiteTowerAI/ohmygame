@@ -24,12 +24,27 @@ const GAME_ICONS = {
 
 export type GameIconName = keyof typeof GAME_ICONS;
 /** Tile colours, named for the category hues in tokens.css they use. */
-export type GameIconTone = "blue" | "orange" | "pink" | "green" | "purple" | "teal" | "gold" | "neutral";
+export type GameIconTone =
+  "blue" | "orange" | "pink" | "green" | "purple" | "teal" | "gold" | "neutral";
 
 /** A game icon in a rounded tile of its tone, for content rather than controls. */
-export function GameIcon({ name, tone, size = 40, className }: { name: GameIconName; tone: GameIconTone; size?: number; className?: string }) {
+export function GameIcon({
+  name,
+  tone,
+  size = 40,
+  className,
+}: {
+  name: GameIconName;
+  tone: GameIconTone;
+  size?: number;
+  className?: string;
+}) {
   return (
-    <span className={`game-icon is-${tone}${className ? ` ${className}` : ""}`} style={{ width: size, height: size }} aria-hidden="true">
+    <span
+      className={`game-icon is-${tone}${className ? ` ${className}` : ""}`}
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
       <span style={{ maskImage: `url("${GAME_ICONS[name]}")` }} />
     </span>
   );

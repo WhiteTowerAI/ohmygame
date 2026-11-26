@@ -17,12 +17,28 @@
   mask: center / contain no-repeat;
 }
 
-.game-icon.is-blue { --game-icon-hue: var(--hue-doc); }
-.game-icon.is-orange { --game-icon-hue: var(--hue-image); }
-.game-icon.is-pink { --game-icon-hue: var(--hue-video); }
-.game-icon.is-green { --game-icon-hue: var(--hue-audio); }
-.game-icon.is-purple { --game-icon-hue: var(--hue-model); }
-.game-icon.is-teal { --game-icon-hue: var(--hue-code); }
-.game-icon.is-gold { --game-icon-hue: var(--hue-data); }
+.game-icon.is-blue {
+  --game-icon-hue: var(--hue-doc);
+}
+.game-icon.is-orange {
+  --game-icon-hue: var(--hue-image);
+}
+.game-icon.is-pink {
+  --game-icon-hue: var(--hue-video);
+}
+.game-icon.is-green {
+  --game-icon-hue: var(--hue-audio);
+}
+.game-icon.is-purple {
+  --game-icon-hue: var(--hue-model);
+}
+.game-icon.is-teal {
+  --game-icon-hue: var(--hue-code);
+}
+.game-icon.is-gold {
+  --game-icon-hue: var(--hue-data);
+}
 /* Neutral matches the grey tile of plain empty states. */
-.game-icon.is-neutral { background: var(--color-hover); }
+.game-icon.is-neutral {
+  background: var(--color-hover);
+}

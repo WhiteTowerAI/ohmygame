@@ -594,4 +594,3 @@ function DockToolsMenu() {
     <IconButton {...props} size="sm" label={t("panels.moreTools")} className="dock-tools-more"><MoreHorizontal size="sm" /></IconButton>
   )} />;
 }
-
