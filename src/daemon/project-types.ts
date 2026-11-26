@@ -130,6 +130,15 @@ export async function availableProjectTypes(
 }
 
 /** Each installed plugin's project templates, from its newest version, unless it's turned off. */
+/**
+ * The template a new Interactive Story starts from when no other is chosen.
+ * The new-project dialog doesn't list it, as choosing the type is choosing it.
+ */
+export const STORY_STARTER_TEMPLATE = "ohmygame/interactive-story:blank";
+
+/** Why a new Interactive Story can't start without its plugin. */
+export const STORY_PLUGIN_NEEDED = "A new Interactive Story starts from the Interactive Story plugin (ohmygame/interactive-story), which isn't installed or is turned off. Add or turn it on in Plugins, then try again.";
+
 export async function availableProjectTemplates(
   services: PluginServices,
   locale: PluginLocale = "en",
@@ -143,7 +152,8 @@ export async function availableProjectTemplates(
     const newest = services.index.get(entry.id)!;
     if (services.grants.plugin(newest.id)?.enabled === false) continue;
     const displayName = localizePluginString(newest, newest.manifest.displayName, locale);
-    for (const template of newest.manifest.contributes?.templates ?? [])
+    for (const template of newest.manifest.contributes?.templates ?? []) {
+      if (`${newest.id}:${template.id}` === STORY_STARTER_TEMPLATE) continue;
       templates.push({
         id: `${newest.id}:${template.id}`,
         type: template.projectType,
@@ -154,6 +164,7 @@ export async function availableProjectTemplates(
           ...(newest.manifest.icon ? { icon: { type: "asset" as const, path: newest.manifest.icon }, iconRevision: newest.digest } : {}),
         },
       });
+    }
   }
   return templates;
 }

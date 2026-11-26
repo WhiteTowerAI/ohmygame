@@ -23,7 +23,8 @@ import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
 import { pluginGameCapabilities } from "../src/daemon/plugin-game-runtime.js";
-import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
+import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
+import { createPlayableStarterCodebase } from "./playable-fixture.js";
 import sharp from "sharp";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;

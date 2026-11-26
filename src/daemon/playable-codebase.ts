@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../shared/playable-graph-schema.js";
@@ -141,11 +141,70 @@ The mount function may return a synchronous or asynchronous cleanup function.
 In a web story (with \`index.html\` and \`story/\`), the page loads each Scene's files as they are: modules import local files by relative path, text files are fetched, and JSON imports use \`with { type: "json" }\`. The runtime under \`story/\` is the project's own and can be changed; \`story/manifest.json\` records the version OhMyGame wrote. Publishing packages the page, \`story/\`, \`graph.json\`, \`nodes/\`, \`shared/\`, and the assets the story uses.
 `;
 
-export function createPlayableStarterCodebase(
-  title: string,
-  viewport: { width: number; height: number },
-): NodeCodebase {
-  return blankCodebase(title, viewport);
+/**
+ * Starts a story from a template's folder (`contributes.templates` with
+ * `projectType: "interactive-story"`). The template holds the story's own
+ * files, such as `graph.json`, `editor/layout.json` and `shared/`, which are
+ * copied once and never over a file the workspace has. OhMyGame then names
+ * the story, sets its viewport when one is given, and adds what plays and
+ * describes it: `index.html`, whose story ID names the player's saves, so a
+ * template can't share one, the runtime under `story/`, and the contract files.
+ * A template's own `index.html`, `story/` and `ohmygame.json` are left out.
+ */
+export async function createStoryFromTemplate(
+  workspacePath: string,
+  template: string,
+  { title, viewport }: { title: string; viewport?: { width: number; height: number } },
+): Promise<void> {
+  await withCodebaseLock(workspacePath, async () => {
+    for (const file of await templateFiles(template)) {
+      const content = await readFile(path.join(template, file));
+      const target = await resolveWorkspaceMutationPath(workspacePath, file);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, content, { flag: "wx" }).catch((cause: NodeJS.ErrnoException) => {
+        if (cause.code !== "EEXIST") throw cause;
+      });
+    }
+    const graph = {
+      ...(await readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE) as NodeGraph),
+      title,
+      ...(viewport ? { viewport } : {}),
+    };
+    const editorLayout = fitPlayableLayout(graph, await workspaceFileExists(workspacePath, LAYOUT_FILE)
+      ? await readJson(path.join(workspacePath, LAYOUT_FILE), LAYOUT_FILE) as NodeEditorLayout
+      : layout({}));
+    await validateCodebase(workspacePath, { graph, editorLayout }, true);
+    await writeFile(await resolveWorkspaceMutationPath(workspacePath, GRAPH_FILE), jsonText(graph), "utf8");
+    await writeFile(await resolveWorkspaceMutationPath(workspacePath, LAYOUT_FILE), jsonText(editorLayout), "utf8");
+    await ensureFile(await resolveWorkspaceMutationPath(workspacePath, "index.html"), storyWebIndexHtml(title));
+    await ensureNodeCodebaseContract(workspacePath);
+    await installStoryRuntime(workspacePath);
+  });
+}
+
+/**
+ * Takes on a folder that already holds a story, such as one removed from
+ * OhMyGame and opened again: it keeps its own graph and Scenes, even when they
+ * need repair in the editor, and gets only the files it is missing.
+ */
+export async function adoptStory(workspacePath: string): Promise<void> {
+  await withCodebaseLock(workspacePath, async () => {
+    await ensureFile(await resolveWorkspaceMutationPath(workspacePath, LAYOUT_FILE), jsonText(layout({})));
+    await ensureNodeCodebaseContract(workspacePath);
+  });
+}
+
+/** The files a story template holds, by relative path, without the ones OhMyGame writes itself. */
+async function templateFiles(folder: string, relative = ""): Promise<string[]> {
+  const files: string[] = [];
+  for (const item of await readdir(path.join(folder, relative), { withFileTypes: true })) {
+    const file = relative ? `${relative}/${item.name}` : item.name;
+    if (file === "index.html" || file === "story" || file === "ohmygame.json") continue;
+    if (item.isDirectory()) files.push(...await templateFiles(folder, file));
+    else if (item.isFile()) files.push(file);
+    else throw new Error(`${path.join(folder, file)} is not a file or folder`);
+  }
+  return files;
 }
 
 /**
@@ -397,30 +456,6 @@ async function validateCodebase(
   }
 }
 
-/**
- * A new project has no Scenes: the author starts from a Template or the
- * Agent from the author's description, and the first Scene added becomes the
- * Start, which `entryNodeId` names until then.
- */
-function blankCodebase(
-  title: string,
-  viewport: { width: number; height: number },
-): NodeCodebase {
-  return {
-    graph: {
-      version: 1,
-      title,
-      viewport,
-      entryNodeId: "start",
-      initialState: {},
-      assets: {},
-      nodes: [],
-      edges: [],
-    },
-    editorLayout: layout({}),
-  };
-}
-
 function layout(
   nodes: Record<string, { x: number; y: number }>,
 ): NodeEditorLayout {
@@ -432,8 +467,9 @@ function layout(
   };
 }
 
-// A new project brings the Project Style; any Node it starts with comes from
-// the Blank Template. Examples, which ship their own sources, live in the
+// A codebase written as it is brings the Project Style; any Node it starts
+// with comes from the Blank Template. New projects start from the Interactive
+// Story plugin's template instead (`createStoryFromTemplate`). Examples, which ship their own sources, live in the
 // ohmygame-examples repository.
 function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };

@@ -1,3 +1,4 @@
+import { installStoryPlugin } from "./playable-fixture.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -73,7 +74,7 @@ describe("player preview startup", () => {
   });
 
   it("rejects missing and empty projects and stories without a page, and serves a web story's page", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-preview-"));
+    const dataDirectory = await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-player-preview-")));
     const app = createApp({ dataDirectory });
     cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
     const empty = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();

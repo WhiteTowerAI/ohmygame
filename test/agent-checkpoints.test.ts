@@ -1,3 +1,4 @@
+import { installStoryPlugin } from "./playable-fixture.js";
 import { AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   mkdir,
@@ -172,6 +173,7 @@ async function studio(steps: Step[], type = "web-game") {
     path.join(tmpdir(), "ohmygame-agent-checkpoints-"),
   );
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  if (type === "interactive-story") await installStoryPlugin(directory);
   const { baseUrl, requests } = await scriptedModel(steps);
   // A model request that fails is not tried again, so a step that fails ends the turn at once.
   await writeFile(

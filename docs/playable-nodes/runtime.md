@@ -48,13 +48,18 @@ AGENTS.md, README.md    rules and reference for the Agent and authors
 ```
 
 A new project is a web story with the default Project Style and no nodes; the author
-starts from a Template or the Agent from the author's description. A project
+starts from a Template or the Agent from the author's description. Its files
+come from the `blank` template of the Interactive Story plugin
+(`ohmygame/interactive-story`), and OhMyGame adds the page, the runtime and
+the contract files (see [project templates](../plugins.md#project-templates));
+without that plugin, installed and on, no new story can start. A project
 with no nodes, new or after the author deletes them all, is a valid draft:
 `entryNodeId` then names nothing, and the first node added becomes the Entry
 Node.
 
 Creating a project in an existing folder adds only the files the folder does
 not have and never overwrites one. A folder that already holds `graph.json`,
+which doesn't need the plugin,
 such as the workspace of a removed project, opens as that project with its own
 graph and nodes; if they need repair, the editor reports it.
 

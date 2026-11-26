@@ -1,6 +1,7 @@
 import type { AudioGenerationRequest, GeneratedAudio } from "../src/shared/audio.js";
 import { mp3Fixture } from "./audio-fixtures.js";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -9,7 +10,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
-import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
+import { createStarterCodebaseWithScene, installStoryPlugin, writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -134,7 +135,7 @@ describe("daemon", () => {
   });
 
   it("creates a typed project", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-test-"))) });
     apps.push(app);
     const response = await app.inject({
       method: "POST",
@@ -149,7 +150,7 @@ describe("daemon", () => {
   });
 
   it("serves the Node Runtime only for projects with graph.json", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-test-"))) });
     apps.push(app);
     const project = (await app.inject({
       method: "POST",
@@ -175,7 +176,7 @@ describe("daemon", () => {
 
   it("accepts a custom viewport only for blank Interactive Story projects", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-viewport-")),
+      dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-viewport-"))),
     });
     apps.push(app);
 
@@ -627,7 +628,7 @@ describe("daemon", () => {
   });
 
   it("saves project media once in the global Library and keeps it for projects that use it", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-api-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-library-api-"))) });
     apps.push(app);
     const project = (await app.inject({
       method: "POST",
@@ -654,7 +655,7 @@ describe("daemon", () => {
   });
 
   it("materializes a Library asset once", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-materialize-"));
+    const dataDirectory = await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-library-materialize-")));
     const app = createApp({ dataDirectory });
     apps.push(app);
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
@@ -680,7 +681,7 @@ describe("daemon", () => {
   });
 
   it("keeps a removed asset's file when an Interactive Story document cannot be verified", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-broken-graph-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-library-broken-graph-"))) });
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
     await writeFile(path.join(storyProject.workspacePath, "graph.json"), JSON.stringify({ version: 1, nodes: "broken" }));
@@ -711,7 +712,7 @@ describe("daemon", () => {
   });
 
   it("imports a local image into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-"))) });
     apps.push(app);
 
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -759,7 +760,7 @@ describe("daemon", () => {
   });
 
   it("uploads a video into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-"))) });
     apps.push(app);
     const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
 
@@ -1018,7 +1019,7 @@ describe("daemon", () => {
 
   it("exposes the shared Plugins and Skills to Interactive Story conversations", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
+      dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-"))),
       createSession: async () => ({
         messages: [],
         prompt: async () => {},
@@ -1506,7 +1507,7 @@ describe("daemon", () => {
   });
 
   it("stores Node thumbnails as editor cache outside the file list", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnail-api-")) });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnail-api-"))) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nodes", type: "interactive-story" } })).json();
     await writePlayableFixtureWorkspace(project.workspacePath);
@@ -2458,7 +2459,7 @@ describe("web build export", () => {
 
 describe("Playable Nodes projects", () => {
   async function createPlayableApp(prefix: string, options: Parameters<typeof createApp>[0] = {}) {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)), ...options });
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), prefix))), ...options });
     apps.push(app);
     return app;
   }
@@ -2697,6 +2698,37 @@ describe("Playable Nodes projects", () => {
     expect(invalid.json()).toMatchObject({ ok: false, issues: expect.arrayContaining([expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })]) });
   });
 
+  it("starts a new story from the Interactive Story plugin's template, with a page and runtime of its own", async () => {
+    const app = await createPlayableApp("ohmygame-story-template-");
+    const create = () => app.inject({ method: "POST", url: "/projects", payload: { name: "Ash", type: "interactive-story" } }).then((response) => response.json());
+    const [first, second] = [await create(), await create()];
+    expect(JSON.parse(await readFile(path.join(first.workspacePath, "graph.json"), "utf8")).title).toBe("Ash");
+    for (const file of ["shared/style/theme.css", "story/story-web/runtime.js", "AGENTS.md", "schemas/graph.schema.json"]) {
+      await expect(lstat(path.join(first.workspacePath, file)), file).resolves.toBeDefined();
+    }
+    // Each story names its own saves.
+    const storyId = async (project: { workspacePath: string }) => /name="ohmygame-story" content="([^"]+)"/.exec(await readFile(path.join(project.workspacePath, "index.html"), "utf8"))?.[1];
+    expect(await storyId(first)).toBeTruthy();
+    expect(await storyId(first)).not.toBe(await storyId(second));
+    // Choosing the type is choosing that template, so the dialog doesn't offer it again.
+    expect((await app.inject({ method: "GET", url: "/project-templates" })).json()).toEqual([]);
+  });
+
+  it("needs the Interactive Story plugin to start a story, but not to open one", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-no-plugin-")) });
+    apps.push(app);
+    const refused = await app.inject({ method: "POST", url: "/projects", payload: { name: "Ash", type: "interactive-story" } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("Interactive Story plugin");
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-story-no-plugin-workspace-"));
+    await createNodeCodebase(workspacePath, createStarterCodebaseWithScene("Ash", { width: 1280, height: 720 }));
+    const opened = await app.inject({ method: "POST", url: "/projects", payload: { name: "Ash", type: "interactive-story", workspacePath } });
+    expect(opened.statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: `/projects/${opened.json().id}/playable/codebase` })).statusCode).toBe(200);
+  });
+
   it("opens an Interactive Story workspace again after its project was deleted", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-codebase-workspace-"));
     await writeFile(path.join(workspacePath, "notes.txt"), "keep me\n");
@@ -2832,7 +2864,8 @@ describe("Asset Canvas projects", () => {
   });
 
   it("shares canvas endpoints with Interactive Story projects", async () => {
-    const app = await createCanvasApp("ohmygame-asset-canvas-story-");
+    const app = createApp({ dataDirectory: await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-asset-canvas-story-"))) });
+    apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
 
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).statusCode).toBe(200);

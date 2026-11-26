@@ -158,7 +158,8 @@ not stored as a type, and a Scene created from "Main menu" can later become
 anything.
 
 Template content is ordinary files under `src/daemon/assets/story-templates/`:
-`project/` is the Project Style every story starts with, `<id>/scene/` is the
+`project/` is the Project Style the Templates import (a new story gets its own
+copy from the Interactive Story plugin's `blank` template), `<id>/scene/` is the
 Scene a Template creates, and `<id>/project/` holds shared files the Template
 adds when a project lacks them. `{{title}}` in a Scene's HTML becomes its
 title and `{{id}}` its ID. `src/daemon/playable-presets.ts` keeps each

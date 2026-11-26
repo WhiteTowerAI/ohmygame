@@ -1,8 +1,50 @@
 import type { NodeGraph } from "../src/shared/playable-nodes.js";
 import type { NodeCodebase } from "../src/shared/playable-codebase.js";
-import { createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
-import { mkdir, writeFile } from "node:fs/promises";
+import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-presets.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+
+/** A new project as the Interactive Story plugin's blank template starts it: no Scenes yet. */
+export function createPlayableStarterCodebase(
+  title: string,
+  viewport: { width: number; height: number },
+): NodeCodebase {
+  return {
+    graph: { version: 1, title, viewport, entryNodeId: "start", initialState: {}, assets: {}, nodes: [], edges: [] },
+    editorLayout: { version: 1, nodes: {}, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" },
+  };
+}
+
+/**
+ * Installs a stand-in for the Interactive Story plugin into a data folder, so
+ * an app made with it can start stories. Its blank template holds what the
+ * real one does: an empty graph, the editor layout and the Project Style.
+ */
+export async function installStoryPlugin(dataDirectory: string): Promise<string> {
+  const plugin = await mkdtemp(path.join(tmpdir(), "ohmygame-story-plugin-"));
+  const { graph, editorLayout } = createPlayableStarterCodebase("Untitled story", { width: 1280, height: 720 });
+  const files: Record<string, string> = {
+    ".ohmygame-plugin/plugin.json": JSON.stringify({
+      id: "ohmygame/interactive-story", version: "0.1.0", engines: { "ohmygame-api": "^2.38.0" },
+      displayName: "Interactive Story", description: "Interactive Stories.",
+      contributes: { templates: [{ id: "blank", title: "Blank story", projectType: "interactive-story", folder: "./templates/blank/" }] },
+    }),
+    "templates/blank/graph.json": `${JSON.stringify(graph, null, 2)}\n`,
+    "templates/blank/editor/layout.json": `${JSON.stringify(editorLayout, null, 2)}\n`,
+    ...Object.fromEntries(Object.entries(PLAYABLE_PROJECT_STYLE_FILES).map(([file, content]) => [`templates/blank/${file}`, content])),
+  };
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(plugin, file)), { recursive: true });
+    await writeFile(path.join(plugin, file), content);
+  }
+  const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+  const installed = await services.install(plugin);
+  await services.close();
+  if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+  return dataDirectory;
+}
 
 /**
  * A new project, which has no Scenes, with one Blank Scene `start` added, for

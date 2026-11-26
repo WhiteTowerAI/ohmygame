@@ -1,3 +1,4 @@
+import { installStoryPlugin } from "./playable-fixture.js";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -253,7 +254,7 @@ describe("plugin catalog API", () => {
   });
 
   it("lists a project's plugins and turns one on there, starting its ohmygame.json", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-plugins-api-"));
+    const dataDirectory = await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-project-plugins-api-")));
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
@@ -440,7 +441,7 @@ describe("plugin catalog API", () => {
   });
 
   it("offers a project only the plugin mentions its prompts accept", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-"));
+    const dataDirectory = await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-")));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(source, "skills", "web-only"), { recursive: true });

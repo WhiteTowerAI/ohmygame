@@ -4,7 +4,7 @@ import type { ProjectState, ProjectType, ToolJob } from "../shared/contracts.js"
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import { LoopbackFileServer } from "./loopback-file-server.js";
-import { ensureNodeCodebaseContract } from "./playable-codebase.js";
+import { createStoryFromTemplate, ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 
@@ -145,7 +145,7 @@ export async function createTemplateProject(
   projects: ProjectManager,
   template: { type: "general" | "web-game" | "interactive-story"; title: string; folder: string },
   copy: (from: string, to: string) => Promise<void>,
-  options: { type?: ProjectType; name?: string; workspacePath?: string } = {},
+  options: { type?: ProjectType; name?: string; workspacePath?: string; viewport?: { width: number; height: number } } = {},
 ): Promise<ProjectState> {
   if (options.type && options.type !== template.type) throw new ExampleError("The template does not match the project type", 400);
   if (options.workspacePath && !(await isEmptyDirectory(options.workspacePath))) {
@@ -153,8 +153,12 @@ export async function createTemplateProject(
   }
   const project = await projects.create(options.name?.trim() || template.title, template.type, options.workspacePath);
   try {
-    await copy(template.folder, project.workspacePath);
-    if (template.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
+    if (template.type === "interactive-story") {
+      await createStoryFromTemplate(project.workspacePath, template.folder, {
+        title: project.name,
+        ...(options.viewport ? { viewport: options.viewport } : {}),
+      });
+    } else await copy(template.folder, project.workspacePath);
     await projects.storeSettings(project.id);
     return await projects.refreshPreviewReadiness(project.id);
   } catch (error) {

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
-import { createStarterCodebaseWithScene } from "./playable-fixture.js";
+import { createStarterCodebaseWithScene, installStoryPlugin } from "./playable-fixture.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
 import { isPreparedExampleCatalog } from "../src/shared/examples.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
@@ -319,6 +319,37 @@ describe("plugin project templates", () => {
     expect(await readFile(path.join(project.workspacePath, ".claude", "agents", "producer.md"), "utf8")).toBe("# Producer\n");
     expect(await readFile(path.join(project.workspacePath, "CLAUDE.md"), "utf8")).toBe("# Studio\n");
     expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8")).type).toBe("general");
+  });
+
+  it("starts an Interactive Story from a template's story files, with OhMyGame's page and runtime", async () => {
+    const data = await installStoryPlugin(await mkdtemp(path.join(tmpdir(), "ohmygame-story-templates-data-")));
+    // A plugin's own story template, which brings a page and runtime OhMyGame replaces.
+    const plugin = await mkdtemp(path.join(tmpdir(), "ohmygame-story-template-plugin-"));
+    await mkdir(path.join(plugin, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(plugin, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/novel", version: "1.0.0", engines: { "ohmygame-api": "^2.38.0" }, displayName: "Novel", description: "A novel.",
+      contributes: { templates: [{ id: "novel", title: "Novel", projectType: "interactive-story", folder: "./template/" }] },
+    }));
+    const template = path.join(plugin, "template");
+    await mkdir(template);
+    const { graph, editorLayout } = createStarterCodebaseWithScene("Template title", { width: 720, height: 1280 });
+    await createNodeCodebase(template, { graph, editorLayout });
+    await writeFile(path.join(template, "index.html"), "<p>the template's page</p>\n");
+    const services = new PluginServices({ directory: path.join(data, "plugin-store") });
+    const installed = await services.install(plugin);
+    await services.close();
+    if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+
+    const app = await startApp(undefined, data);
+    const created = await app.inject({ method: "POST", url: "/projects", payload: { template: "acme/novel:novel", name: "My novel" } });
+    expect(created.statusCode, created.body).toBe(201);
+    const workspace = created.json().workspacePath;
+    expect(JSON.parse(await readFile(path.join(workspace, "graph.json"), "utf8"))).toMatchObject({ title: "My novel", viewport: { width: 720, height: 1280 } });
+    expect(await readFile(path.join(workspace, "nodes/start/node.js"), "utf8")).toBe(await readFile(path.join(template, "nodes/start/node.js"), "utf8"));
+    expect(await readFile(path.join(workspace, "index.html"), "utf8")).toContain('<meta name="ohmygame-story"');
+    expect((await app.inject({ method: "GET", url: `/projects/${created.json().id}/interactive-story/status` })).json()).toEqual({ web: true });
+    // Only the plugin's own templates are offered; the blank story is the type itself.
+    expect((await app.inject({ method: "GET", url: "/project-templates" })).json().map((item: { id: string }) => item.id)).toEqual(["acme/novel:novel"]);
   });
 
   it("needs an empty folder, a template that exists, and nothing else to start from", async () => {

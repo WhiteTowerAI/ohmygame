@@ -1,3 +1,4 @@
+import { installStoryPlugin } from "./playable-fixture.js";
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -168,7 +169,7 @@ describe("Markdown design workspace", () => {
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });
   it("keeps imported files beside the project's media and reports file nodes whose file is gone", async () => {
-    const app = createApp({ dataDirectory: await temp() }); apps.push(app);
+    const app = createApp({ dataDirectory: await installStoryPlugin(await temp()) }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject(`${base}/workspace`)).json();
     const upload = (name: string, payload: Buffer) => app.inject({ method: "POST", url: `${base}/files?name=${encodeURIComponent(name)}`, headers: { "content-type": "application/octet-stream" }, payload });

@@ -6,13 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   createNodeCodebase,
-  createPlayableStarterCodebase,
   readNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, PLAYABLE_PROJECT_STYLE_FILES, playablePreset } from "../src/daemon/playable-presets.js";
 import { playableBackdrop } from "../src/shared/playable-backdrop.js";
-import { createStarterCodebaseWithScene } from "./playable-fixture.js";
+import { createPlayableStarterCodebase, createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 /** A project with one Blank Scene, `start`, unless it should be new and empty. */
 async function createWorkspace(name: string, empty = false): Promise<string> {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
+import { installStoryPlugin, writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../src/shared/local-debug.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -17,6 +17,7 @@ const webp = (label: string) => Buffer.concat([Buffer.from("RIFF"), Buffer.alloc
 async function fixture(type = "web-game", localDebug = false) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-cover-api-"));
   directories.push(directory);
+  if (type === "interactive-story") await installStoryPlugin(directory);
   const app = createApp({ dataDirectory: directory, localDebug });
   apps.push(app);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { type } })).json();

@@ -184,7 +184,7 @@ import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from 
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
-import { adoptTypedProject, availableProjectTemplates, availableProjectTypes, buildWebPreview, copyTemplate, createTypedProject, projectTemplate, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
+import { adoptTypedProject, availableProjectTemplates, availableProjectTypes, buildWebPreview, copyTemplate, createTypedProject, projectTemplate, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes, STORY_PLUGIN_NEEDED, STORY_STARTER_TEMPLATE } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
 import { PluginGameBridge } from "./plugin-game-bridge.js";
 import { ConnectionService } from "./connections.js";
@@ -211,8 +211,8 @@ import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
 import { buildPlayableProject, validatePlayableProject } from "./playable-project.js";
 import {
-  createNodeCodebase,
-  createPlayableStarterCodebase,
+  adoptStory,
+  createStoryFromTemplate,
   NodeCodebaseConflictError,
   NodeCodebaseError,
   openNodeCodebaseDetail,
@@ -3726,13 +3726,26 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(201).send(project);
       }
       const type = request.body?.type ?? "web-game";
+      // A new story starts from its plugin's template; a folder that already holds one keeps its own files.
+      const adoptingStory = type === "interactive-story" && request.body?.workspacePath !== undefined
+        && await lstat(path.join(request.body.workspacePath, "graph.json")).then((stats) => stats.isFile(), () => false);
+      let storyTemplate: string | undefined;
+      if (type === "interactive-story" && !adoptingStory) {
+        try {
+          storyTemplate = (await projectTemplate(pluginServices, STORY_STARTER_TEMPLATE)).folder;
+        } catch {
+          return reply.code(409).send({ error: STORY_PLUGIN_NEEDED });
+        }
+      }
       const project = await projects.create(request.body?.name, type, request.body?.workspacePath);
       if (project.type === "interactive-story") {
         try {
-          await createNodeCodebase(
-            project.workspacePath,
-            createPlayableStarterCodebase(project.name, request.body?.viewport ?? { width: 1280, height: 720 }),
-          );
+          if (storyTemplate) {
+            await createStoryFromTemplate(project.workspacePath, storyTemplate, {
+              title: project.name,
+              ...(request.body?.viewport ? { viewport: request.body.viewport } : {}),
+            });
+          } else await adoptStory(project.workspacePath);
         } catch (cause) {
           await projects.delete(project.id);
           throw cause;
