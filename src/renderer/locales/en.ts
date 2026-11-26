@@ -1781,6 +1781,8 @@ const en = {
     area: { left: "Left", center: "Center", right: "Right", bottom: "Bottom" },
     areaPanels: "{{area}} panels",
     moveTo: "Move to {{area}}",
+    maximize: "Maximize",
+    restore: "Restore",
     fromPlugins: "From plugins",
     fromPlugin: "{{title}} · from {{plugin}}",
     close: "Close {{title}}",

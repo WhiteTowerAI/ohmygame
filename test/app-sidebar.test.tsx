@@ -508,6 +508,15 @@ describe("in a project", () => {
     expect(center.querySelector(".project-title-end")?.textContent).toBe("Publish");
     expect(container.querySelector(".project-top")?.textContent).toBe("");
 
+    // Maximized, the middle fills the layout and holds the whole title bar; Restore brings the chat back.
+    await act(async () => center.querySelector<HTMLButtonElement>("[aria-label='Maximize']")!.click());
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(true);
+    expect(center.querySelector(".project-name")?.textContent).toBe("Storm Ruins");
+    expect(center.querySelector(".project-title-end")?.textContent).toBe("Publish");
+    await act(async () => center.querySelector<HTMLButtonElement>("[aria-label='Restore']")!.click());
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(false);
+    expect(left.querySelector(".project-name")?.textContent).toBe("Storm Ruins");
+
     // The toggle hides the rail, and the choice is kept.
     await act(async () => button("Hide projects")!.click());
     expect(container.querySelector(".project-frame")!.classList.contains("is-rail-hidden")).toBe(true);

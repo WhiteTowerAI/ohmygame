@@ -1761,6 +1761,8 @@ const zhCN: typeof en = {
     area: { left: "左侧", center: "中间", right: "右侧", bottom: "底部" },
     areaPanels: "{{area}}面板",
     moveTo: "移到{{area}}",
+    maximize: "最大化",
+    restore: "还原",
     fromPlugins: "来自插件",
     fromPlugin: "{{title}} · 来自 {{plugin}}",
     close: "关闭{{title}}",

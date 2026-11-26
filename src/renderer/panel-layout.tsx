@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { MoreHorizontal, Plus, X } from "./icons.js";
+import { Maximize, Minimize, MoreHorizontal, Plus, X } from "./icons.js";
 import { PanelTools, toolScopeOf, type ToolScope } from "./panel-tools.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -216,6 +216,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     if (resizeDrag.current) document.documentElement.classList.remove("is-resizing-dock");
   }, []);
   const [dragging, setDragging] = useState<string>();
+  // One area may fill the whole layout for a while; it isn't saved.
+  const [maximized, setMaximized] = useState<AreaId>();
   const [target, setTarget] = useState<{ area: AreaId; before?: string }>();
   const [slots, setSlots] = useState<Record<string, HTMLElement | null>>({});
   // Stable ref callbacks, so a render doesn't detach and reattach every slot.
@@ -232,7 +234,10 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const known = new Set(byId.keys());
   const shown = (area: AreaId) => layout[area].panels.filter((id) => known.has(id));
   const present = SIDES.filter((area) => shown(area).length);
-  const has = (area: AreaId) => area === "center" || present.includes(area as (typeof SIDES)[number]);
+  const exists = (area: AreaId) => area === "center" || present.includes(area as (typeof SIDES)[number]);
+  const max = maximized && exists(maximized) && present.length ? maximized : undefined;
+  // What takes room: every area, or only the one maximized.
+  const has = (area: AreaId) => max ? area === max : exists(area);
 
   // Too narrow for the side areas beside the center, the areas stack and the
   // layout scrolls.
@@ -247,9 +252,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   // starts it, the rightmost ends it with the project's actions. Stacked, or
   // with too little room at the end for a panel's toolbar and those actions,
   // the frame keeps a title bar row of its own.
-  const startArea: AreaId = has("left") ? "left" : "center";
-  const endArea: AreaId = has("right") ? "right" : "center";
-  const endWidth = endArea === "right" ? layout.right.size
+  const startArea: AreaId = max ?? (has("left") ? "left" : "center");
+  const endArea: AreaId = max ?? (has("right") ? "right" : "center");
+  const endWidth = max ? width ?? 0 : endArea === "right" ? layout.right.size
     : (width ?? 0) - (has("left") ? layout.left.size + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
   const inTitlebar = !!titlebar && !stacked && (!width || endWidth >= TITLEBAR_END_MIN);
   useLayoutEffect(() => {
@@ -322,11 +327,11 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   return (
     <div ref={root} className={`dock${dragging ? " is-dragging" : ""}${stacked ? " is-stacked" : ""}`} style={style}
       onDragEnd={() => { setDragging(undefined); setTarget(undefined); }}>
-      {(["left", "center", "right", "bottom"] as const).filter(has).map((area) => {
+      {(["left", "center", "right", "bottom"] as const).filter(exists).map((area) => {
         const ids = shown(area);
         const active = ids.includes(layout[area].active ?? "") ? layout[area].active : ids[0];
         return (
-          <section key={area} className={`dock-area dock-area-${area}${target?.area === area && !target.before ? " is-drop" : ""}`}
+          <section key={area} className={`dock-area dock-area-${area}${target?.area === area && !target.before ? " is-drop" : ""}${has(area) ? "" : " is-hidden"}`}
             style={{ gridArea: area }} aria-label={areaLabel(area)}
             onPointerDownCapture={(event) => {
               if (active && !(event.target as Element).closest(".dock-resizer")) onActivate?.(active);
@@ -348,6 +353,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                       onDragStart={(event) => {
                         event.dataTransfer.setData("text/plain", panel.title);
                         event.dataTransfer.effectAllowed = "move";
+                        setMaximized(undefined);
                         setDragging(id);
                       }}
                       onDragOver={(event) => over(event, area, id)} onDrop={(event) => drop(event, area, id)}>
@@ -374,6 +380,12 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
               <DockToolsMenu />
+              {present.length ? (
+                <IconButton size="sm" className="dock-maximize" label={t(max ? "panels.restore" : "panels.maximize")}
+                  onClick={() => setMaximized(max ? undefined : area)}>
+                  {max ? <Minimize size="sm" /> : <Maximize size="sm" />}
+                </IconButton>
+              ) : null}
               {inTitlebar && area === endArea ? <div ref={setTitleEnd} className="dock-title-end" /> : null}
             </DockTabStrip>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}

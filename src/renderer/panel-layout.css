@@ -25,6 +25,10 @@
   overflow-y: auto;
 }
 
+.dock-area.is-hidden {
+  display: none;
+}
+
 .dock-area {
   position: relative;
   display: flex;
@@ -36,14 +40,15 @@
   container: dock-area / inline-size;
 }
 
-/* Dropping onto an area: a soft wash over it and a thin ring, not a heavy frame. */
+/* Dropping onto an area: the grey of a selected row laid over it, inset like a
+   card, the way a menu marks its item. */
 .dock-area.is-drop::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--space-1);
   z-index: 10;
-  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-selected) 60%, transparent);
   pointer-events: none;
 }
 
@@ -175,7 +180,7 @@
   left: -2px;
   width: 2px;
   border-radius: 1px;
-  background: var(--color-accent);
+  background: var(--color-text-secondary);
 }
 
 .dock-tab-button {
@@ -482,48 +487,46 @@
   height: 2px;
 }
 
-/* drop zones for the sides that have no panels yet */
+/* Drop zones for the sides that have no panels yet: raised like a popover,
+   inset from the edges, and the selected grey once a tab is over one. */
 .dock-zone {
   position: absolute;
   z-index: 20;
   display: grid;
   place-items: center;
-  border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-app) 70%, transparent);
-  backdrop-filter: blur(6px);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
   color: var(--color-text-tertiary);
   font-size: var(--text-sm);
-  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
 .dock-zone.is-drop {
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-app));
+  background: var(--color-selected);
   color: var(--color-text);
 }
 
 .dock-zone-left,
 .dock-zone-right {
-  top: 0;
-  bottom: 0;
-  width: 120px;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 112px;
 }
 
 .dock-zone-left {
-  left: 0;
+  left: var(--space-2);
 }
 
 .dock-zone-right {
-  right: 0;
+  right: var(--space-2);
 }
 
 .dock-zone-bottom {
   right: 128px;
-  bottom: 0;
+  bottom: var(--space-2);
   left: 128px;
-  height: 88px;
+  height: 80px;
 }
 
 /* Frames swallow drag and pointer events, so the game can't eat a drop or a resize. */

@@ -30,11 +30,11 @@
   visibility: hidden;
 }
 
-/* The rail is a step off the panels' surface, not the app's darker ground,
-   so the narrow strip doesn't stand apart from the work beside it. */
+/* The rail shares the panels' surface, as the title bar above it does; only
+   the hairline sets it apart, so the narrow strip doesn't stand out. */
 .project-frame > .sidebar {
   grid-area: rail;
-  background: var(--color-stage);
+  background: var(--color-surface);
   border-right: 1px solid var(--color-border);
 }
 
