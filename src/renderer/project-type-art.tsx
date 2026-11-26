@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
-// Each app project type's picture, drawn in code so it stays sharp at any
-// size and follows the theme: shapes take the type's hue through the art-*
-// classes in new-game.css, mixed with the surface colours. The art sits in
+// Each app project type's picture, drawn in code. new-game.css draws every
+// shape as a 1.25px outline in the theme's line colour, the weight of the
+// app's icons, and tints it with the type's hue on hover; a plugin type's own
+// SVG is redrawn the same way by the daemon (plugin-svg.ts). The art sits in
 // the right of a 400×200 box, leaving the left foot for the card's words.
 
 /** The types drawn here; others get their plugin's picture or icon. */
@@ -11,6 +12,9 @@ export const DRAWN_TYPES = ["web-game", "godot-game", "interactive-story", "gene
 export function hasTypeArt(type: string): boolean {
   return (DRAWN_TYPES as readonly string[]).includes(type);
 }
+
+/** The drawing a plugin type without art of its own gets. */
+export const PLUGIN_TYPE_ART = "plugin";
 
 /**
  * The type's scene. `fit` is "cover" on cards, which share the box's 2:1
@@ -39,6 +43,18 @@ function Block({ x, y, size = 34, height = 14, top = "art-paper", left = "art-mi
 }
 
 const SCENES: Record<string, ReactNode> = {
+  // A window holding a puzzle piece: something a plugin adds.
+  [PLUGIN_TYPE_ART]: <>
+    <g className="art-lift">
+      <rect x="206" y="38" width="160" height="116" rx="12" />
+      <path d="M206 60h160" />
+      <circle cx="220" cy="49" r="3" />
+      <circle cx="232" cy="49" r="3" />
+      <circle cx="244" cy="49" r="3" />
+      <path className="art-hop" d="M264 84h16a9 9 0 1 1 18 0h16v16a9 9 0 1 1 0 18v16h-50z" />
+      <path d="M382 34l4 9 10 1.5-7 7 1.7 10-8.7-4.6-8.7 4.6 1.7-10-7-7 10-1.5z" />
+    </g>
+  </>,
   // A browser window with a small platformer level in it.
   "web-game": <>
     <circle className="art-glow" cx="330" cy="40" r="120" />

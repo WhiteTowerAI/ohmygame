@@ -871,10 +871,10 @@ sits at the row's start; with two or more, **All projects** sits beside the
 heading. Its chevron folds it to one line that still opens the
 latest project; the choice stays in that browser. **New project** shows a card per
 project type, plugin types included. The app's types are drawn in code
-(`src/renderer/project-type-art.tsx`) from the type's hue and the theme's
-surfaces, so they follow light and dark; a plugin's type shows its `cover`
-([plugins](plugins.md)), or its plugin's icon. Each card's type icon sits on a
-neutral tile. Beside its heading, **More types**
+(`src/renderer/project-type-art.tsx`) as thin lines in the theme's text
+colour that take the type's hue on hover; a plugin's type shows its `art`
+redrawn the same way ([plugins](plugins.md)), or a generic drawing. The type's
+icon, or its plugin's, sits above its name. Beside its heading, **More types**
 searches plugins that add one and **Describe it** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.

@@ -3,12 +3,11 @@ import type { PluginMention, ProjectState, PromptAttachment, PromptImage, Prompt
 import { FilePlus, FolderOpen } from "./icons.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { GameIcon, type GameIconName } from "./game-icon.js";
-import { isAppProjectType, projectTypeDescription, projectTypeLabel } from "./project-types.js";
+import { isAppProjectType, ProjectTypeIcon, projectTypeDescription, projectTypeLabel } from "./project-types.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
-import { readProjectTypeCover, type AvailableProjectType } from "./api.js";
+import { readProjectTypeArt, type AvailableProjectType } from "./api.js";
 import { createdProjectView, settingsHash } from "./routes.js";
-import { hasTypeArt, ProjectTypeArt } from "./project-type-art.js";
+import { hasTypeArt, PLUGIN_TYPE_ART, ProjectTypeArt } from "./project-type-art.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { Button, Dialog } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -154,7 +153,7 @@ function NewGameDialog({ type, from, sending, error, onType, onClose, onSubmit, 
         {[...NEW_GAME_TYPES, ...pluginTypes.map((option) => option.id)].map((value) => (
           <button key={value} type="button" role="radio" aria-checked={value === type} className="new-game-type"
             disabled={sending} onClick={() => onType(value)}>
-            <TypeIcon type={value} size={20} />
+            <TypeGlyph type={value} pluginTypes={pluginTypes} />
             <span>{typeName(value, pluginTypes)}</span>
           </button>
         ))}
@@ -195,8 +194,8 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
   return (
     <button type="button" className="new-game-card" onClick={(event) => openNewGame({ type, from: event.currentTarget })}>
       <TypeArt type={type} pluginTypes={pluginTypes} />
-      <TypeIcon type={type} size={32} className="new-game-card-icon" />
       <span className="new-game-card-copy">
+        <TypeGlyph type={type} pluginTypes={pluginTypes} />
         <span className="new-game-card-name">{typeName(type, pluginTypes)}</span>
         <span className="new-game-card-hint">{typeHint(type, pluginTypes)}</span>
       </span>
@@ -205,38 +204,28 @@ export function NewGameCard({ type, pluginTypes }: { type: string; pluginTypes: 
 }
 
 /**
- * A type's picture: app types are drawn (project-type-art.tsx); a plugin's
- * type shows the cover it gives, or else its plugin's icon on a quiet ground.
- * Drawn art and the icon take the theme's text colours; a cover is a photo,
- * so the words over it go light on a scrim.
+ * A type's line drawing: app types are drawn in code (project-type-art.tsx);
+ * a plugin's type shows its own SVG, which the daemon redraws as outlines and
+ * the card paints as a mask in the line colour, or else a plain plugin drawing.
  */
 function TypeArt({ type, pluginTypes, fit = "cover" }: { type: string; pluginTypes: readonly AvailableProjectType[]; fit?: "cover" | "contain" }) {
-  if (hasTypeArt(type)) return <span className={`new-game-art is-drawn is-${type}`} aria-hidden="true"><ProjectTypeArt type={type} fit={fit} /></span>;
-  return <PluginTypeArt type={type} option={pluginTypes.find((option) => option.id === type)} />;
-}
-
-function PluginTypeArt({ type, option }: { type: string; option?: AvailableProjectType }) {
-  const cover = useProjectTypeCover(option?.cover ? type : undefined, option?.plugin?.revision);
-  if (cover) return <span className="new-game-art is-photo" aria-hidden="true"><img src={cover} alt="" /></span>;
-  const plugin = option?.plugin;
-  return <span className="new-game-art is-plugin" aria-hidden="true">
-    <span className="new-game-art-mark">
-      {plugin
-        ? <PluginGlyph plugin={{ id: plugin.id, icon: plugin.icon ? { type: "asset", path: plugin.icon } : undefined, iconRevision: plugin.revision }} size={88} name={option.title} />
-        : <TypeIcon type={type} size={56} />}
-    </span>
+  const option = pluginTypes.find((item) => item.id === type);
+  const art = useProjectTypeArt(option?.art ? type : undefined, option?.plugin?.revision);
+  if (art) return <span className={`new-game-art is-plugin is-${fit}`} aria-hidden="true"><span className="new-game-art-lines" style={{ maskImage: `url("${art}")` }} /></span>;
+  return <span className={`new-game-art is-${hasTypeArt(type) ? type : "plugin"}`} aria-hidden="true">
+    <ProjectTypeArt type={hasTypeArt(type) ? type : PLUGIN_TYPE_ART} fit={fit} />
   </span>;
 }
 
-/** A plugin type's cover as an object URL while it's shown; nothing while it loads or when it can't. */
-function useProjectTypeCover(type: string | undefined, revision: string | undefined): string | undefined {
+/** A plugin type's line art as an object URL while it's shown; nothing while it loads or when it can't. */
+function useProjectTypeArt(type: string | undefined, revision: string | undefined): string | undefined {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     setUrl(undefined);
     if (!type) return;
     const controller = new AbortController();
     let made: string | undefined;
-    readProjectTypeCover(type, controller.signal)
+    readProjectTypeArt(type, controller.signal)
       .then((blob) => { if (!controller.signal.aborted) setUrl(made = URL.createObjectURL(blob)); })
       .catch(() => {});
     return () => {
@@ -247,17 +236,14 @@ function useProjectTypeCover(type: string | undefined, revision: string | undefi
   return url;
 }
 
-/** Each type's game icon, on the neutral tile: colour comes from the picture, not the chrome. */
-const TYPE_ICONS: Partial<Record<string, GameIconName>> = {
-  "web-game": "internet",
-  "godot-game": "controller",
-  "interactive-story": "book",
-  general: "random-dice",
-  "asset-canvas": "palette",
-};
-
-function TypeIcon({ type, size, className }: { type: string; size: number; className?: string }) {
-  return <GameIcon name={TYPE_ICONS[type] ?? "puzzle-02"} tone="neutral" size={size} className={className} />;
+/** A type's small mark beside its name: the app's line icon, or the plugin's own icon. */
+function TypeGlyph({ type, pluginTypes }: { type: string; pluginTypes: readonly AvailableProjectType[] }) {
+  if (isAppProjectType(type)) return <span className="new-game-glyph"><ProjectTypeIcon type={type} size={16} /></span>;
+  const option = pluginTypes.find((item) => item.id === type);
+  const plugin = option?.plugin;
+  return <span className="new-game-glyph">{plugin
+    ? <PluginGlyph plugin={{ id: plugin.id, icon: plugin.icon ? { type: "asset", path: plugin.icon } : undefined, iconRevision: plugin.revision }} size={16} name={option.title} />
+    : <ProjectTypeIcon type="general" size={16} />}</span>;
 }
 
 function typeName(type: string, pluginTypes: readonly AvailableProjectType[]): string {
