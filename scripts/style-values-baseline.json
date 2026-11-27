@@ -83,10 +83,10 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 144,
-    "fontSize": 20,
-    "fontWeight": 9,
-    "radius": 75,
+    "color": 129,
+    "fontSize": 18,
+    "fontWeight": 8,
+    "radius": 71,
     "shadow": 24,
     "zIndex": 57
   },
