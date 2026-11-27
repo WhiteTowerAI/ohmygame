@@ -6,7 +6,8 @@ import type {
 import { getWorkspaceGitChanges, getWorkspaceGitFile } from "./api.js";
 import { ChangeCounts } from "./change-counts.js";
 import { FileComparison } from "./file-diff.js";
-import { LoaderCircle } from "./icons.js";
+import { CircleCheck, Spinner } from "./icons.js";
+import { Empty } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 export function useWorkspaceGitChanges(
@@ -163,7 +164,7 @@ export function WorkspaceGitDiff({
     };
   }, [projectId, path, changes]);
   if (!path)
-    return <div className="workspace-state">{t("workspace.gitClean")}</div>;
+    return <Empty fill icon={<CircleCheck size="md" />} title={t("workspace.gitClean")} />;
   const { view, error } = state;
   const item = changes?.changes.find((item) => item.path === path);
   return (
@@ -183,10 +184,7 @@ export function WorkspaceGitDiff({
             {error}
           </p>
         ) : !view ? (
-          <div className="workspace-state">
-            <LoaderCircle className="spin" size={18} />
-            {t("workspace.loadingFile")}
-          </div>
+          <Empty fill icon={<Spinner size="md" />} title={t("workspace.loadingFile")} />
         ) : view.unsupported ? (
           <p className="git-changes-note">{t("workspace.gitUnsupported")}</p>
         ) : view.before?.truncated || view.after?.truncated ? (

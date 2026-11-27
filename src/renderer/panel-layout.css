@@ -1,10 +1,11 @@
-/* panel layout: four areas of tabbed panels */
+/* panel layout: four areas of tabbed panels, one sheet split by hairlines */
 .dock {
   position: relative;
   display: grid;
-  gap: 6px;
+  gap: 1px;
   height: 100%;
   min-height: 0;
+  background: var(--color-border);
 }
 
 /* Closed panels' views, kept rendered off screen (see parkingLot). */
@@ -24,15 +25,17 @@
   overflow-y: auto;
 }
 
+.dock-area.is-hidden {
+  display: none;
+}
+
 .dock-area {
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-radius: var(--radius-lg);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
   /* panels lay out their toolbars by the area's width, not the window's */
   container: dock-area / inline-size;
 }
@@ -43,7 +46,6 @@
   position: absolute;
   inset: 0;
   z-index: 10;
-  border-radius: inherit;
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
   pointer-events: none;
@@ -57,6 +59,23 @@
   padding: 0 var(--space-1);
   /* Clipping, not scrolling: the toolbar's menus still open below the strip. */
   overflow-x: clip;
+}
+
+/* Along the window's top the strips are the title bar: its height and its line. */
+.dock-tabs.is-titlebar {
+  gap: var(--space-1);
+  height: var(--titlebar-height, 48px);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dock-title-start,
+.dock-title-end {
+  display: contents;
+}
+
+.dock-tab-list[hidden] {
+  display: none;
 }
 
 /* The toolbar beside the tabs starts at no width and takes what they leave, so
@@ -76,28 +95,41 @@
   display: contents;
 }
 
-/* Crowded strips shrink the other tabs' labels; the active one stays whole. */
+/* Every strip's tabs look alike: as tall and round as the bar's buttons, the
+   open one filled. Crowded strips shrink the other tabs' labels; the open one
+   stays whole. */
 .dock-tab {
   position: relative;
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   min-width: 52px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast), color var(--duration-fast);
 }
 
 .dock-tab:hover {
-  background: color-mix(in srgb, var(--color-hover) 60%, transparent);
-  color: var(--color-text-secondary);
-}
-
-/* The open tab is marked lightly; its text, not a heavy fill, says it is open. */
-.dock-tab.is-active {
-  flex-shrink: 0;
   background: var(--color-hover);
   color: var(--color-text);
+}
+
+.dock-tab.is-active {
+  flex-shrink: 0;
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+/* Keyboard focus rings the whole tab, inside it, since the strip clips. */
+.dock-tab-button:focus-visible {
+  outline: 0;
+}
+
+.dock-tab:has(.dock-tab-button:focus-visible),
+.dock-tab-close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
 }
 
 /* the tab being dragged stays in place, faded, until it lands */
@@ -124,7 +156,7 @@
   gap: 6px;
   min-width: 0;
   height: 100%;
-  padding: 0 2px 0 var(--space-2);
+  padding: 0 10px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -134,9 +166,8 @@
   cursor: pointer;
 }
 
-/* In a locked layout no close button holds the tab's end. */
-.dock-tab-button:last-child {
-  padding-right: var(--space-2);
+.dock-tab.is-active .dock-tab-button:not(:last-child) {
+  padding-right: 2px;
 }
 
 .dock-tab[draggable="true"] {
@@ -172,31 +203,40 @@
   text-align: center;
 }
 
-/* The close button always takes its space, so showing it moves nothing. */
+/* Only the open tab has a close button; it takes its space while that tab is
+   open, so hovering it moves nothing. */
 .dock-tab-close {
   display: grid;
   flex: none;
   place-items: center;
   width: 18px;
   height: 18px;
-  margin: 0 4px 0 2px;
+  margin: 0 5px 0 2px;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: inherit;
+  color: var(--color-text-tertiary);
   opacity: 0;
   cursor: pointer;
+  transition: background-color var(--duration-fast), color var(--duration-fast);
 }
 
-.dock-tab:hover .dock-tab-close,
-.dock-tab.is-active .dock-tab-close,
-.dock-tab-close:focus-visible {
+.dock-tab:not(.is-active) .dock-tab-close {
+  display: none;
+}
+
+.dock-tab.is-active .dock-tab-close {
   opacity: 1;
 }
 
+.dock-tab:hover .dock-tab-close {
+  color: inherit;
+}
+
+/* Darker than the tab under it, whichever fill that has. */
 .dock-tab-close:hover {
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
   color: var(--color-text);
 }
 
@@ -269,25 +309,34 @@
   padding-left: var(--space-2);
 }
 
+/* Let the project name shorten before the chat actions overlap. */
+.dock-toolbar:has(.chat-header-actions) {
+  min-width: max-content;
+}
+
+.chat-header-actions .agent-account-trigger-name {
+  max-width: max(0px, calc(100cqi - 360px));
+}
+
+@container dock-area (max-width: 320px) {
+  .chat-header-actions .agent-account-trigger :is(.agent-account-trigger-name, .agent-account-trigger-usage, svg:last-child) {
+    display: none;
+  }
+}
+
 /* Titles in a toolbar shorten before the tabs give up their labels. */
-.dock-toolbar > *,
-.dock-toolbar .pane-header-actions > * {
+.dock-toolbar > * {
   flex: none;
-}
-
-.dock-toolbar .design-doc-picker {
-  flex: 0 1 auto;
-  min-width: 88px;
-}
-
-.dock-toolbar .design-doc-spacer,
-.dock-toolbar .chat-header-spacer {
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 .dock-toolbar[hidden] {
   display: none;
+}
+
+/* The ··· a panel's folded tools go to when it has no menu of its own. */
+.dock-tools-more {
+  flex: none;
+  margin-left: var(--space-1);
 }
 
 .dock-body {
@@ -297,7 +346,6 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 .dock-body > .ui-empty {
@@ -344,46 +392,61 @@
 }
 
 .dock-resizer-left {
-  right: calc(var(--space-2) * -1);
+  right: calc(var(--space-1) * -1);
 }
 
 .dock-resizer-right {
-  left: calc(var(--space-2) * -1);
+  left: calc(var(--space-1) * -1);
 }
 
 .dock-resizer-bottom {
-  top: calc(var(--space-2) * -1);
+  top: calc(var(--space-1) * -1);
   right: 0;
   left: 0;
   height: var(--space-2);
   cursor: row-resize;
 }
 
-/* The same light line as the home sidebar's resizer. */
+/* The same hairline as the home sidebar's resizer: it shows once the pointer
+   rests in the gap and thickens a little while dragging. */
 .dock-resizer::after {
   content: "";
   position: absolute;
   inset: var(--space-2) 0;
   margin: auto;
-  border-radius: 2px;
+  border-radius: 1px;
   background: transparent;
-  transition: background var(--duration-fast);
+  transition: background var(--duration-base) var(--ease-out);
 }
 
 .dock-resizer-left::after,
 .dock-resizer-right::after {
-  width: 3px;
+  width: 1px;
 }
 
 .dock-resizer-bottom::after {
   inset: 0 var(--space-2);
-  height: 3px;
+  height: 1px;
 }
 
 .dock-resizer:hover::after,
-.dock-resizer:focus-visible::after,
+.dock-resizer:focus-visible::after {
+  background: var(--color-border-strong);
+  transition-delay: 150ms;
+}
+
 .dock-resizer:active::after {
   background: var(--color-border-strong);
+  transition-delay: 0s;
+}
+
+.dock-resizer-left:active::after,
+.dock-resizer-right:active::after {
+  width: 2px;
+}
+
+.dock-resizer-bottom:active::after {
+  height: 2px;
 }
 
 /* drop zones for the sides that have no panels yet */

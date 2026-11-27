@@ -113,7 +113,7 @@ function MentionChip({ mention }: { mention: Mention }) {
   return <span className="prompt-mention" data-mention={mention.kind} title={mention.token}>
     {mention.kind === "plugin"
       ? <PluginMentionGlyph mention={mention.mention} plugins={plugins} size={13} />
-      : <WandSparkles size={13} aria-hidden="true" />}
+      : <WandSparkles size="sm" aria-hidden="true" />}
     <span>{mention.kind === "plugin" ? mention.mention.displayName : skillDisplayName(mention.name)}</span>
   </span>;
 }

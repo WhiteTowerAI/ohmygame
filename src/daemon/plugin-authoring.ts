@@ -135,6 +135,8 @@ const PROJECT_TYPES = `# Project types
 
 \`contributes.projectTypes\` adds a kind of project to the new-project dialog. Its \`template\` folder is copied into each new project; npm leaves \`.gitignore\` out of packages, so name it \`gitignore\` and the app renames it. \`preview\` is \`web\` for a game the app's preview runs, \`web-build\` for one native code builds for the web, or \`native\` for one that runs outside the app.
 
+\`cover\` is the type's picture on its card, shown 2:1 with the name over its left side. To match the app's own types, make it a soft-lit clay diorama of what the type makes: rounded matte shapes, a muted palette with one accent colour, a plain mid-tone background, the subject in the right 60% and no text or logos.
+
 A type without a template, or one that builds or runs its game, needs native code (see [native.md](native.md)): \`context.registerProjectType(id, { createProject, buildWeb, gameUse })\`. \`recognize\`, \`ready\`, \`panels\` and \`gameUse\` are in [manifest.md](manifest.md).
 `;
 

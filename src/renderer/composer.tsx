@@ -477,11 +477,11 @@ export function Composer({
         onRemove={(id) => { void onRemoveScheduled(id); }}
       />
       {status ? <div className="composer-notice composer-info" role="status">
-        <InfoCircle size={14} aria-hidden="true" />
+        <InfoCircle size="sm" aria-hidden="true" />
         <span>{status}</span>
       </div> : null}
       {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
-        <DangerCircle size={14} aria-hidden="true" />
+        <DangerCircle size="sm" aria-hidden="true" />
         <span>{attachmentError ?? notice}</span>
       </div> : null}
       <PromptBox
@@ -493,6 +493,7 @@ export function Composer({
           showStop={showStop} stopping={stopping} onStop={onStop}
           sendDisabled={inputDisabled || (!prompt.trim() && attachments.length === 0 && carried.length === 0) || stopping}
           sendLabel={running ? t("composer.queue") : t("composer.send")}
+          usage={<ComposerStatus usage={runtimeUsage ?? statusUsage} />}
         />}
         content={<>
           {contexts.length ? <div className="composer-contexts" aria-label={t("composer.contexts")}>
@@ -500,7 +501,7 @@ export function Composer({
               <PromptContextIcon kind={context.kind} />
               <span>{context.label}</span>
               {context.detail ? <small>{context.detail}</small> : null}
-              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={t("composer.removeContext", { label: context.label })}><X size={11} /></button>
+              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={t("composer.removeContext", { label: context.label })}><X size="xs" /></button>
             </div>)}
           </div> : null}
           {reference ? <div className="composer-reference">
@@ -510,10 +511,10 @@ export function Composer({
           </div> : null}
           {designReference ? <div className="composer-contexts" aria-label={t("composer.referencedDesign")}>
             <div className="composer-context is-design-document" title={designReference.context.label}>
-              <FileText size={12} />
+              <FileText size="xs" />
               <span>{designReference.context.label}</span>
               <small>{t("composer.gameDesign")}</small>
-              <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label={t("composer.removeDesign")}><X size={11} /></button>
+              <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label={t("composer.removeDesign")}><X size="xs" /></button>
             </div>
           </div> : null}
           <AttachmentStrip items={attachments} uploaded={carried} onRemove={(id) => updateDraft((current) => ({
@@ -549,7 +550,6 @@ export function Composer({
         plugins={capabilities.plugins}
         skills={skillNames}
       />
-      <ComposerStatus usage={runtimeUsage ?? statusUsage} />
     </div>
   );
 }

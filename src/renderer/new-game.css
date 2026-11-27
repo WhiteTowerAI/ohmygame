@@ -1,0 +1,205 @@
+/* Starting a project: the type cards on Home and the new game dialog they open. */
+
+/*
+ * A type's picture fills the card's right side, cut off by its edges, and
+ * dissolves in from its left in fine grain (dissolve.svg), so the words on
+ * the left keep the plain surface in light and dark.
+ */
+.new-game-art {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.new-game-art img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: block;
+  width: 66%;
+  height: 100%;
+  object-fit: cover;
+  mask-image: url("./assets/project-types/dissolve.svg");
+  mask-size: 100% 100%;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+/* The cards: the words on the left, the picture behind them on the right. */
+.new-game-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  aspect-ratio: 2.2 / 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast);
+}
+
+.new-game-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+.new-game-card:hover .new-game-art img {
+  transform: scale(1.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-game-card:hover .new-game-art img {
+    transform: none;
+  }
+}
+
+.new-game-card:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.new-game-card > .new-game-art {
+  position: absolute;
+  inset: 0;
+}
+
+.new-game-card-copy {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 56%;
+  padding: var(--space-3) var(--space-4);
+}
+
+/* The type's own small icon, over its name. */
+.new-game-glyph {
+  display: inline-flex;
+  margin-bottom: var(--space-1);
+  color: var(--color-text-secondary);
+}
+
+.new-game-card-name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.new-game-card-hint {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The dialog: the type's picture as its banner, a type switcher, then the prompt box. */
+.new-game-dialog .ui-dialog-media {
+  position: relative;
+  height: calc(var(--space-6) * 6);
+}
+
+/* The banner's picture also thins out at its foot, where the name sits. */
+.new-game-dialog .ui-dialog-media .new-game-art {
+  position: absolute;
+  inset: 0;
+  mask-image: linear-gradient(to top, transparent, black 55%);
+}
+
+.new-game-dialog .ui-dialog-media .new-game-art img {
+  width: 70%;
+}
+
+/* The type's name and line sit on the banner's foot, with the close button. */
+.new-game-dialog .ui-dialog-head {
+  position: relative;
+  margin-top: calc(var(--space-6) * -3);
+}
+
+.new-game-dialog .ui-dialog-title {
+  font-size: var(--text-xl);
+}
+
+.new-game-dialog .ui-dialog-close {
+  color: inherit;
+}
+
+.new-game-dialog .ui-dialog-body {
+  padding-top: var(--space-4);
+}
+
+.new-game-dialog .ui-dialog-footer {
+  justify-content: flex-start;
+}
+
+.new-game-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.new-game-type {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.new-game-type:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.new-game-type[aria-checked="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+.new-game-type:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.new-game-type:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.new-game-type .new-game-glyph {
+  margin: 0;
+  color: inherit;
+}
+
+/* The prompt box inside the dialog: the random idea while it loads, and a row to connect a model. */
+.creator-idea-button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.creator-connect-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}

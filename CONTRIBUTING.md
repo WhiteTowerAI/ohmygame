@@ -159,7 +159,11 @@ instead of reading the tokens in
 [src/renderer/ui/tokens.css](src/renderer/ui/tokens.css). A file may not add
 any beyond [the baseline](scripts/style-values-baseline.json); when a change
 moves styles onto the tokens, run `bun run lint:styles --update` to lock the
-lower counts in.
+lower counts in. Last, `bun run lint:icons` does the same for icons given a
+numeric `size` instead of `size="xs" | "sm" | "md" | "lg"` from
+[src/renderer/icons.ts](src/renderer/icons.ts), against
+[its baseline](scripts/icon-sizes-baseline.json). Import icons from that file;
+lint rejects `@solar-icons` imports anywhere else.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
 `main`, including documentation PRs. It checks the changelog, plugin
 preparation, types, lint, tests, the renderer build, and the Node daemon/player

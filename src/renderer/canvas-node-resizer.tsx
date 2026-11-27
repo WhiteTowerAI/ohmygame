@@ -46,7 +46,7 @@ export function CanvasNodeSizeActions({
         aria-label={t("canvasNode.resetSize")}
         onClick={runtime?.reset}
       >
-        <RefreshCw size={14} />
+        <RefreshCw size="sm" />
       </button>
       {runtime?.open ? (
         <button
@@ -55,7 +55,7 @@ export function CanvasNodeSizeActions({
           aria-label={t("canvasNode.expandText")}
           onClick={runtime.open}
         >
-          <Maximize size={14} />
+          <Maximize size="sm" />
         </button>
       ) : null}
     </>

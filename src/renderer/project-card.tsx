@@ -1,5 +1,5 @@
 import { useNearViewport } from "./asset-gallery.js";
-import { Check, Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
+import { Check, Download, FolderOpen, Spinner, MoreHorizontal, Pencil, Play, Trash2, Duplicate } from "./icons.js";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, exportProject, renameProject } from "./api.js";
@@ -34,6 +34,8 @@ interface ProjectCardProps {
   actions?: ProjectCardActions;
   agentStatus?: ProjectAgentActivity["status"];
   selection?: ProjectSelection;
+  /** Whether the card marks the project's type; off where every card is the same type. */
+  showType?: boolean;
 }
 
 /** A click opens the project, or selects it while selecting or with ⌘/Ctrl or Shift held. */
@@ -53,7 +55,7 @@ function SelectMark({ project, selection }: { project: ProjectState; selection: 
       className={`project-select-mark${selection.selected ? " is-selected" : ""}`}
       aria-label={t("projects.selectProject", { name: project.name })}
       onClick={(event) => { event.stopPropagation(); selection.onToggle(event.shiftKey); }}>
-      {selection.selected ? <Check size={12} /> : null}
+      {selection.selected ? <Check size="xs" /> : null}
     </button>
   );
 }
@@ -92,15 +94,15 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
   }
 
   const menu: MenuEntry[] | undefined = actions ? [
-    { label: t("projectCard.openItem"), icon: <Play size={14} />, onSelect: onOpen },
-    { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: actions.onRename },
-    { label: t("common.duplicate"), icon: <Copy size={14} />, onSelect: actions.onDuplicate },
-    ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => void openFolder() }] : []),
-    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
+    { label: t("projectCard.openItem"), icon: <Play size="sm" />, onSelect: onOpen },
+    { label: t("common.rename"), icon: <Pencil size="sm" />, onSelect: actions.onRename },
+    { label: t("common.duplicate"), icon: <Duplicate size="sm" />, onSelect: actions.onDuplicate },
+    ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => void openFolder() }] : []),
+    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size="sm" />, disabled: exporting, onSelect: () => void exportArchive() },
     "separator",
     {
       label: t("projectCard.remove"),
-      icon: <Trash2 size={14} />,
+      icon: <Trash2 size="sm" />,
       danger: true,
       onSelect: actions.onDelete,
     },
@@ -112,7 +114,7 @@ function ProjectMenuButton({ project, menu }: { project: ProjectState; menu: Men
   return (
     <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
       <IconButton {...props} size="sm" className="project-card-menu" label={t("projectCard.actions", { name: project.name })}>
-        <MoreHorizontal size={16} />
+        <MoreHorizontal size="md" />
       </IconButton>
     )} />
   );
@@ -123,7 +125,7 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
   if (!agentStatus) return <span className="project-card-time">{projectTime(project.updatedAt)}</span>;
   return (
     <span className="project-card-activity" role="status">
-      <LoaderCircle className="spin" size={11} aria-hidden="true" />
+      <Spinner size="xs" aria-hidden="true" />
       {agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working")}
     </span>
   );
@@ -131,7 +133,7 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
 
 // The cover is the card and the text sits under it. One menu, from the "…"
 // that shows on hover and from a right-click.
-export function ProjectCard({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
+export function ProjectCard({ project, onOpen, actions, agentStatus, selection, showType = true }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
   const attention = useProjectAttention(project.id);
   // While selecting, a project's own menu would act on one project out of several.
@@ -143,7 +145,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus, selection }
         aria-label={t("projectCard.open", { name: project.name })} aria-description={attentionLabel(attention)}>
         <ProjectCover project={project} />
         <span className="project-card-meta">
-          <ProjectTypeMark type={project.type} />
+          {showType ? <ProjectTypeMark type={project.type} /> : null}
           <span className="project-card-copy">
             <span className="project-card-title">
               <span className="project-card-name" title={project.name}>{project.name}</span>
@@ -254,7 +256,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
   const removal = removing ? projectRemoval(removing) : undefined;
   const dialogs = (
     <>
-      {renaming ? <ProjectRenameDialog name={renaming.name} returnFocus={null} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
+      {renaming ? <ProjectRenameDialog name={renaming.name} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
         const project = renaming;
         setRenaming(undefined);
         const name = input.trim();
@@ -264,7 +266,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
         title={removal?.title ?? ""} description={removal?.description}
         footer={<>
           <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => {
+          <Button variant={removal?.deletes ? "danger" : "primary"} onClick={() => {
             const project = removing!;
             setRemoving(undefined);
             void run(() => deleteProject(project.id));

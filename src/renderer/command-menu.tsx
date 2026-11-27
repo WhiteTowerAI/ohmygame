@@ -1,10 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { CirclePlus, Gamepad2, Globe2, House, Image, Palette, Plug } from "./icons.js";
+import { CirclePlus, FolderWithFiles, House, Layers3, Palette, Plug, UsersGroupRounded } from "./icons.js";
 import { listProjects } from "./api.js";
 import { setAppearance } from "./appearance.js";
 import { parseAppRoute, projectHash, settingsHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { SETTINGS_NAV } from "./settings-sections.js";
 import { CommandMenu, type Command } from "./ui/index.js";
+import { leave } from "./app-navigation.js";
+import { openNewGame } from "./new-game.js";
+import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
 import type { ProjectState } from "../shared/contracts.js";
 
@@ -40,21 +43,6 @@ export function useCommands(commands: () => Command[]): void {
   }, []);
 }
 
-// A page with work to save before it goes, such as an open project, guards
-// leaving it; the menu and the shortcuts leave through the guard.
-let leaveGuard: ((go: () => void) => void) | undefined;
-
-/** Runs `guard` before the menu or a shortcut leaves the calling component's page. */
-export function useLeaveGuard(guard: (go: () => void) => void): void {
-  const current = useRef(guard);
-  current.current = guard;
-  useEffect(() => {
-    const entry = (go: () => void) => current.current(go);
-    leaveGuard = entry;
-    return () => { if (leaveGuard === entry) leaveGuard = undefined; };
-  }, []);
-}
-
 // Escape while the menu is open is the menu's alone. This listens on the window
 // in the capture phase, ahead of an open popover's own Escape listener on the
 // document, even one that captures too.
@@ -82,10 +70,9 @@ function isModalDialog(dialog: Element): boolean {
   }
 }
 
-/** Leaves the page in view through its guard, as the menu and the sidebar do. */
-export function leave(go: () => void): void {
-  if (leaveGuard) leaveGuard(go);
-  else go();
+/** Typing keeps its keys: a shortcut doesn't fire from a field or an editor. */
+export function editableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable]") !== null);
 }
 
 export function isMac(): boolean {
@@ -105,9 +92,9 @@ export function shortcutKeys(key: string): string[] {
 
 const PAGES: { page: SidebarPage; label: () => string; icon: typeof House }[] = [
   { page: "home", label: () => t("sidebar.home"), icon: House },
-  { page: "projects", label: () => t("sidebar.projects"), icon: Gamepad2 },
-  { page: "library", label: () => t("sidebar.library"), icon: Image },
-  { page: "community", label: () => t("sidebar.community"), icon: Globe2 },
+  { page: "projects", label: () => t("sidebar.projects"), icon: FolderWithFiles },
+  { page: "library", label: () => t("sidebar.library"), icon: Layers3 },
+  { page: "community", label: () => t("sidebar.community"), icon: UsersGroupRounded },
   { page: "plugins", label: () => t("sidebar.plugins"), icon: Plug },
 ];
 
@@ -140,7 +127,12 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       } else if (key === "n") {
         event.preventDefault();
         setOpen(false);
-        leave(newProject);
+        openNewGame();
+      } else if ((key === "[" || key === "]") && !editableTarget(event.target)) {
+        // Back and forward, as in a browser; the title bar has no buttons for them.
+        event.preventDefault();
+        setOpen(false);
+        leave(() => (key === "[" ? window.history.back() : window.history.forward()));
       } else if (key === ",") {
         event.preventDefault();
         setOpen(false);
@@ -176,19 +168,6 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
     if (window.location.hash !== hash) latestNavigate.current(hash);
   }
 
-  // Projects start from Home's prompt, so a new one goes there and focuses it
-  // once Home has rendered, which can take a few frames.
-  function newProject(): void {
-    go(sidebarHash("home"));
-    let frames = 30;
-    const focus = () => {
-      const prompt = document.querySelector<HTMLTextAreaElement>(".home-hero textarea");
-      if (prompt) prompt.focus();
-      else if (--frames > 0) window.requestAnimationFrame(focus);
-    };
-    window.requestAnimationFrame(focus);
-  }
-
   const commands: Command[] = open ? [
     ...[...sources].flatMap((source) => source.current()),
     ...PAGES.map(({ page, label, icon: Icon }): Command => ({
@@ -196,11 +175,11 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       run: () => leave(() => go(sidebarHash(page))),
     })),
     {
-      id: "new-project", group: t("commandMenu.goTo"), label: t("sidebar.newProject"), keywords: "new create", icon: <CirclePlus size={16} />,
-      shortcut: shortcut("n"), run: () => leave(newProject),
+      id: "new-project", group: t("commandMenu.goTo"), label: t("sidebar.newProject"), keywords: "new create", icon: <CirclePlus size="md" />,
+      shortcut: shortcut("n"), run: () => openNewGame(),
     },
     ...projects.map((project): Command => ({
-      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: project.type, icon: <Gamepad2 size={16} />,
+      id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: `${project.type} ${projectTypeLabel(project.type)}`, icon: <ProjectTypeIcon type={project.type} size={16} />,
       run: () => leave(() => go(projectHash(project.id))),
     })),
     ...SETTINGS_NAV.flatMap((group) => group.items).map(({ section, label, icon: Icon }): Command => ({
@@ -209,7 +188,7 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       run: () => leave(() => go(settingsHash(section))),
     })),
     {
-      id: "toggle-appearance", group: t("commandMenu.actions"), label: t("commandMenu.toggleAppearance"), keywords: "theme dark light", icon: <Palette size={16} />,
+      id: "toggle-appearance", group: t("commandMenu.actions"), label: t("commandMenu.toggleAppearance"), keywords: "theme dark light", icon: <Palette size="md" />,
       run: () => setAppearance(document.documentElement.dataset.appearance === "light" ? "dark" : "light"),
     },
   ] : [];

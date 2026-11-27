@@ -65,29 +65,34 @@ including `@ohmygame`.
   side list becomes a row above the cards.
   - **Overview** with more than twelve plugins is the same few rows however
     many there are (`marketFront`): **Featured** (picked by the index),
-    **Recommended** (the market's score, below), **New** (first published in
-    the last 90 days) and **Recently updated**. Each plugin shows once, in the
-    first row that takes it, and each row has **View all**. A search or filter
-    shows one list instead.
+    **Recommended** (the market's order, below, taking the best of each
+    category first, so the row shows what kinds there are rather than a run
+    of one kind), **New** (first published in the last 90 days) and
+    **Recently updated**. Each plugin shows once, in the first row that takes
+    it, and each row has **View all**. A search or filter shows one list
+    instead.
   - Any other view is one list with its count, a **Contains** filter and an
-    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 24 cards at a time with **Show more**.
+    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 48 cards at a time and mounts the next 48 as the list's end scrolls into view.
   - A card is one button. It shows the plugin's icon, or its first letter,
-    then its name and marks (**Installed** among them) and description. Its
-    last line has the publisher at the left, cut short if long, and the
-    version at the right.
-  - A card opens the plugin in a dialog over the list, from the index alone:
-    its description and publisher (after their GitHub avatar); a row of its
-    numbers, as an app store shows them (stars, version,
-    size, when it was updated); its screenshots, long description (**About**),
-    what it adds and asks for; and its categories, keywords, project types, first
-    publish and repository, with whether its source is verified.
+    then its name, **Installed** when it is, and its description. **Official**
+    and **Beta** are on the plugin's page: nearly every plugin listed is both,
+    so on cards they said nothing. Its last line has the publisher at the
+    left, cut short if long, and the version at the right.
+  - A card opens the plugin's page, the same page whether it's installed or
+    not. One not installed is drawn from the index alone
+    (`MarketPluginPage`): its name, marks, description and **Get** at the top;
+    a row of its numbers, as an app store shows them (stars, version, size,
+    when it was updated); its screenshots, long description, what it adds and
+    asks for; and at the side its publisher (after their GitHub avatar),
+    categories, keywords, project types, first publish and repository, with
+    whether its source is verified.
     It doesn't load the package's README: that is written for developers,
     often only in English, and would need its Markdown and pictures made safe;
     the manifest's localized `longDescription` and screenshots are the page,
-    and the repository link leads to the README. The dialog has **Get**, which opens [Add plugin](#adding-a-plugin)'s review at
-    the listed version, or **Manage** for an installed plugin, which opens its
-    page. A link to a plugin that isn't installed opens the same dialog over
-    Discover.
+    and the repository link leads to the README. **Get** opens [Add plugin](#adding-a-plugin)'s review at
+    the listed version; once added, the page becomes the installed one. A
+    link to a plugin that isn't installed opens the same page. Back returns
+    to the list where it was scrolled to.
 - **Mine** is for making plugins: **Create a plugin with AI** across the top,
   then **Your plugins**, a card for each plugin the person makes, as projects
   are (`MinePlugins` in `plugin-builder.tsx`). A plugin made with AI
@@ -105,9 +110,11 @@ many are on, as described in [Routes](#routes). One on in every project is
 on here and says so; switching it off is saved in the project. The type's own
 plugin stays on. **Manage all plugins** opens the Plugins page.
 
-A plugin's page has **About** (the long description and Try it prompts),
+A plugin's page has its main action at the top, as **Get** is for one not
+installed: **Update to …** when there's a newer version, and **Try now** for
+one with examples. Below are **About** (the long description and Try it prompts),
 **Skills**, and **Settings** tabs, beside a **Management** card with the
-**Every project** switch, version, source, and actions. A plugin that stopped
+**Every project** switch, version, source, and other actions. A plugin that stopped
 after crashing shows **Restart** there. A Try it prompt turns the plugin on in
 the project it starts in and mentions it.
 
@@ -227,7 +234,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
-| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. |
+| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. A project type's `cover`, its picture on Home and in the new project dialog. |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -927,6 +934,15 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   dialog turns on the mentioned plugins that are off and work in the type it
   creates, going by the prompt and type it ends with. It shows itself only
   when the types failed to load or the type it would create isn't Home's.
+- A project type's `cover` (API 2.38.0) is its picture on its Home card and
+  the new project dialog's banner: a PNG, JPEG or WebP in the package, up to
+  1 MB like a screenshot. The card shows it on its right two thirds, cropped
+  to fill and dissolving in from the left, where the type's name and line sit on
+  the card's own surface; 3:2 at about 1500 by 1000 fits best. Keep the
+  subject right of centre and away from the edges, and leave out text. `GET
+  /project-types` marks a type that has one `cover: true`, and the app reads
+  it from `/plugins/:id/project-types/:type/cover`. Without one, the card
+  shows the app's picture for plugin types. An older app ignores the field.
 
 ## Project templates
 
@@ -1740,14 +1756,16 @@ repository's `stars`, `avatar` and `createdAt`.
   come only from the main index's `repositories`. A repository's stars show,
   and count toward the order, only for a plugin that has the repository to
   itself: in one holding several, such as OhMyGame's own, they aren't any
-  one plugin's. The index has no download counts: GitHub counts only
+  one plugin's. Nor is the day such a repository was made, so a plugin
+  sharing one was first published with its earliest release in the index. The index has no download counts: GitHub counts only
   downloads from GitHub, not the mirror's.
 - **Recommended order.** Featured plugins come first, in the index's order,
   then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
   the market's most; how recently it was updated 0.3, full within a month and
   none after a year; and its page 0.3, a quarter each for a verified source, a
   long description, screenshots and a category. A beta keeps 85%. So stars
-  count most without deciding alone.
+  count most without deciding alone. Between equal scores, one with more
+  releases in the indexes comes first, then by name.
 - **After installing.** A plugin added from the market, or an `@ohmygame/*`
   one from npm, shows **Update available** when the market has a newer version
   from the same repository, in whichever index lists it; the update is the same

@@ -118,7 +118,7 @@ export function PluginMarketSourcesDialog({ sources, onClose, onSaved }: {
                       {unreadable(url) ? <Badge tone="danger">{t("pluginMarketSettings.unreadable")}</Badge> : null}
                       <IconButton size="sm" label={t("pluginMarketSettings.remove", { url })} disabled={busy}
                         onClick={() => { setExtra(extra.filter((item) => item !== url)); setNote(undefined); }}>
-                        <Trash2 size={14} />
+                        <Trash2 size="sm" />
                       </IconButton>
                     </div>
                   ))}
@@ -128,7 +128,7 @@ export function PluginMarketSourcesDialog({ sources, onClose, onSaved }: {
                         onChange={(event) => { setAdding(event.target.value); setNote(undefined); }}
                         onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }}
                         spellCheck={false} autoComplete="off" />
-                      <Button size="sm" icon={<Plus size={14} />} disabled={busy || !pending} onClick={add}>{t("pluginMarketSettings.add")}</Button>
+                      <Button size="sm" icon={<Plus size="sm" />} disabled={busy || !pending} onClick={add}>{t("pluginMarketSettings.add")}</Button>
                     </div>
                   ) : null}
                 </div>

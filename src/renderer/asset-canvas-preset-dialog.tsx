@@ -1,12 +1,11 @@
-import { useEffect, useId, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import type { ProjectCanvasPreset } from "../shared/plugins.js";
 import { readProjectPluginCanvasPresetPreview } from "./api.js";
-import { Image as ImageIcon, Search, X } from "./icons.js";
+import { Image as ImageIcon } from "./icons.js";
 import { pixelWorkflowPresets, type PixelWorkflowPresetId } from "./asset-canvas-workflow-presets.js";
 import { t } from "./i18n.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
-import { useModal } from "./ui/index.js";
+import { Dialog, SearchInput, SegmentedControl } from "./ui/index.js";
 
 type AssetCanvasPresetDialogProps = {
   projectId: string;
@@ -38,8 +37,6 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
   const { onClose } = props;
   const [packId, setPackId] = useState("pixel");
   const [query, setQuery] = useState("");
-  const dialog = useModal(true, onClose);
-  const titleId = useId();
   const packs = [pixelPack(props.onSelectWorkflow), ...pluginPacks(props)];
   const pack = packs.find((item) => item.id === packId) ?? packs[0]!;
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -50,43 +47,38 @@ export function AssetCanvasPresetDialog(props: AssetCanvasPresetDialogProps) {
     })).filter((item) => item.cards.length)
     : [pack];
 
-  return createPortal(
-    <div className="canvas-preset-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="canvas-preset-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} ref={dialog}>
-        <header>
-          <h2 id={titleId}>{t("assetCanvas.presets.title")}</h2>
-          {/* Packs only need a switch once a plugin adds one beside the app's own. */}
-          {packs.length > 1 ? <div className="canvas-preset-packs" role="group" aria-label={t("assetCanvas.presets.packsLabel")}>
-            {packs.map((item) => <button key={item.id} type="button" aria-pressed={!normalizedQuery && item.id === pack.id} onClick={() => { setPackId(item.id); setQuery(""); }}>{item.label}</button>)}
-          </div> : null}
-          <button className="canvas-preset-close" type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={17} /></button>
-        </header>
-        <div className="canvas-preset-toolbar">
-          <label className="canvas-preset-search"><Search size={15} aria-hidden="true" /><input data-modal-initial-focus aria-label={t("assetCanvas.presets.search")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.presets.search")} /></label>
-        </div>
-        <div className="canvas-preset-results" role="region" tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.presets.search") : pack.label}>
-          {results.length ? results.map((item) => (
-            <section key={item.id}>
-              {normalizedQuery ? <h3>{item.label}</h3> : null}
-              <div className="canvas-preset-grid">
-                {item.cards.map((card) => <button key={card.id} type="button" title={card.description || undefined} onClick={card.select}>
-                  <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
-                    {card.coverUrl ? <TemplateExampleImage src={card.coverUrl} alt="" />
-                      : card.pluginPreviewId ? <PluginPresetPreview key={props.projectId} projectId={props.projectId} presetId={card.pluginPreviewId} />
-                        : <ImageIcon size={22} aria-hidden="true" />}
-                  </span>
-                  <span className="canvas-preset-card-body">
-                    <strong>{card.label}</strong>
-                    {card.meta ? <small>{card.meta}</small> : null}
-                  </span>
-                </button>)}
-              </div>
-            </section>
-          )) : <p className="canvas-preset-empty">{t("assetCanvas.presets.noMatches")}</p>}
+  return (
+    <Dialog open size="lg" className="canvas-preset-dialog nokey" title={t("assetCanvas.presets.title")} onClose={onClose}>
+      <div className="canvas-preset-toolbar">
+        {/* Packs only need a switch once a plugin adds one beside the app's own. */}
+        {packs.length > 1 ? <SegmentedControl size="sm" label={t("assetCanvas.presets.packsLabel")} value={normalizedQuery ? "" : pack.id}
+          options={packs.map((item) => ({ value: item.id, label: item.label }))}
+          onChange={(value) => { setPackId(value); setQuery(""); }} /> : null}
+        <div className="canvas-preset-search">
+          <SearchInput size="sm" initialFocus value={query} onChange={setQuery} label={t("assetCanvas.presets.search")} placeholder={t("assetCanvas.presets.search")} />
         </div>
       </div>
-    </div>,
-    window.document.body,
+      <div className="canvas-preset-results" role="region" tabIndex={0} aria-label={normalizedQuery ? t("assetCanvas.presets.search") : pack.label}>
+        {results.length ? results.map((item) => (
+          <section key={item.id}>
+            {normalizedQuery ? <h3>{item.label}</h3> : null}
+            <div className="canvas-preset-grid">
+              {item.cards.map((card) => <button key={card.id} type="button" title={card.description || undefined} onClick={card.select}>
+                <span className={`canvas-preset-card-thumbnail${card.square ? " is-square" : ""}`}>
+                  {card.coverUrl ? <TemplateExampleImage src={card.coverUrl} alt="" />
+                    : card.pluginPreviewId ? <PluginPresetPreview key={props.projectId} projectId={props.projectId} presetId={card.pluginPreviewId} />
+                      : <ImageIcon size="lg" aria-hidden="true" />}
+                </span>
+                <span className="canvas-preset-card-body">
+                  <strong>{card.label}</strong>
+                  {card.meta ? <small>{card.meta}</small> : null}
+                </span>
+              </button>)}
+            </div>
+          </section>
+        )) : <p className="canvas-preset-empty">{t("assetCanvas.presets.noMatches")}</p>}
+      </div>
+    </Dialog>
   );
 }
 
@@ -143,7 +135,7 @@ function PluginPresetPreview({ projectId, presetId }: { projectId: string; prese
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [projectId, presetId]);
-  return url ? <img src={url} alt="" onLoad={pixelateSmall} /> : <ImageIcon size={22} aria-hidden="true" />;
+  return url ? <img src={url} alt="" onLoad={pixelateSmall} /> : <ImageIcon size="lg" aria-hidden="true" />;
 }
 
 /** Small art shown enlarged keeps its hard pixel edges. */

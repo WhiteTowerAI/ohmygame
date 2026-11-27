@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -168,7 +168,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         }}>
           {depthOpen ? (<>
             <button className="model-picker-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
-              <ChevronLeft aria-hidden="true" size={12} />
+              <ChevronLeft aria-hidden="true" size="xs" />
               {t("modelSelector.depth")}
             </button>
             <div className="ui-menu-separator" role="separator" />
@@ -178,14 +178,14 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 return (
                   <button className="model-picker-item" type="button" role="menuitemradio" aria-checked={selected} key={level} onClick={() => selectLevel(level)}>
                     <span className="model-picker-item-name">{label(level)}</span>
-                    {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
+                    {selected ? <Check className="model-picker-check" aria-hidden="true" size="sm" /> : null}
                   </button>
                 );
               })}
             </div>
           </>) : (<>
           <div className="model-picker-search">
-            <Search size={14} aria-hidden="true" />
+            <Search size="sm" aria-hidden="true" />
             <input ref={search} value={query} placeholder={t("models.search")} aria-label={t("models.search")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
               if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
               event.preventDefault();
@@ -196,7 +196,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
             <button className="model-picker-manage" type="button" aria-label={t("modelSelector.manage")} title={t("modelSelector.manage")} onClick={() => {
               close(true);
               window.location.hash = settingsHash(native ? "agents" : "providers");
-            }}><Settings aria-hidden="true" size={14} /></button>
+            }}><Settings aria-hidden="true" size="sm" /></button>
           </div>
           <div className="ui-menu-separator" role="separator" />
           <div className="model-picker-list" role="menu" aria-label={t("models.title")}>
@@ -218,7 +218,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     >
                       <span className="model-picker-item-name">{name}</span>
                       {source ? <span className="model-picker-item-source">{source}</span> : null}
-                      {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
+                      {selected ? <Check className="model-picker-check" aria-hidden="true" size="sm" /> : null}
                     </button>
                   );
                 })}
@@ -236,7 +236,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
               setDepthOpen(true);
             }}>
               <span>{t("modelSelector.depth")}</span>
-              <span className="model-picker-depth-value">{reasoningText}<ChevronRight aria-hidden="true" size={12} /></span>
+              <span className="model-picker-depth-value">{reasoningText}<ChevronRight aria-hidden="true" size="xs" /></span>
             </button>
           </>) : null}
           </>)}
@@ -250,6 +250,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
 export { useAgentModels, type AgentModelCatalogState, type AgentModelCatalogStatus } from "./agent-model-catalog.js";
 
 /** A provider's logo, or its initial when it has none (custom providers). */
+/** A model's provider logo at the size canvas chips and their group headings use. */
+export function chipMark(model: { provider: string; providerName?: string }): ReactNode {
+  return <ProviderMark provider={model.provider} name={model.providerName} size={12} />;
+}
+
 export function ProviderMark({ provider, name, size = 14 }: { provider?: string; name?: string; size?: number }) {
   const pluginIcon = usePluginIcon(isPluginMarkId(provider) ? provider : undefined);
   const icon = (provider ? PROVIDER_ICONS[provider] : undefined) ?? (pluginIcon ? { src: pluginIcon, tone: "color" as const } : undefined);

@@ -55,7 +55,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins")).toEqual({ page: "plugins" });
-    // More types opens the marketplace at the plugins that add a project type.
+    // The marketplace can open at the plugins that add a project type.
     expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
     expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
     expect(parseAppRoute(pluginsTabHash("mine"))).toEqual({ page: "plugins", tab: "mine" });

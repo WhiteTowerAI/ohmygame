@@ -12,10 +12,11 @@ import {
   recheckAgentRuntime,
   updateAgentRuntime,
 } from "./api.js";
-import { Check, LoaderCircle, LogIn, RefreshCw } from "./icons.js";
+import { Check, Spinner, LogIn, RefreshCw } from "./icons.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { useExternalLink } from "./external-link.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
@@ -180,8 +181,8 @@ export function OnboardingAgents({
           {selected.installed &&
           selected.auth.status === "signed-out" &&
           login?.id !== selected.id ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="onboarding-text-button"
               disabled={locked}
               onClick={() =>
@@ -191,15 +192,15 @@ export function OnboardingAgents({
                 })
               }
             >
-              <LogIn size={14} aria-hidden="true" />
+              <LogIn size="sm" aria-hidden="true" />
               {t("common.signIn")}
-            </button>
+            </Button>
           ) : null}
           {!selected.installed ? (
             <div className="onboarding-agent-install-actions">
               {installUrl ? (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
                   className="onboarding-text-button"
                   disabled={locked}
                   onClick={() =>
@@ -207,10 +208,10 @@ export function OnboardingAgents({
                   }
                 >
                   {t("codingAgents.installGuide")}
-                </button>
+                </Button>
               ) : null}
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 className="onboarding-text-button"
                 disabled={locked}
                 onClick={() =>
@@ -218,7 +219,7 @@ export function OnboardingAgents({
                 }
               >
                 {t("codingAgents.recheck")}
-              </button>
+              </Button>
             </div>
           ) : null}
         </>
@@ -226,21 +227,21 @@ export function OnboardingAgents({
       {login && login.id === selectedAgent ? (
         <div className="onboarding-agent-login" role="status">
           {login.url ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               className="onboarding-text-button"
               onClick={() =>
                 void run(login.id, () => link.open(login.url!))
               }
             >
               {t("codingAgents.openAgain")}
-            </button>
+            </Button>
           ) : login.command ? (
             <>
               <p>{t("codingAgents.loginCommand")}</p>
               <code>{login.command}</code>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 className="onboarding-text-button"
                 onClick={() =>
                   void navigator.clipboard.writeText(login.command!).then(
@@ -252,25 +253,25 @@ export function OnboardingAgents({
                 {copied
                   ? t("codingAgents.copied")
                   : t("codingAgents.copyCommand")}
-              </button>
+              </Button>
             </>
           ) : null}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             className="onboarding-text-button"
             disabled={locked}
             onClick={() => void run(login.id, () => recheck(login.id))}
           >
             {t("codingAgents.recheck")}
-          </button>
+          </Button>
         </div>
       ) : null}
       {link.failedUrl ? (
         <div className="onboarding-agent-login" role="alert">
           <p>{t("common.openLinkFailed")}</p>
           <code>{link.failedUrl}</code>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             className="onboarding-text-button"
             onClick={() =>
               void navigator.clipboard.writeText(link.failedUrl!).then(
@@ -280,7 +281,7 @@ export function OnboardingAgents({
             }
           >
             {linkCopied ? t("common.copied") : t("common.copyLink")}
-          </button>
+          </Button>
         </div>
       ) : null}
       {children}
@@ -348,7 +349,7 @@ export function OnboardingAgents({
           icon: { src: brandMark, tone: "brand" },
           status: piReady ? (
             <>
-              <Check size={12} aria-hidden="true" />
+              <Check size="xs" aria-hidden="true" />
               {t("onboarding.agentReady")}
             </>
           ) : (
@@ -389,14 +390,13 @@ export function OnboardingAgents({
             icon: PROVIDER_ICONS[agent.id] ?? { src: brandMark, tone: "brand" },
             status:
               pending === agent.id || checking ? (
-                <LoaderCircle
-                  size={12}
-                  className="spin"
+                <Spinner
+                  size="xs"
                   aria-label={t("common.loading")}
                 />
               ) : (
                 <>
-                  {ready ? <Check size={12} aria-hidden="true" /> : null}
+                  {ready ? <Check size="xs" aria-hidden="true" /> : null}
                   {statusLabel}
                 </>
               ),
@@ -424,7 +424,7 @@ export function OnboardingAgents({
             className="onboarding-agent-option is-placeholder"
             role="status"
           >
-            <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            <Spinner size="sm" aria-hidden="true" />
             <span className="onboarding-agent-status">
               {t("codingAgents.checking")}
             </span>
@@ -447,7 +447,7 @@ export function OnboardingAgents({
             }
           >
             <RefreshCw
-              size={16}
+              size="md"
               className={pending === "scan" ? "spin" : undefined}
               aria-hidden="true"
             />

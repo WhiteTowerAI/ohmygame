@@ -319,10 +319,15 @@ export class PluginMarket {
     const most = { stars: Math.max(0, ...plugins.map((plugin) => plugin.stars ?? 0)) };
     const now = this.#now();
     const scores = new Map(plugins.map((plugin) => [plugin.id, marketScore(plugin, most, now)]));
+    // Between equal scores, one released more often is kept up more; the name decides last.
+    const released = new Set(indexes.flatMap((index) => (index?.versions ?? []).flatMap((item) => item.plugin && item.release ? [`${item.plugin.id}@${item.version}`] : [])));
+    const releases = new Map<string, number>();
+    for (const key of released) releases.set(key.slice(0, key.lastIndexOf("@")), (releases.get(key.slice(0, key.lastIndexOf("@"))) ?? 0) + 1);
     plugins.sort((a, b) =>
       Number(b.featured) - Number(a.featured) ||
       featuredAt(a) - featuredAt(b) ||
       scores.get(b.id)! - scores.get(a.id)! ||
+      (releases.get(b.id) ?? 0) - (releases.get(a.id) ?? 0) ||
       a.displayName.localeCompare(b.displayName));
     // Any index's block holds: a version stays out of reach whichever list the person found it in.
     const blocked = indexes.flatMap((index) => (index?.versions ?? []).flatMap((version) => {
@@ -497,6 +502,13 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
   // A repository's stars are one plugin's only when it holds no other, unlike OhMyGame's own, which share one.
   const plugins = new Map<string, Set<string>>();
   for (const item of index.versions) if (item.plugin) plugins.set(item.repository, (plugins.get(item.repository) ?? new Set()).add(item.plugin.id));
+  // So is the day it was made; a plugin sharing one was first published with its first release here.
+  const firstReleases = new Map<string, string>();
+  for (const item of index.versions) {
+    const id = item.plugin?.id;
+    const first = id && firstReleases.get(id);
+    if (id && item.publishedAt && (!first || item.publishedAt < first)) firstReleases.set(id, item.publishedAt);
+  }
   return [...newest.values()].map((version): MarketPlugin => {
     const plugin = version.plugin!;
     // The main index checked that the repository's owner is the publisher, so its owner's face is the publisher's.
@@ -515,6 +527,7 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
     const keywords = words(plugin.keywords).slice(0, PLUGIN_KEYWORDS_MAX);
     const names = words(plugin.names);
     const providerKinds = PROVIDER_KINDS.filter((kind) => plugin.providerKinds?.includes(kind));
+    const created = (plugins.get(version.repository)?.size === 1 ? facts?.createdAt : undefined) ?? firstReleases.get(plugin.id);
     return {
       id: plugin.id,
       version: version.version,
@@ -533,7 +546,7 @@ function listed(index: MarketIndex, url: string, language: "en" | "zh-CN", main:
       ...(avatar ? { avatar } : {}),
       ...(screenshots.length ? { screenshots } : {}),
       ...(version.publishedAt ? { publishedAt: version.publishedAt } : {}),
-      ...(facts?.createdAt ? { createdAt: facts.createdAt } : {}),
+      ...(created ? { createdAt: created } : {}),
       size: version.release!.size,
       repository: `https://github.com/${version.repository}`,
       sourceVerified: main,

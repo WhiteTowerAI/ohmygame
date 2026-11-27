@@ -19,9 +19,10 @@ where to start. Switching agents retains each selection until it is saved. OhMyG
 enables a CLI.
 
 **Settings → Agents** lists who can work in a conversation. OhMyGame's own
-agent comes first: it uses the models set up in Providers, and its page links
-there, to plugin skills and to the MCP server. The coding agent CLIs follow, under **Coding agent CLIs on this
-computer**; **Rescan** checks for them again. Each row shows whether the CLI
+agent comes first: it uses the models set up in Providers, and its page
+chooses the one new conversations start on, as **Chat** under Providers'
+**Default models** does (a conversation that switches model moves it too).
+The coding agent CLIs follow, under **Coding agent CLIs on this computer**; **Rescan** checks for them again. Each row shows whether the CLI
 was found and its version; its page (`#/settings/agents/<id>`) provides
 account and permission controls. The agent whose model new conversations start with is marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the

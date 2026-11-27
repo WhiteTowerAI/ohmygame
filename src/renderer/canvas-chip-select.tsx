@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Search, Settings, type IconComponent } from "./icons.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
@@ -13,6 +13,8 @@ export interface CanvasChipOption<Value extends string> {
   group?: string;
   /** A second line in the menu, such as what a model makes. */
   description?: string;
+  /** Its provider's logo: on the chip once chosen and beside its group's heading, as in the Home model picker. */
+  mark?: ReactNode;
 }
 
 /** A line under a group heading, such as why a connected provider has no models. */
@@ -133,9 +135,9 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       disabled={disabled || (options.length === 0 && notes.length === 0 && !action)}
       onClick={() => setOpen((next) => !next)}
     >
-      {Icon ? <Icon size={13} aria-hidden="true" /> : null}
+      {current?.mark ?? (Icon ? <Icon size={13} aria-hidden="true" /> : null)}
       <span>{text}</span>
-      <ChevronDown size={12} />
+      <ChevronDown size="xs" />
     </button>
     {open ? createPortal(
       <div
@@ -153,7 +155,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
         }}
       >
         {searchable ? <label className="canvas-chip-menu-search">
-          <Search size={13} />
+          <Search size="sm" />
           <input
             ref={search}
             value={query}
@@ -171,12 +173,12 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
         <div className="canvas-chip-menu-list" role={optionAction ? "menu" : "listbox"} aria-label={label}>
           {groups.map((group) => (
             <div className="canvas-chip-menu-group" role={group.name ? "group" : undefined} aria-label={group.name} key={group.name ?? ""}>
-              {group.name && (groups.length > 1 || group.notes.length) ? <div className="canvas-chip-menu-heading">{group.name}</div> : null}
+              {group.name && (groups.length > 1 || group.notes.length) ? <div className="canvas-chip-menu-heading">{group.options.find((option) => option.mark)?.mark}{group.name}</div> : null}
               {group.options.map((option) => {
                 const selected = option.value === value;
                 const choice = <button type="button" role={optionAction ? "menuitemradio" : "option"} aria-selected={optionAction ? undefined : selected} aria-checked={optionAction ? selected : undefined} key={option.value} onClick={() => choose(option)}>
                   {option.description ? <span className="canvas-chip-option-text"><span>{option.label}</span><small>{option.description}</small></span> : <span>{option.label}</span>}
-                  {selected ? <Check size={13} /> : null}
+                  {selected ? <Check size="sm" /> : null}
                 </button>;
                 return optionAction && OptionActionIcon ? <div className="canvas-chip-menu-row" key={option.value}>
                   {choice}

@@ -3,7 +3,8 @@ import "./button.css";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>;
-  variant?: "primary" | "secondary" | "ghost";
+  /** `danger`: a destructive action, as danger text on the quiet fill. */
+  variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "sm" | "md";
   icon?: ReactNode;
 }

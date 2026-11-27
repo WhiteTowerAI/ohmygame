@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTM
 import type { AgentModel, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
-import { ArrowUp, LoaderCircle } from "./icons.js";
+import { ArrowUp, Spinner } from "./icons.js";
 import { CanvasComposer } from "./canvas-node-interactions.js";
 import { t } from "./i18n.js";
 
@@ -42,7 +42,7 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
       <ModelSelector variant="canvas" models={models} status={modelStatus} value={effectiveModel} reasoningLevel={reasoningLevel ?? defaultReasoningLevel} disabled={busy}
         onChange={(selected, level) => onModel({ provider: selected.provider, id: selected.id }, level)} onReasoningChange={onReasoningChange} />
       <button type="button" title={generateLabel} aria-label={generateLabel} disabled={!canGenerate} onClick={generate}>
-        {generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
+        {generating ? <Spinner size="md" /> : <ArrowUp size="md" />}
       </button>
     </div>
   </CanvasComposer>;

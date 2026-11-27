@@ -88,6 +88,16 @@ describe("Projects page", () => {
     expect(field?.getAttribute("aria-label")).toBe("Search projects");
   });
 
+  it("marks each card's type only when the cards mix types", async () => {
+    await render();
+    expect(container.querySelectorAll(".project-card-type")).toHaveLength(0);
+    listProjects.mockResolvedValue([...PROJECTS, project("canvas", "Garden Art", "2026-09-01T10:00:00Z", "asset-canvas")]);
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(container.querySelectorAll(".project-card-type")).toHaveLength(4);
+  });
+
   it("keeps the same cover through a project rename and clears it across projects", async () => {
     vi.stubGlobal("IntersectionObserver", undefined);
     const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cover");
@@ -206,8 +216,17 @@ describe("Projects page", () => {
   it("clears a search that matches nothing", async () => {
     await render("castle");
     expect(container.textContent).toContain("No projects match your search");
+    // Only an empty list, not an empty search, gets the game icon.
+    expect(container.querySelector(".projects-empty .game-icon")).toBeNull();
     await act(async () => button("Clear filters").click());
     expect(onFiltersChange).toHaveBeenCalledWith({ sort: "updated" });
+  });
+
+  it("marks an empty list with a game icon", async () => {
+    listProjects.mockResolvedValue([]);
+    await render();
+    expect(container.textContent).toContain("No projects yet");
+    expect(container.querySelector(".projects-empty .game-icon")).not.toBeNull();
   });
 });
 

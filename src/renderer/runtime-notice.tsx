@@ -43,7 +43,7 @@ export function RuntimeNotice() {
             </span>
           ) : (
             <>
-              <TriangleAlert size={16} aria-hidden="true" />
+              <TriangleAlert size="md" aria-hidden="true" />
               {t("runtimeNotice.stopped")}
             </>
           )}

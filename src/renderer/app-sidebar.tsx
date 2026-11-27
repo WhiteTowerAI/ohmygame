@@ -1,35 +1,40 @@
 import { cloneElement, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownToLine,
-  ArrowLeft,
-  ArrowRight,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   CirclePlus,
   DangerCircle,
+  FolderWithFiles,
+  FolderWithFilesBold,
   Gamepad2,
-  Globe2,
   House,
-  Image,
+  HouseBold,
   InfoCircle,
-  LoaderCircle,
+  Layers3,
+  Layers3Bold,
   LogIn,
   MessageCircle,
   PanelToggle,
   Plug,
+  PlugBold,
   RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
+  Spinner,
   UserRound,
+  UsersGroupRounded,
+  UsersGroupRoundedBold,
+  type IconComponent,
 } from "./icons.js";
 import { listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { openNewGame } from "./new-game.js";
+import { communityProfileHash, conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
@@ -39,7 +44,6 @@ import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./pro
 import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
-import { hasWindowsWindowControls } from "./desktop-window-frame.js";
 import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
 import "./app-sidebar.css";
 
@@ -219,7 +223,7 @@ function ProjectListMenu({ visible, placement }: {
   return (
     <DropdownMenu placement={placement} items={items} trigger={(props) => (
       <IconButton {...props} size="sm" className="sidebar-project-menu" label={t("sidebar.projectListMenu")}>
-        <SlidersHorizontal size={16} />
+        <SlidersHorizontal size="md" />
       </IconButton>
     )} />
   );
@@ -242,40 +246,6 @@ function SidebarCover({ project, className, iconSize }: { project: ProjectState;
 }
 
 /** The shortcut the app uses for settings. */
-
-// The Navigation API (Chromium) says whether there is somewhere to go; the
-// buttons stay enabled where it is missing.
-interface NavigationLike extends EventTarget {
-  canGoBack: boolean;
-  canGoForward: boolean;
-}
-
-/** Whether the window can go back and forward, as the title bars show it. */
-function useHistoryState() {
-  const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
-  const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
-  const [state, setState] = useState(read);
-  useEffect(() => {
-    const update = () => setState(read());
-    navigationApi?.addEventListener("currententrychange", update);
-    window.addEventListener("hashchange", update);
-    return () => {
-      navigationApi?.removeEventListener("currententrychange", update);
-      window.removeEventListener("hashchange", update);
-    };
-  }, []);
-  return state;
-}
-
-function HistoryButtons({ history, onLeave = (go) => go() }: {
-  history: ReturnType<typeof useHistoryState>;
-  onLeave?: (go: () => void) => void;
-}) {
-  return <>
-    <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
-    <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
-  </>;
-}
 
 function SidebarItem({ icon, label, shortcut: keys, active = false, onClick, button, trailing }: {
   icon: ReactNode;
@@ -342,12 +312,13 @@ function SidebarResizer({ width }: { width: number }) {
   );
 }
 
-const SECTIONS: { page: SidebarPage; label: () => string; icon: ReactNode }[] = [
-  { page: "home", label: () => t("sidebar.home"), icon: <House size={18} /> },
-  { page: "projects", label: () => t("sidebar.projects"), icon: <Gamepad2 size={18} /> },
-  { page: "library", label: () => t("sidebar.library"), icon: <Image size={18} /> },
-  { page: "community", label: () => t("sidebar.community"), icon: <Globe2 size={18} /> },
-  { page: "plugins", label: () => t("sidebar.plugins"), icon: <Plug size={18} /> },
+/** Each page's icon, and its filled version while the page is open. */
+const SECTIONS: { page: SidebarPage; label: () => string; icon: IconComponent; activeIcon: IconComponent }[] = [
+  { page: "home", label: () => t("sidebar.home"), icon: House, activeIcon: HouseBold },
+  { page: "projects", label: () => t("sidebar.projects"), icon: FolderWithFiles, activeIcon: FolderWithFilesBold },
+  { page: "library", label: () => t("sidebar.library"), icon: Layers3, activeIcon: Layers3Bold },
+  { page: "community", label: () => t("sidebar.community"), icon: UsersGroupRounded, activeIcon: UsersGroupRoundedBold },
+  { page: "plugins", label: () => t("sidebar.plugins"), icon: Plug, activeIcon: PlugBold },
 ];
 
 // The pages' sidebar, flat on the app background: search, the sections, the
@@ -358,18 +329,13 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const { projects, visible } = useSidebarProjects(active);
   const shown = shownProjects(projects, visible);
   const reorder = useProjectReorder(shown);
-  const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
-  // The Windows frame always shows them, disabled when there is nowhere to go,
-  // so the top row keeps its shape from the first launch on.
-  const showWindowsHistory = hasWindowsWindowControls();
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
-      <PanelToggle size={18} />
+      <PanelToggle size="md" />
     </IconButton>
   );
-  const historyButtons = <HistoryButtons history={history} />;
   const foldQuickAccess = () => setPreferences({ quickAccessOpen: !quickAccessOpen });
 
   return (
@@ -377,32 +343,24 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
       <nav className="sidebar" aria-label={t("sidebar.mainNavigation")}>
         {/* On macOS the top row is the title bar. Expanded, it holds the window
             controls and the sidebar toggle at its right end. Collapsed, it spans
-            the window: controls, back, forward, then the toggle. */}
-        {mac ? (
-          <div className="sidebar-titlebar">
-            {collapsed ? historyButtons : null}
-            {toggleButton}
-          </div>
-        ) : null}
+            the window: the controls, then the toggle. */}
+        {mac ? <div className="sidebar-titlebar">{toggleButton}</div> : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
             {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
             <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
-          {!collapsed && showWindowsHistory ? historyButtons : null}
           {mac || collapsed ? null : toggleButton}
         </div>
-        {/* Collapsed, the brand row is too narrow for back and forward, so they
-            sit at the top of the page beside the rail instead. */}
-        {collapsed && showWindowsHistory ? <div className="sidebar-history">{historyButtons}</div> : null}
         <div className="sidebar-group">
-          {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
-          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
+          {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size="md" />} label={t("sidebar.expand")} onClick={toggle} /> : null}
+          <SidebarItem icon={<Search size="md" />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
-          {SECTIONS.map((item) => (
-            <SidebarItem key={item.page} icon={item.icon} label={item.label()} active={active === item.page}
-              onClick={() => onNavigate(item.page)} />
+          {/* The library is on its way out: it stays listed only while open. */}
+          {SECTIONS.filter((item) => item.page !== "library" || active === "library").map(({ page, label, icon: Icon, activeIcon: ActiveIcon }) => (
+            <SidebarItem key={page} icon={active === page ? <ActiveIcon size="md" /> : <Icon size="md" />} label={label()} active={active === page}
+              onClick={() => onNavigate(page)} />
           ))}
         </div>
         {projects.length ? (
@@ -412,12 +370,12 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             {collapsed ? (
               <IconButton size="sm" className="sidebar-recent-fold" label={quickAccessOpen ? t("sidebar.hideQuickAccess") : t("sidebar.showQuickAccess")}
                 aria-expanded={quickAccessOpen} onClick={foldQuickAccess}>
-                {quickAccessOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {quickAccessOpen ? <ChevronUp size="sm" /> : <ChevronDown size="sm" />}
               </IconButton>
             ) : (
               <div className="sidebar-label-row">
                 <button type="button" className="sidebar-label sidebar-label-fold" aria-expanded={quickAccessOpen} onClick={foldQuickAccess}>
-                  {t("sidebar.quickAccess")}<ChevronRight size={12} className="sidebar-label-caret" />
+                  {t("sidebar.quickAccess")}<ChevronRight size="xs" className="sidebar-label-caret" />
                 </button>
                 <ProjectListMenu visible={visible} placement="bottom-end" />
               </div>
@@ -628,7 +586,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
               close();
               conversations.onNew();
             }}>
-              <CirclePlus size={14} /><span>{t("projectShell.newConversation")}</span>
+              <CirclePlus size="sm" /><span>{t("projectShell.newConversation")}</span>
             </button>
           ) : null}
         </div>
@@ -646,7 +604,7 @@ function RailConversationButton({ projectId, item, current, onClick }: {
   const attention = useProjectAttention(projectId, item.id);
   return <button type="button" className={`rail-popover-item${current ? " is-current" : ""}`}
     aria-current={current ? "true" : undefined} aria-description={attentionLabel(attention)} onClick={onClick}>
-    <MessageCircle size={14} />
+    <MessageCircle size="sm" />
     <span>{item.title}</span>
     <ProjectAttentionMark attention={attention} />
     <small>{editedAgo(item.updatedAt)}</small>
@@ -671,7 +629,6 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const current = project ?? projects.find((item) => item.id === projectId);
   const shown = !current || listed.some((item) => item.id === current.id) ? listed : [...listed, current];
   const reorder = useProjectReorder(shown);
-  const [creating, setCreating] = useState(false);
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
     <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
@@ -684,22 +641,17 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       </div>
       {projects.length ? <ProjectListMenu visible={visible} placement="right-start" /> : null}
       <Tooltip content={t("sidebar.newProject")} placement="right-start">
-        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
-          <CirclePlus size={16} />
+        <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={(event) => openNewGame({ from: event.currentTarget })}>
+          <CirclePlus size="md" />
         </button>
       </Tooltip>
-      {creating ? <ProjectCreateDialog
-        onClose={() => setCreating(false)}
-        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
-        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
-      /> : null}
     </AppRail>
   );
 }
 
 /**
- * The narrow rail of a full-window workspace: back and forward, the way home,
- * the workspace's own items, then search and the account.
+ * The narrow rail of a full-window workspace: the way home, the workspace's
+ * own items, then search and the account.
  */
 export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }: {
   label: string;
@@ -707,16 +659,11 @@ export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }:
   onLeave?: (go: () => void) => void;
   children: ReactNode;
 }) {
-  const history = useHistoryState();
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   return (
     <nav className="sidebar project-rail" aria-label={label}>
-      {/* Back and forward lead the title bar: here, over the rail, beside the
-          macOS window controls or at the window's edge where the system draws
-          the title bar. */}
-      <div className="sidebar-titlebar">
-        <HistoryButtons history={history} onLeave={onLeave} />
-      </div>
+      {/* The rail's corner of the title bar, under the macOS window controls. */}
+      <div className="sidebar-titlebar" />
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
@@ -728,7 +675,7 @@ export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }:
       <div className="sidebar-group sidebar-recent">{children}</div>
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
-        <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
+        <SidebarItem icon={<Search size="md" />} label={t("sidebar.search")} onClick={openCommandMenu} />
         <div className="sidebar-account-row">
           <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
           <UpdatePill />
@@ -749,18 +696,18 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const signedIn = auth.state.status === "signed-in" ? auth.state.user : undefined;
   const loading = auth.state.status === "loading";
   const name = signedIn?.name ?? (loading ? t("sidebar.loadingAccount") : t("common.signIn"));
-  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size={16} />, shortcut: shortcut(","), onSelect: () => onNavigate("settings") };
-  const about: MenuEntry = { label: t("sidebar.about"), icon: <InfoCircle size={16} />, onSelect: () => openSettings("about") };
+  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size="md" />, shortcut: shortcut(","), onSelect: () => onNavigate("settings") };
+  const about: MenuEntry = { label: t("sidebar.about"), icon: <InfoCircle size="md" />, onSelect: () => openSettings("about") };
   const items: MenuEntry[] = signedIn ? [
     settings,
-    { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
+    { label: t("sidebar.account"), icon: <UserRound size="md" />, onSelect: () => openSettings("account") },
     // The games you published, to edit or unpublish.
-    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
+    { label: t("community.myGames"), icon: <Gamepad2 size="md" />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [
     // Signed out, the menu leads with signing in; settings stay one step away.
-    { label: t("sidebar.signIn"), icon: <LogIn size={16} />, disabled: loading, onSelect: auth.openSignIn },
+    { label: t("sidebar.signIn"), icon: <LogIn size="md" />, disabled: loading, onSelect: auth.openSignIn },
     settings,
     "separator",
     about,
@@ -773,7 +720,7 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
             <UserAvatar className="sidebar-avatar-image" name={signedIn.name} avatarUrl={signedIn.avatarUrl} />
           </span>
         ) : (
-          <span className="sidebar-guest" style={{ width: avatarSize, height: avatarSize }} aria-hidden="true"><UserRound size={16} /></span>
+          <span className="sidebar-guest" style={{ width: avatarSize, height: avatarSize }} aria-hidden="true"><UserRound size="md" /></span>
         )}
         <span className="sidebar-item-label"><strong>{name}</strong></span>
       </button>
@@ -799,18 +746,18 @@ function UpdatePill() {
     );
   }
   const action = status.type === "available"
-    ? { icon: <ArrowDownToLine size={15} />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
+    ? { icon: <ArrowDownToLine size="sm" />, name: t("sidebar.update"), label: t("sidebar.updateTo", { version: status.version }), run: () => void updates.download() }
     : status.type === "ready"
-      ? { icon: <RefreshCw size={15} />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
+      ? { icon: <RefreshCw size="sm" />, name: t("sidebar.restart"), label: t("sidebar.restartToUpdate"), run: () => void updates.install() }
       : status.type === "error"
-        ? { icon: <DangerCircle size={15} />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
+        ? { icon: <DangerCircle size="sm" />, name: t("sidebar.updateIssue"), label: t("sidebar.updateFailed"), run: () => openSettings("about") }
         : undefined;
   if (status.type === "installing") {
     // Nothing to click: the app is closing to put the update in place.
     return (
       <SidebarTip label={installingText()}>
         <span className="sidebar-update is-busy" role="status" aria-label={t("sidebar.installingUpdate")}>
-          <LoaderCircle className="spin" size={15} /><span>{t("sidebar.installingUpdate")}</span>
+          <Spinner size="sm" /><span>{t("sidebar.installingUpdate")}</span>
         </span>
       </SidebarTip>
     );

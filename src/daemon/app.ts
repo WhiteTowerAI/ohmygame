@@ -42,7 +42,7 @@ import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type BuiltinProjectType, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectEngaged, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -74,7 +74,7 @@ import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { createGameUseTool } from "./playtest-tools.js";
 import { ExternalMcpService } from "./external-mcp.js";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "./text-generation.js";
+import { textGenerationModel, generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateGameIdea, generateProjectName } from "./text-generation.js";
 import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
@@ -568,6 +568,19 @@ const agentDefaultsSchema = {
     properties: { model: modelRefSchema, reasoningLevel: { enum: AGENT_REASONING_LEVELS }, nativeReasoningLevel: { type: "string", minLength: 1, maxLength: 100 } },
   },
 } as const;
+const gameIdeaSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "locale"],
+    properties: {
+      type: { enum: PROJECT_TYPE_IDS },
+      locale: { type: "string", minLength: 1, maxLength: 20 },
+      model: modelRefSchema,
+      avoid: { type: "string", maxLength: 2_000 },
+    },
+  },
+} as const;
 const setConversationReasoningSchema = {
   body: {
     type: "object",
@@ -815,6 +828,10 @@ export function createApp(options: AppOptions = {}) {
     const runtime = await getModelRuntime();
     return resolveModel(runtime, (await runtime.getAvailable(provider)).find((model) => model.id === id));
   };
+  const availableTextModel = (model?: AgentModelRef) => {
+    const requested = textGenerationModel(model, () => configuredDefaultModel(dataDirectory, piAgentDirectory));
+    return requested ? availableModel(requested.provider, requested.id) : undefined;
+  };
   const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
     events.publish(
       conversation.projectId,
@@ -827,8 +844,7 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project: { ...project } });
   };
   const projectNaming = new ProjectNaming(projects, options.generateProjectName ?? (async (prompt, model, signal) => {
-    if (!model) return undefined;
-    const selected = await availableModel(model.provider, model.id);
+    const selected = await availableTextModel(model);
     if (!selected || signal.aborted) return undefined;
     const runtime = await getModelRuntime();
     return generateProjectName(runtime, selected, prompt, signal);
@@ -1692,6 +1708,13 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const file = pluginAgentIconFile(await pluginServices.installed(), agentId);
     return file ? readPluginIconAsset(file.root, { type: "asset", path: file.path }) : undefined;
+  }, async (id, typeId) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    if (!entry || pluginServices.grants.plugin(entry.id)?.enabled === false) return undefined;
+    const cover = entry.manifest.contributes?.projectTypes?.find((type) => type.id === typeId)?.cover;
+    return cover ? readPluginScreenshot(entry.root, cover) : undefined;
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
@@ -4377,6 +4400,16 @@ export function createApp(options: AppOptions = {}) {
     if (failure) throw failure.error;
     await agentRuntimes.settings.setDefaultModel(undefined);
     return reply.code(204).send();
+  });
+
+  // The new game dialog's random idea: from the model the person chose, or Pi's
+  // default when that is a coding agent's; without either, the dialog uses its own.
+  app.post<{ Body: { type: BuiltinProjectType; locale: string; model?: AgentModelRef; avoid?: string } }>("/ideas/game", { schema: gameIdeaSchema }, async (request, reply) => {
+    const model = await availableTextModel(request.body.model);
+    if (!model) return reply.code(409).send({ error: "No language model is available" });
+    const idea = await generateGameIdea(await getModelRuntime(), model, request.body, AbortSignal.timeout(30_000)).catch(() => undefined);
+    if (!idea) return reply.code(502).send({ error: "The language model returned no idea" });
+    return { idea };
   });
 
   const providerSummaries = async (locale: PluginLocale = "en") => {

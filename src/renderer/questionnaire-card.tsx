@@ -94,9 +94,9 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
           <strong>{question.prompt}</strong>
         </div>
         {request.questions.length > 1 ? <div className="questionnaire-navigation">
-          <button type="button" disabled={submitting || draft.index === 0} aria-label={t("questionnaire.previous")} onClick={() => update({ ...draft, index: draft.index - 1 })}><ArrowLeft size={14} /></button>
+          <button type="button" disabled={submitting || draft.index === 0} aria-label={t("questionnaire.previous")} onClick={() => update({ ...draft, index: draft.index - 1 })}><ArrowLeft size="sm" /></button>
           <span>{t("questionnaire.position", { current: draft.index + 1, total: request.questions.length })}</span>
-          <button type="button" disabled={submitting || last} aria-label={t("questionnaire.next")} onClick={() => update({ ...draft, index: draft.index + 1 })}><ArrowRight size={14} /></button>
+          <button type="button" disabled={submitting || last} aria-label={t("questionnaire.next")} onClick={() => update({ ...draft, index: draft.index + 1 })}><ArrowRight size="sm" /></button>
         </div> : null}
       </header>
       {question.multiSelect ? <span className="questionnaire-hint">{t("questionnaire.multiple")}</span> : null}
@@ -110,7 +110,7 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
                 ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])
                 : [option.value],
             } })}>
-            <span className="questionnaire-option-mark" aria-hidden="true">{checked ? <Check size={11} /> : null}</span>
+            <span className="questionnaire-option-mark" aria-hidden="true">{checked ? <Check size="xs" /> : null}</span>
             <span className="questionnaire-option-copy">
               <strong>{option.label}{option.recommended ? <small>{t("providers.recommended")}</small> : null}</strong>
               {option.description ? <span>{option.description}</span> : null}
@@ -121,7 +121,7 @@ function Questions({ request, onSubmit, onSkip, onInteract }: QuestionnaireCardP
           aria-expanded={custom} disabled={submitting}
           className={custom ? "questionnaire-option-selected" : undefined}
           onClick={() => update({ ...draft, custom: { ...draft.custom, [question.id]: question.multiSelect ? !custom : true } })}>
-          <span className="questionnaire-option-mark" aria-hidden="true">{custom ? <Check size={11} /> : null}</span>
+          <span className="questionnaire-option-mark" aria-hidden="true">{custom ? <Check size="xs" /> : null}</span>
           <span className="questionnaire-option-copy"><strong>{t("questionnaire.answerManually")}</strong></span>
         </button> : null}
         {question.allowOther && custom ? <Input className="questionnaire-text" size="sm"

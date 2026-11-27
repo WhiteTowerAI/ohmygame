@@ -4,7 +4,7 @@ import { addLibrarySourceItem, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
 import { isPixelArt } from "./library-assets.js";
 import { mediaTypeLabel } from "./asset-browser.js";
-import { Box, Check, ExternalLink, Layers3, LoaderCircle, Plus, RefreshCw } from "./icons.js";
+import { Box, Check, ExternalLink, Layers3, Spinner, Plus, RefreshCw } from "./icons.js";
 import { AudioTile, sourcePreviewAudio, useTileAudio } from "./library-tile-audio.js";
 import { Alert, Button, CategoryMark, Empty, MediaTile, Sheet, Skeleton, Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -173,11 +173,11 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
       {collections && collection ? <Tabs<string> variant="pills" label={t("library.sourceCollections", { title: source.title })} value={collection} onChange={chooseCollection}
         tabs={collections.map((candidate) => ({ value: candidate.id, label: candidate.title }))} />
       : source.media.length > 1 ? <Tabs<Media | "all"> variant="pills" label={t("assets.mediaTypes")} value={media} onChange={chooseMedia} tabs={[
-        { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} /> },
+        { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" /> },
         ...source.media.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} /> })),
       ]} /> : null}
       <span className="library-filter-spacer" />
-      <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} disabled={phase === "loading"} onClick={searchAgain}>{t("common.refresh")}</Button>
+      <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} disabled={phase === "loading"} onClick={searchAgain}>{t("common.refresh")}</Button>
     </div>
     {source.description ? <p className="library-source-description">{source.description} · {t("library.sourceBy", { plugin: source.pluginName })}</p> : null}
     {phase === "loading" ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 8 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
@@ -188,22 +188,22 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
           const tile = <MediaTile key={item.id} category={item.mediaType} name={item.name} meta={itemMeta(item)} selected={selected?.id === item.id}
             onClick={() => { audio.stop(); setAddError(undefined); setSelected(item); }}
             preview={<SourcePreview item={item} />}
-            badge={inLibrary.has(item.id) ? <Check size={12} aria-label={t("library.added")} /> : undefined} />;
+            badge={inLibrary.has(item.id) ? <Check size="xs" aria-label={t("library.added")} /> : undefined} />;
           const preview = item.mediaType === "audio" ? item.preview : undefined;
           return preview ? <AudioTile key={item.id} name={item.name} state={audio.playing?.id === item.id ? audio.playing.state : undefined}
             onToggle={() => audio.toggle(item.id, async () => sourcePreviewAudio(preview))}>{tile}</AudioTile> : tile;
         })}</div>
         {error ? <Alert tone="danger" title={error} /> : null}
-        {next ? <div ref={end} className="library-source-more"><Button size="sm" variant="ghost" disabled={more} icon={more ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void loadMore()}>{t("common.showMore")}</Button></div> : null}
+        {next ? <div ref={end} className="library-source-more"><Button size="sm" variant="ghost" disabled={more} icon={more ? <Spinner size="sm" /> : undefined} onClick={() => void loadMore()}>{t("common.showMore")}</Button></div> : null}
       </>}
 
     <Sheet open={Boolean(selected)} onClose={() => setSelected(undefined)} title={selected?.name ?? ""}
       footer={selected ? <>
-        {selected.url ? <Button variant="ghost" icon={<ExternalLink size={14} />} onClick={() => window.open(selected.url, "_blank", "noopener,noreferrer")}>{t("library.openSourcePage")}</Button> : null}
+        {selected.url ? <Button variant="ghost" icon={<ExternalLink size="sm" />} onClick={() => window.open(selected.url, "_blank", "noopener,noreferrer")}>{t("library.openSourcePage")}</Button> : null}
         <span className="library-filter-spacer" />
         {addedId
           ? <Button variant="primary" onClick={() => onShowInLocal(addedId)}>{t("library.showInLocal")}</Button>
-          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
+          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <Spinner size="sm" /> : <Plus size="sm" />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
       </> : undefined}>
       {selected ? <>
         <div className={`library-sheet-preview is-${selected.mediaType}${isPixelArt(selected) ? " is-pixel-art" : ""}${selected.embed ? " is-embed" : ""}`}>
@@ -273,7 +273,7 @@ export function SourceEmbed({ item, embed }: { item: LibrarySourceItem; embed: s
   return <div className="library-source-embed-offer">
     <SourcePreview item={item} />
     <div className="library-source-embed-action">
-      <Button size="sm" icon={state === "loading" ? <LoaderCircle className="spin" size={14} /> : <Box size={14} />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
+      <Button size="sm" icon={state === "loading" ? <Spinner size="sm" /> : <Box size="sm" />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
       <span>{t("library.embedFrom", { host })}</span>
       {error ? <Alert tone="danger" title={error} /> : null}
     </div>

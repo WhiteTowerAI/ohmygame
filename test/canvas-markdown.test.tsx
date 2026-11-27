@@ -269,7 +269,7 @@ describe("the design document panel", () => {
     const { toolbar } = await renderPanel(documents);
     const image = container.querySelector('img[alt="Map"]');
     expect(image).not.toBeNull();
-    expect(toolbar.querySelector(".design-doc-picker")?.textContent).toBe("Rules");
+    expect(toolbar.querySelector('button[aria-label="Switch document (Rules)"]')).not.toBeNull();
     expect([...container.querySelectorAll(".design-doc-outline-item")].map((item) => `${item.className.includes("is-h3") ? "  " : ""}${item.textContent}`))
       .toEqual(["Combat", "  Cards", "Map"]);
     await act(async () => [...toolbar.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Edit")!.click());
@@ -290,20 +290,26 @@ describe("the design document panel", () => {
 
   it("references the document in the next message, and stops", async () => {
     const documents = documentsState([rules]);
-    const reference = () => toolbar.querySelector<HTMLButtonElement>("button[aria-label='Reference in chat'], button[aria-label='Stop referencing in chat']")!;
     let { toolbar, onReference } = await renderPanel(documents);
-    await act(async () => reference().click());
+    const referenceItem = async () => {
+      await act(async () => toolbar.querySelector<HTMLButtonElement>('button[aria-label="Document options"]')!.click());
+      return document.querySelector<HTMLButtonElement>('[role="menuitemcheckbox"]')!;
+    };
+    let item = await referenceItem();
+    expect(item.textContent).toBe("Reference in chat");
+    await act(async () => item.click());
     expect(onReference).toHaveBeenCalledWith(rules);
     ({ toolbar, onReference } = await renderPanel(documents, { referenced: "canvas/documents/rules.md" }));
-    expect(reference().getAttribute("aria-pressed")).toBe("true");
-    await act(async () => reference().click());
+    item = await referenceItem();
+    expect(item.getAttribute("aria-checked")).toBe("true");
+    await act(async () => item.click());
     expect(onReference).toHaveBeenCalledWith(undefined);
   });
 
   it("offers to write a document when there is none", async () => {
     const documents = documentsState([]);
     const { onAskAgent } = await renderPanel(documents);
-    expect(container.textContent).toContain("This project has no game design document yet");
+    expect(container.textContent).toContain("No design document yet");
     const action = (name: string) => [...container.querySelectorAll<HTMLButtonElement>(".ui-empty button")].find((button) => button.textContent === name)!;
     await act(async () => action("Ask the agent to write one").click());
     expect(onAskAgent).toHaveBeenCalledWith(expect.stringContaining("game design document"));

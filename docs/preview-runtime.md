@@ -118,14 +118,14 @@ cleanup waits for the old server to close before starting again.
 If the replacement fails configuration inspection, the closed preview remains
 stopped and its old URL is cleared.
 
-The device menu and Project settings offer **Mobile landscape** for horizontal
+The Game panel’s **More** menu and Project settings offer **Mobile landscape** for horizontal
 phone games. Preview fits a 667:375 landscape frame within the editor panel;
 Play requests a 667 × 375 window. Set the preset in Project settings to save the default
 for future visits and project copies; the toolbar menu changes the current preview.
 Plugins can add more sizes to both menus
 ([preview devices](plugins.md#in-the-app)).
 
-![Mobile landscape selected in the preview device menu](assets/mobile-landscape-preview.png)
+![Mobile landscape selected in the Game panel’s More menu](assets/mobile-landscape-preview.png)
 
 Saving viewport, default route, automatic policy or idle policy does not restart
 the server. Changing effective launch settings restarts a currently active server.
@@ -156,13 +156,11 @@ application relaunches. If another process occupies that port, an available port
 is used and saved; browser storage at the previous origin cannot migrate
 automatically. Duplicated projects receive a separate origin.
 
-Page reload and server restart are separate controls. The Game panel's toolbar
-leads with the preview's address, like a browser's: a dot for the preview's state
-(running, starting, failed or not started), the current page, which opens the page
-picker, and reload. The device, element picking, **AI playtest** and a **More**
-menu (open in browser, restart the preview service, preview logs) follow;
-in a narrow panel the address shrinks to its dot, the page picker's chevron and
-reload.
+The Game panel shows a page picker when the preview has a route to choose.
+In a narrow panel the picker shrinks to its chevron. **More** contains device
+sizes, page reload, opening in a browser, restarting the preview service and
+preview logs. Element picking and **AI playtest** also move there when space
+is tight.
 The project's top bar keeps **Play** in the same place across views. For Web
 previews it opens the game window directly, or focuses it with **Return to game**.
 External previews instead reveal the Game panel. In Fit mode, Play requests
@@ -264,9 +262,10 @@ lets `game_use` use its game through the plugin; see
 ## Recording a game
 
 The desktop app records a running game to a video in the Library, where the
-trimmer can cut it down. The record button sits beside Play in the top bar while
-the game runs, and
-{Cmd or Ctrl}+Shift+R starts and stops it with the game in focus. In the Play
+trimmer can cut it down. **Record the game** in the game toolbar's more menu
+starts it while the game runs; the recording's time then shows beside Play in
+the top bar and stops it. {Cmd or Ctrl}+Shift+R starts and stops it with the
+game in focus. In the Play
 window, which has no toolbar, the title shows a dot while it records.
 
 A person's recording stops itself after 5 minutes. An agent records a playtest
@@ -290,7 +289,7 @@ Windows because it depends on each platform's encoders.
 
 ## Game tuning
 
-The Tune panel in the game toolbar changes a game's values while it runs. It
+The Tune panel, from the game toolbar's more menu, changes a game's values while it runs. It
 appears for projects with a web preview, except those a plugin builds, such as
 Godot games, until that path has been tried on a real export.
 

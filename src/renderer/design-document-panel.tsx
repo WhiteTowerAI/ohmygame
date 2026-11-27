@@ -5,8 +5,10 @@ import type { CanvasDocumentsState } from "./use-canvas-documents.js";
 import { CanvasMarkdown } from "./canvas-document-node.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
-import { Check, ChevronDown, Download, FileText, LoaderCircle, MessageCircle, MoreHorizontal, Plus } from "./icons.js";
-import { Button, DropdownMenu, Empty, IconButton, SegmentedControl } from "./ui/index.js";
+import { Download, FileText, MessageCircle, MoreHorizontal, Plus, Star } from "./icons.js";
+import { Button, DropdownMenu, Empty, IconButton, Loading, SegmentedControl } from "./ui/index.js";
+import { GameIcon } from "./game-icon.js";
+import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { t } from "./i18n.js";
 import "./design-document-panel.css";
 
@@ -88,11 +90,12 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const askAgent = () => onAskAgent?.("Write a game design document for this project and make it the main design document.");
   const path = doc ? `canvas/documents/${doc.id}.md` : undefined;
 
+  const views: { value: View; label: string }[] = [{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }];
   const toolbar = doc ? <>
     <DropdownMenu placement="bottom-start" trigger={(props) => (
-      <button type="button" {...props} className="design-doc-picker" title={t("designDoc.documents")}>
-        <FileText size={14} /><span>{doc.title || t("canvasDocs.untitled")}</span><ChevronDown size={12} />
-      </button>
+      <IconButton {...props} size="sm" className="design-doc-picker" label={t("designDoc.switchDocument", { title: doc.title || t("canvasDocs.untitled") })}>
+        <FileText size="sm" />
+      </IconButton>
     )} items={[
       { heading: t("designDoc.documents") },
       ...docs.map((item) => ({
@@ -102,16 +105,18 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
         onSelect: () => choose(item.id),
       })),
       "separator" as const,
-      { label: t("designDoc.newDocument"), icon: <Plus size={14} />, onSelect: create },
+      { label: t("designDoc.newDocument"), icon: <Plus size="sm" />, onSelect: create },
     ]} />
-    <span className="design-doc-spacer" />
-    <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView}
-      options={[{ value: "read", label: t("designDoc.read") }, { value: "edit", label: t("designDoc.edit") }, { value: "split", label: t("designDoc.split") }]} />
-    <IconButton size="sm" label={referenced === path ? t("designDoc.unreference") : t("designDoc.reference")} active={referenced === path}
-      onClick={() => onReference(referenced === path ? undefined : doc)}><MessageCircle size={14} /></IconButton>
-    <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size={14} /></IconButton>} items={[
-      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Check size={14} />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
-      { label: t("canvasDoc.download"), icon: <Download size={14} />, onSelect: () => download(doc) },
+    <PanelTool id="view" menu={[{ heading: t("canvasDoc.view") }, ...views.map((option) => ({
+      label: option.label, radio: true, checked: option.value === view, onSelect: () => setView(option.value),
+    }))]}>
+      <SegmentedControl<View> size="sm" label={t("canvasDoc.view")} value={view} onChange={setView} options={views} />
+    </PanelTool>
+    <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("canvasDoc.options")}><MoreHorizontal size="sm" /></IconButton>} items={[
+      { label: t("designDoc.reference"), icon: <MessageCircle size="sm" />, checked: referenced === path,
+        onSelect: () => onReference(referenced === path ? undefined : doc) },
+      { label: doc.main ? t("canvasDoc.main") : t("canvasDoc.setMain"), icon: <Star size="sm" />, disabled: doc.main, onSelect: () => run(() => documents.setMain(doc.id)) },
+      { label: t("canvasDoc.download"), icon: <Download size="sm" />, onSelect: () => download(doc) },
     ]} />
   </> : null;
 
@@ -133,11 +138,11 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   if (!workspace) {
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
-      : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><LoaderCircle className="spin" size={18} /></div>;
+      : <Loading label={t("designDoc.loading")} />;
   } else if (!doc && workspace.documentIssues?.length) {
     body = null;
   } else if (!doc) {
-    body = <Empty icon={<FileText size={20} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
+    body = <Empty fill art={<GameIcon name="book" tone="neutral" size={40} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
       {onAskAgent ? <Button variant="primary" onClick={askAgent}>{t("designDoc.askAgent")}</Button> : null}
       <Button onClick={create}>{t("designDoc.newDocument")}</Button>
     </>} />;
@@ -149,7 +154,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
           <button type="button" className={`design-doc-pick${pick.below ? " is-below" : ""}`} style={{ left: pick.x, top: pick.y }}
             onMouseUp={(event) => event.stopPropagation()}
             onClick={() => { onQuote(pick.text); setPick(undefined); getSelection()?.removeAllRanges(); }}>
-            <MessageCircle size={13} />{t("designDoc.addToChat")}
+            <MessageCircle size="sm" />{t("designDoc.addToChat")}
           </button>
         ) : null}
       </div>
@@ -176,7 +181,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   }
 
   return <section className="design-doc-panel" aria-label={t("designDoc.label")}>
-    {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : null}
+    {toolbarTarget && toolbar ? createPortal(<PanelTools from={toolbarTarget}>{toolbar}</PanelTools>, toolbarTarget) : null}
     {notices}
     {body}
   </section>;

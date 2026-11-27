@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
-import type { AgentReasoningLevel, PromptImage } from "../shared/contracts.js";
+import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
+import type { AgentModelRef, AgentReasoningLevel, BuiltinProjectType, PromptImage } from "../shared/contracts.js";
 import type { CanvasDocumentGenerationResult, CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasTable, type CanvasTable, type CanvasTableGenerationResult } from "../shared/canvas-table.js";
 import { isOpenRouterModel, withOpenRouterAttribution } from "./openrouter-attribution.js";
@@ -8,6 +9,14 @@ import { normalizeAssistantText } from "./assistant-thinking.js";
 import { clampReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 
 export type TextGenerationReference = { type: "text"; label: string; text: string } | { type: "image"; label: string; image: PromptImage };
+
+/**
+ * The model for a short text request: the chosen one, unless it is a coding
+ * agent's, which can't take a separate short request; then Pi's default model.
+ */
+export function textGenerationModel(model: AgentModelRef | undefined, piDefault: () => AgentModelRef | undefined): AgentModelRef | undefined {
+  return model && !isAgentRuntimeId(model.provider) ? model : piDefault();
+}
 
 export async function generateProjectName(runtime: ModelRuntime, model: RuntimeModel, prompt: string, signal: AbortSignal): Promise<string | undefined> {
   const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));
@@ -22,10 +31,43 @@ export async function generateProjectName(runtime: ModelRuntime, model: RuntimeM
   });
   if (signal.aborted || response.stopReason !== "stop") return undefined;
   try {
-    const result: unknown = JSON.parse(responseText(response));
+    const result = jsonResponse(response);
     if (!result || typeof result !== "object" || !("name" in result) || typeof result.name !== "string") return undefined;
     const name = result.name.trim();
     return name && [...name].length <= 40 && !/[\p{Cc}\p{Cf}]/u.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What each project type makes, for the idea prompt. */
+const IDEA_SUBJECTS: Record<BuiltinProjectType, string> = {
+  general: "a small game of any genre",
+  "web-game": "a browser game that plays well with keyboard, mouse or touch",
+  "godot-game": "a game built with the Godot engine, 2D or 3D",
+  "asset-canvas": "a set of game art assets to draw, such as characters, tiles or effects for one game",
+};
+const IDEA_LANGUAGES: Record<string, string> = { en: "English", "zh-CN": "Simplified Chinese" };
+
+/** One short, fresh request a person could send to start a new project of the type. */
+export async function generateGameIdea(runtime: ModelRuntime, model: RuntimeModel, { type, locale, avoid }: { type: BuiltinProjectType; locale: string; avoid?: string }, signal: AbortSignal): Promise<string | undefined> {
+  const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));
+  const language = IDEA_LANGUAGES[locale] ?? "English";
+  const response = await runtime.completeSimple(model, {
+    systemPrompt: `Suggest one original, specific idea for ${IDEA_SUBJECTS[type]}, phrased as the request a person would type to start it, such as "Make a ...". Pick a surprising theme and one core mechanic; keep it small enough for a first version. Write in ${language}, in one sentence of at most 60 words (or 80 Chinese characters). Return only JSON: {"idea":"..."}. Do not repeat or closely resemble the previous idea supplied as source material.`,
+    messages: [{ role: "user", content: JSON.stringify({ previousIdea: avoid ? boundedText(avoid, 1_000) : null, seed: Math.random().toString(36).slice(2, 8) }), timestamp: Date.now() }],
+  }, {
+    maxTokens: Math.min(model.maxTokens, reasoning === "off" ? 512 : 2_048),
+    maxRetries: 0,
+    signal,
+    ...modelOptions(model, reasoning),
+  });
+  if (signal.aborted || response.stopReason !== "stop") return undefined;
+  try {
+    const result = jsonResponse(response);
+    if (!result || typeof result !== "object" || !("idea" in result) || typeof result.idea !== "string") return undefined;
+    const idea = result.idea.trim();
+    return idea && [...idea].length <= 400 && !/[\p{Cc}\p{Cf}]/u.test(idea) ? idea : undefined;
   } catch {
     return undefined;
   }
@@ -114,6 +156,11 @@ async function generateDraft(runtime: ModelRuntime, model: RuntimeModel, { promp
   } catch (cause) {
     return failed(partialText(), signal.aborted ? `${kind === "document" ? "Document" : "Table"} generation timed out. Try again or choose another model.` : cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+/** The JSON a short request asked for; models often wrap it in a Markdown code fence. */
+function jsonResponse(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): unknown {
+  return JSON.parse(responseText(response).replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1"));
 }
 
 export function responseText(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): string {

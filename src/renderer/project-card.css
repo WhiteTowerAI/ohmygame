@@ -18,7 +18,7 @@
 .project-card-open {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
   padding: 0;
   border: 0;
@@ -40,7 +40,7 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   transition: filter var(--duration-fast);
 }
@@ -156,7 +156,7 @@
   height: 20px;
   padding: 0;
   border: 1.5px solid rgb(255 255 255 / 90%);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgb(0 0 0 / 28%);
   color: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
@@ -208,4 +208,86 @@
 .project-row.is-selected,
 .project-row.is-selected:hover {
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* A project as a row (the Projects list, Home's 继续): cover, name, type, time, menu. */
+.project-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 0 var(--space-3);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.project-row:hover,
+.project-row:focus-within {
+  background: var(--color-hover);
+}
+
+.project-row-open {
+  display: grid;
+  grid-column: 1;
+  grid-template-columns: 56px minmax(0, 1fr) 160px 140px;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-row-open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.project-row .project-card-preview {
+  width: 56px;
+  border-radius: var(--radius-sm);
+}
+
+.project-row-type,
+.project-row-time {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.project-row-time {
+  color: var(--color-text-tertiary);
+}
+
+.project-row-actions {
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.project-row:hover .project-row-actions,
+.project-row:focus-within .project-row-actions,
+.project-row-actions:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .project-row-actions {
+    opacity: 1;
+  }
+}
+
+.project-row .project-card-error {
+  grid-column: 1 / -1;
+  padding: var(--space-1) 0 0;
 }

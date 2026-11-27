@@ -113,7 +113,7 @@ export function PluginIconPicker({
           <input className="visually-hidden" type="file" aria-label={t("pluginIconPicker.imageInput")} disabled={locked}
             accept="image/png,image/webp,image/svg+xml,.png,.webp,.svg"
             onChange={event => { choose(event.target.files?.[0]); event.target.value = ""; }} />
-          <span className="plugin-icon-tile-image"><Upload size={18} aria-hidden="true" /></span>
+          <span className="plugin-icon-tile-image"><Upload size="md" aria-hidden="true" /></span>
           <span className="plugin-icon-tile-name">{t("pluginIconPicker.upload")}</span>
         </label>
         {upload ? tile(choice?.type === "upload", upload.file.name,

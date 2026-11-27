@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
+import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, PanelToolbar, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
+import { PanelTool, PanelToolsMenu } from "../src/renderer/panel-tools.js";
 import { fitLayout, gamePanelAddable, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
 
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
@@ -196,6 +197,137 @@ describe("the panel layout", () => {
     expect(dock.classList.contains("is-stacked")).toBe(true);
     expect(dock.style.gridTemplateAreas).toBe('"left" "center" "right"');
     expect(container.querySelector(".dock-resizer")).toBeNull();
+  });
+
+  it("folds a narrow toolbar's tools into a menu, lowest priority first, and brings them back as it widens", async () => {
+    // The toolbar is `width` wide; each tool showing in it takes 40.
+    let width = 1000;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-toolbar") ? width : 1000;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-toolbar") ? Math.max(width, 40 * this.querySelectorAll(".tool").length) : this.clientWidth;
+    });
+    const resized = new Set<() => void>();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe() { resized.add(this.callback); }
+      disconnect() { resized.delete(this.callback); }
+    });
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const resize = (next: number) => act(async () => { width = next; for (const callback of resized) callback(); });
+    const zoom = vi.fn(), grid = vi.fn();
+    let changeZoom: (value: number) => void;
+    function ZoomTool() {
+      const [value, setValue] = useState(1);
+      changeZoom = setValue;
+      return createElement(PanelTool, { id: "zoom", priority: 1, menu: [{ label: "Zoom", onSelect: () => zoom(value) }] },
+        createElement("button", { className: "tool", onClick: () => zoom(value) }, "Zoom"));
+    }
+    const tools = createElement(PanelToolbar, null,
+      createElement(ZoomTool),
+      createElement(PanelTool, { id: "grid", menu: [{ label: "Grid", checked: true, onSelect: grid }] }, createElement("button", { className: "tool", onClick: grid }, "Grid")));
+    const withTools = panels.map((panel) => panel.id === "code" ? { ...panel, content: tools } : panel);
+    const shown = () => [...container.querySelectorAll(".dock-area-right .tool")].map((tool) => tool.textContent);
+    const more = () => container.querySelector<HTMLButtonElement>(".dock-area-right .dock-tools-more");
+    const menu = async () => {
+      await act(async () => more()!.click());
+      const items = [...document.querySelectorAll('[role="menu"] button')].map((item) => `${item.textContent}${item.getAttribute("aria-checked") === "true" ? "*" : ""}`);
+      await act(async () => more()!.click());
+      return items;
+    };
+    await act(async () => root.render(createElement(PanelLayout, { layout, panels: withTools, onChange: () => {}, empty: null })));
+    expect(shown()).toEqual(["Zoom", "Grid"]);
+    expect(more()).toBeNull();
+
+    // 80 of tools in 70: Grid, the lower priority, folds into the strip's ···.
+    await resize(70);
+    expect(shown()).toEqual(["Zoom"]);
+    expect(more()?.getAttribute("aria-label")).toBe("More tools");
+    expect(await menu()).toEqual(["Grid*"]);
+    await resize(30);
+    expect(shown()).toEqual([]);
+    expect(await menu()).toEqual(["Zoom", "Grid*"]);
+    await act(async () => more()!.click());
+    await act(async () => changeZoom(2));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')][0]!.click());
+    expect(zoom).toHaveBeenCalledWith(2);
+
+    // Each comes back once the toolbar has the room it lacked: Zoom at 40, then Grid at 80.
+    await resize(60);
+    expect(shown()).toEqual(["Zoom"]);
+    await resize(79);
+    expect(shown()).toEqual(["Zoom"]);
+    await resize(80);
+    expect(shown()).toEqual(["Zoom", "Grid"]);
+    expect(more()).toBeNull();
+  });
+
+  it("folds tools into the panel's own ··· when it has one", async () => {
+    let width = 1000;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-toolbar") ? width : 1000;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-toolbar") ? Math.max(width, 40 * this.querySelectorAll(".tool").length) : this.clientWidth;
+    });
+    const resized = new Set<() => void>();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: () => void) {}
+      observe() { resized.add(this.callback); }
+      disconnect() { resized.delete(this.callback); }
+    });
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const tools = createElement(PanelToolbar, null,
+      createElement(PanelTool, { id: "grid", menu: [{ label: "Grid", onSelect: () => {} }] }, createElement("button", { className: "tool" }, "Grid")),
+      createElement(PanelToolsMenu, { items: [{ label: "Export", onSelect: () => {} }], trigger: (props) => createElement("button", { ...props, className: "own-more" }, "···") }));
+    await act(async () => root.render(createElement(PanelLayout, { layout, panels: panels.map((panel) => panel.id === "code" ? { ...panel, content: tools } : panel), onChange: () => {}, empty: null })));
+    await act(async () => { width = 20; for (const callback of resized) callback(); });
+    expect(container.querySelector(".dock-area-right .tool")).toBeNull();
+    expect(container.querySelector(".dock-area-right .dock-tools-more")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".own-more")!.click());
+    expect([...document.querySelectorAll('[role="menu"] button')].map((item) => item.textContent)).toEqual(["Grid", "Export"]);
+  });
+
+  it("gives a maximized side area the whole layout", async () => {
+    await render(layout);
+    const dock = container.querySelector<HTMLElement>(".dock")!;
+    await act(async () => container.querySelector<HTMLButtonElement>(".dock-area-left .dock-maximize")!.click());
+    expect(dock.style.gridTemplateAreas).toBe('"left"');
+    expect(dock.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
+    expect(container.querySelector(".dock-resizer")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".dock-area-left .dock-maximize")!.click());
+    expect(dock.style.gridTemplateAreas).not.toBe('"left"');
+  });
+
+  it("handles its tabs as a browser does: arrows, middle click, double click and Close others", async () => {
+    let current: Layout = { ...layout, center: { panels: ["game", "code"], active: "game", size: 0 }, right: { panels: [], size: 280 } };
+    const show = () => act(async () => root.render(createElement(PanelLayout, {
+      layout: current, panels, onChange: (next: Layout) => { current = next; void show(); }, empty: null })));
+    await show();
+    const center = () => container.querySelector(".dock-area-center")!;
+    const tab = (title: string) => [...center().querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((button) => button.getAttribute("aria-label")!.startsWith(title))!;
+    // Only the open tab is in the Tab order; the arrows move along the tabs and open them.
+    expect([tab("Game").tabIndex, tab("Code").tabIndex]).toEqual([0, -1]);
+    tab("Game").focus();
+    await act(async () => tab("Game").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(current.center.active).toBe("code");
+    expect(document.activeElement).toBe(tab("Code"));
+    await act(async () => tab("Code").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(current.center.active).toBe("game");
+    // A double click fills the layout with the tab's area, and another brings the rest back.
+    await act(async () => tab("Game").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(true);
+    await act(async () => tab("Game").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector(".dock-area-left")!.classList.contains("is-hidden")).toBe(false);
+    // Its menu closes the other tabs in the area.
+    await act(async () => tab("Code").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) => entry.textContent === "Close others")!;
+    await act(async () => item.click());
+    expect(current.center.panels).toEqual(["code"]);
+    // A middle click closes a tab.
+    await act(async () => tab("Code").closest(".dock-tab")!.dispatchEvent(new MouseEvent("auxclick", { button: 1, bubbles: true })));
+    expect(current.center.panels).toEqual([]);
   });
 
   it("names every tab, so a narrow area's icon-only tabs still read", async () => {

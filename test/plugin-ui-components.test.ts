@@ -1530,10 +1530,18 @@ describe("plugin check", () => {
     expect(await messages(root, "warning")).toContainEqual(expect.stringContaining("There is no package.json"));
   });
 
-  it("warns about fields this app would leave out, and checks screenshots are in the package and small", async () => {
+  it("warns about fields this app would leave out, and checks screenshots and type covers are in the package and small", async () => {
     const root = await plugin({ "index.html": load }, { major: 1 }, {
       categories: ["art", "hologram"], homepage: "https://example.com",
       screenshots: [{ path: "./shots/one.png" }, { path: "./shots/big.png" }, { path: "./shots/gone.png" }],
+      contributes: {
+        panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }],
+        projectTypes: [
+          { id: "fine", title: "Fine", template: "./panel", preview: "web", cover: "./shots/one.png" },
+          { id: "big", title: "Big", template: "./panel", preview: "web", cover: "./shots/big.png" },
+          { id: "gone", title: "Gone", template: "./panel", preview: "web", cover: "./shots/gone.png" },
+        ],
+      },
     });
     await mkdir(path.join(root, "shots"));
     await writeFile(path.join(root, "shots", "one.png"), Buffer.from("89504e470d0a1a0a", "hex"));
@@ -1550,6 +1558,8 @@ describe("plugin check", () => {
     expect(await messages(root, "error")).toEqual([
       "/screenshots/1/path ./shots/big.png is larger than 1 MB",
       "/screenshots/2/path ./shots/gone.png is not in the package",
+      "/contributes/projectTypes/1/cover ./shots/big.png is larger than 1 MB",
+      "/contributes/projectTypes/2/cover ./shots/gone.png is not in the package",
     ]);
   });
 

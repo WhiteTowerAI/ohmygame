@@ -1,6 +1,7 @@
 import { useListPage } from "./use-list-page.js";
+import { GameIcon } from "./game-icon.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Archive, FilePlus, Import, LayoutGrid, List, LoaderCircle, Plus, RefreshCw } from "./icons.js";
+import { Archive, FilePlus, Import, LayoutGrid, List, Spinner, Plus, RefreshCw, Search, TriangleAlert } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { importProject, listProjects, waitForRuntime } from "./api.js";
@@ -14,7 +15,7 @@ import { publishSidebarProjects } from "./sidebar-projects.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import { Button, DropdownMenu, SearchInput, SegmentedControl, Select, Tooltip, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, Empty, SearchInput, SegmentedControl, Select, Tooltip, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./projects.css";
 
@@ -121,22 +122,24 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   }
 
   const newMenu: MenuEntry[] = [
-    { label: t("projects.newItem"), icon: <FilePlus size={14} />, onSelect: () => setCreating({}) },
-    ...(canImportFolder ? [{ label: t("projects.importFolder"), icon: <Import size={14} />, onSelect: () => void importFolder() }] : []),
+    { label: t("projects.newItem"), icon: <FilePlus size="sm" />, onSelect: () => setCreating({}) },
+    ...(canImportFolder ? [{ label: t("projects.importFolder"), icon: <Import size="sm" />, onSelect: () => void importFolder() }] : []),
     {
       label: importing ? t("projects.importing") : t("projects.importArchive"),
       description: t("projects.importHint"),
-      icon: importing ? <LoaderCircle className="spin" size={14} /> : <Archive size={14} />,
+      icon: importing ? <Spinner size="sm" /> : <Archive size="sm" />,
       disabled: importing,
       onSelect: () => importInput.current?.click(),
     },
   ];
 
   const page = useListPage(visibleProjects.length);
+  // A type mark on every card says nothing when the cards are all one type.
+  const mixedTypes = new Set(visibleProjects.map((project) => project.type)).size > 1;
   const lists = layout === "grid" ? (
     <div className={`projects-grid${selection.selecting ? " is-selecting" : ""}`}>
       {visibleProjects.slice(0, page.limit).map((project) => (
-        <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)}
+        <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)} showType={mixedTypes}
           onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
       ))}
     </div>
@@ -208,11 +211,11 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
                 options={[{ value: "updated", label: t("projects.recentlyUpdated") }, { value: "name", label: t("common.name") }]} />
               <SegmentedControl<Layout> label={t("projects.layout")} value={layout} onChange={changeLayout}
                 options={[
-                  { value: "grid", label: <LayoutIcon label={t("projects.grid")}><LayoutGrid size={14} /></LayoutIcon> },
-                  { value: "list", label: <LayoutIcon label={t("projects.list")}><List size={14} /></LayoutIcon> },
+                  { value: "grid", label: <LayoutIcon label={t("projects.grid")}><LayoutGrid size="sm" /></LayoutIcon> },
+                  { value: "list", label: <LayoutIcon label={t("projects.list")}><List size="sm" /></LayoutIcon> },
                 ]} />
               <DropdownMenu placement="bottom-end" items={newMenu} trigger={(props) => (
-                <Button {...props} variant="primary" icon={<Plus size={14} />}>{t("projects.new")}</Button>
+                <Button {...props} variant="primary" icon={<Plus size="sm" />}>{t("projects.new")}</Button>
               )} />
               <input ref={importInput} type="file" accept=".zip,application/zip" hidden aria-label={t("projects.importArchive")} onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -230,17 +233,18 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           </div>
         ) : null}
         {phase === "error" ? (
-          <div className="projects-empty" role="alert">
-            <p>{error}</p>
-            <Button size="sm" icon={<RefreshCw size={14} />} onClick={() => void load()}>{t("common.retry")}</Button>
+          <div className="projects-empty">
+            <Empty tone="error" icon={<TriangleAlert size="md" />} title={error}
+              action={<Button size="sm" icon={<RefreshCw size="sm" />} onClick={() => void load()}>{t("common.retry")}</Button>} />
           </div>
         ) : null}
         {phase === "ready" && visibleProjects.length === 0 ? (
           <div className="projects-empty">
-            <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
-            {projects.length && filtered
-              ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>
-              : <Button size="sm" icon={<Plus size={14} />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
+            {projects.length
+              ? <Empty icon={<Search size="md" />} title={t("projects.noMatch")}
+                action={filtered ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button> : null} />
+              : <Empty art={<GameIcon name="controller" tone="neutral" size={40} />} title={t("projects.none")}
+                action={<Button size="sm" icon={<Plus size="sm" />} onClick={() => setCreating({})}>{t("projects.new")}</Button>} />}
           </div>
         ) : null}
         {phase !== "error" && visibleProjects.length > 0 ? <>{lists}{page.next}</> : null}

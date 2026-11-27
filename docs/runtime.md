@@ -139,8 +139,8 @@ enabled, visible provider model or an enabled CLI model, without sending inferen
 **Skip this step** on the connection screen, shown when no model is ready, moves
 to the last step without saving a model.
 
-The final `start` step asks where to begin: **Describe a game** (Home's prompt
-box gets focus), **Blank project** (Home opens the new-project dialog), or
+The final `start` step asks where to begin: **Describe a game** (the new game
+dialog opens), **Blank project** (Home opens the new-project dialog), or
 **Import folder** (Home opens the folder picker; desktop only). Choosing one, or
 **Not now**, finishes setup and records `completed` when a conversation model is
 available, otherwise `skipped`. Home acts on the choice once, after the
@@ -155,6 +155,15 @@ connected or not. Unconnected providers follow as **Free cloud**, **Popular
 providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.
+
+Settings → Providers is ordered by what the person already has. Connected
+providers and **From plugins** come first, then **Default models**: the chat
+model (chosen in Agents; the row opens them) and one compact row per media use
+that has a model to pick. Uses with no supporting provider share one quiet line
+instead of their own rows. **Add a provider** follows with the search box and
+capability tabs that filter it, and a **Custom** button for a custom provider.
+With nothing connected, that catalogue is the whole page, headed **Connect a
+provider to start**.
 
 The connection step lists language providers only. Without a search, connected and
 popular providers come first, and the rest, including local services, stay
@@ -217,6 +226,10 @@ preferences bypass the animation, including when changed during the greeting.
 **Settings → Web Search** selects Auto, Exa, Parallel, or Custom MCP. Auto assigns
 each session to Exa or Parallel and can retry with the other public provider.
 An explicitly selected provider never falls back to another service.
+The page shows only what applies: with search off, just the switch; the
+fallback switch only for Auto; and only the keys the chosen service uses
+(keys for the other service stay saved). **Save** is enabled once something
+changed.
 
 Custom MCP supports HTTP endpoints that accept `tools/list` and `tools/call`
 without an MCP initialization handshake. The selected tool must declare a string
@@ -664,7 +677,10 @@ project of its own.
 
 New projects created without an explicit name can be named once from their first
 meaningful chat request, using the conversation's selected language model and
-the request's language. This separate background request has a 15-second limit
+the request's language. A conversation on a coding agent (Claude Code, Codex or
+a plugin's) names with Pi's default model instead, since a coding agent can't
+take a separate short request; with neither, the project keeps its name. A
+name the model wraps in a Markdown code fence still counts. This separate background request has a 15-second limit
 and never blocks the agent turn. Greetings, attachment-only messages and failed
 naming requests leave the project eligible for a later message. Manual names,
 duplicates and legacy projects are preserved; a delayed AI result cannot replace
@@ -682,27 +698,50 @@ first, so an open Projects page does not hold shutdown open.
 ## Project navigation
 
 Inside a project the sidebar becomes a rail: the logo (Home), the person's
-projects as covers, the list's options, **New project** (Home), Search, the
+projects as covers, the list's options, **New project** (the new game dialog), Search, the
 desktop update and the account. The open project is marked; hovering a project
 lists its conversations, newest first, and the open project's list ends with
-**New conversation**. The rail's Back and Forward lead the top bar: beside the
-window controls on macOS, at the window's edge on Linux and in a browser. On
+**New conversation**. The title bar's toggle beside the window controls, or
+⌘B / Ctrl+B outside a text field, hides the rail; the choice is kept. There are
+no Back and Forward buttons: ⌘[ and ⌘] (Ctrl+[ and Ctrl+] elsewhere) go back
+and forward outside a text field. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
 Minimize, Maximize or Restore, and Close in the app's colours over the page's
 top right corner. The controls remain available when Community asks to unpublish
-a game or the application shows its error page. Back and Forward lead the
-sidebar and the project rail.
-The top bar holds the project's name as its menu (**Project settings**,
+a game or the application shows its error page.
+
+The panels' tab strips along the window's top are the title bar
+(`project-frame.tsx`, `panel-layout.tsx`): the leftmost strip starts with the
+rail's toggle and the project's name, the rightmost ends with the project's
+actions, and the panels' tabs sit between them. Beside the project's name a lone
+panel, usually Chat, shows no tab of its own. When the panels stack, or the
+area at the end is narrower than 560px, the title bar is a row of its own above
+the panels.
+The title bar holds the project's name as its menu (**Project settings**,
 **Plugins**, **Open in folder** in the desktop app, **Export project** and the
-plugins' own commands), the record button only while the game runs, **Play** while the Game
-panel isn't on screen, which shows it, and the **Publish** menu, which an asset
+plugins' own commands), a recording under way, which stops it, **Play** (an
+icon, named in its tooltip, so the row leaves room for the Windows window
+buttons) while the Game panel isn't on screen, which shows it, and the
+**Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
 without the upload size limit, to host elsewhere. Leaving through the rail or
 the project's menu, and either export, saves the open design first.
 
-Actions for the whole project stay in the top bar and its menu; a panel's
+Actions for the whole project stay in the title bar and its menu; a panel's
 toolbar holds only what acts on that panel, and no action repeats across panels.
+A thin line separates the open panel's toolbar from the project's actions. The
+Game panel's toolbar keeps the viewport, element picking and reload in view;
+tuning, recording, opening in the browser, restarting the preview service and
+the logs wait in its more menu.
+
+A panel's toolbar keeps to one row (`panel-tools.tsx`). When its area is too
+narrow, the other tabs drop to icons first, then the toolbar's tools fold into
+its more menu one at a time, lowest priority first: Design's reference to chat
+and then its read, edit and split choices; Game's element picking, then the
+viewport, then reload; a plugin panel's buttons from the last. A segmented
+control folds as choices to pick from, and a panel without a more menu of its
+own gets one. Each tool comes back once the area has the room it lacked.
 
 **Project settings** (`src/renderer/project-settings.tsx`) has a **General** tab
 for every project's name and appearance. Web games and General projects add
@@ -717,8 +756,9 @@ project link opened without an entry page returns to Projects. The Projects URL
 preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
-Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, **Quick access**, and the account.
+Pages outside a project share one sidebar: Search, Home, Projects,
+Community, Plugins, **Quick access**, and the account. Library is listed only
+while it is open; projects' assets and the command menu lead to it.
 
 ### Library
 
@@ -807,7 +847,7 @@ Search, in the sidebar and the project rail, opens the command menu (also
 **⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
 it; the arrows move and Enter runs. It lists, under headings: what the page in
 view adds (a project's panels and layout presets), the app's pages and **New
-project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
+project** (also **⌘N** or **Ctrl+N**, which opens the new game dialog), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
@@ -838,30 +878,62 @@ font; both are stored in the renderer and applied as `data-palette` and
 screen: the older colour variables at the top of `styles.css` point at the
 design tokens in `ui/tokens.css`.
 
-Every project starts from Home. Sending its prompt creates the project at once,
-with the prompt as its first message: the type and plugins come from the prompt
-box, the name from the prompt, and the folder from Settings → General → Project
-location. The new-project dialog (name, type and folder) opens only when
+Home leads with **Recent projects** for people with projects: one row of project
+cards, latest first, on the same grid as Explore below, so a single project
+sits at the row's start; with two or more, **All projects** sits beside the
+heading. Its chevron folds it to one line that still opens the
+latest project; the choice stays in that browser. **New project** shows a card per
+project type, plugin types included: the type's icon, name and line on the
+left, and its picture filling the right, cut off by the card's edges and
+dissolving in from its left edge in fine grain, so the words stay on the
+card's own surface in light and dark. The app's types have their
+own pictures (`src/renderer/project-type-images.ts`); a plugin's type shows
+its `cover` ([plugins](plugins.md)), or the picture for plugin types. The
+icon is the plugin's own, or the plug when it has none. Beside its heading, a
+help mark says plugins can add more types, without leaving Home, and
+**+** (or **⌘N**) skips the choice.
+With no projects yet, Home opens on a heading over the type cards instead,
+which holds those two actions.
+Explore follows with playable examples. Asset presets are available in the canvas.
+
+![New project dialog showing Web Game and the available project types](assets/new-project-dialog.webp)
+
+Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
+which a type card, the rail's **New project**, the command menu and **⌘N** all
+open. It grows out of the card it was opened from (it only fades with reduced
+motion), shows the type's picture, name and description, and switches type in
+place without losing the text typed. The dialog remembers the last type selected in its switcher. When opened over a project,
+it saves the current design when the person confirms creation or opens an existing project.
+If saving fails, the person stays in the current project.
+Sending its prompt creates the project at
+once, with the prompt as its first message: the type comes from the dialog,
+the plugins from the prompt box, the name from the prompt, and the folder from
+Settings → General → Project location. With no model connected, a row in the
+box leads to Settings → Providers and sending waits. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
-being cancelled. Home waits while it is made. **Blank project** opens
-the dialog empty, and **Choose project** (desktop app) picks an existing folder,
-opening its project if it already has one. The dialog offers every project
-type, narrowed to those the prompt's plugins support. The prompt
-box's type menu adds the enabled plugins that set up their own projects, such
-as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
+being cancelled. The dialog waits while it is made. **Blank project** opens
+the dialog empty with the selected type, and **Choose project** (desktop app) picks an existing folder,
+opening its project if it already has one; both sit at the dialog's foot. The
+dialog offers every project type, narrowed to those the prompt's plugins
+support. The type switcher adds the enabled plugins that set up their own
+projects, such as TapTap Maker. In
+the prompt box, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot and the engine and mini-game plugins); their
-mentions lead the first message in the order chosen. **Ideas**, in the row under
-the box with **Blank project** and **Choose project**, lists a few prompts for
-the type that fill the box. The former studio pages are gone; their
+mentions lead the first message in the order chosen. Beside the box's **+**,
+**Random idea** fills it with one short idea for the type, which can be edited
+before sending: the daemon's `POST /ideas/game` asks the chosen model, or Pi's
+default model when the chosen one is a coding agent's, in the app's language
+and away from the idea showing; with no such model, or when the call fails, it
+picks one of the type's own ideas. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 
 Projects lists every project as covers or as a list (name, type and when it
 was edited); the layout choice stays in that browser. Search, the type filter
 and sorting sit beside the title, and **New project** opens a menu: **New
-project** (the same dialog as Home), **Import folder** (desktop app) and
+project** (the same dialog as the new game dialog's **Blank project**), **Import folder** (desktop app) and
 **Import project ZIP**. Cards and rows share one menu, from **…** or a
 right-click: open, rename, duplicate, open in folder (desktop app), export and
 delete, which asks first in a dialog.
@@ -879,7 +951,10 @@ In the desktop app, every project offers **Browser** in a panel area's **+**
 menu. It starts closed. The panel has its own tabs, back/forward and reload
 controls, an address/search box, and an action to open the current page in the
 system browser. Bare host names open over HTTPS; localhost opens over HTTP;
-other text searches with the selected engine (Bing initially). In agent
+other text searches with the selected engine (Bing initially). A page that
+doesn't load says why in plain words (offline, site not found, refused, too
+slow, insecure), keeps the error name beside it, and offers **Try again** and
+opening it in the system browser. In agent
 conversations, hover or focus a web link to reveal the action that opens it in
 a new Browser tab. Clicking the link itself opens the system browser.
 
@@ -948,12 +1023,18 @@ selected project to be open in the desktop app.
 
 ## Workspace panels
 
-Below the top bar a project is a set of panels in four areas: left, middle,
-right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
-drags to another area or to an empty edge, its right-click menu moves or
-closes it, and an area's **+** reopens a closed panel there; it shows only while
-a panel is closed. A tab's right-click menu also restores the default layout.
-Area edges drag to
+A project is a set of panels in four areas: left, middle, right and bottom,
+divided by hairlines. Each panel is a tab; its controls sit beside the tabs. A tab
+drags to another area or to an empty edge, and its right-click menu moves it,
+maximizes its area, restores the default layout, or closes it or the area's
+other tabs. As in a browser, the selected tab has a close button, a middle click
+closes any tab, the arrow keys, Home and End move between an area's tabs, and a
+crowded strip scrolls sideways with the wheel and keeps the selected tab in
+view. An area's **+** reopens a closed panel there; it shows only while a panel
+is closed. An area's **Maximize**, or a double click on one of its tabs, lets it
+fill the project, chat included, until **Restore** or another double click; it
+isn't saved, and dragging a tab restores the layout first. A chat wider than
+its column, maximized or in the middle area, reads in one centered column. Area edges drag to
 resize. A moved or closed panel keeps its state, such as the open file, the
 design canvas or a running game, until the project closes: a closed panel's
 view waits hidden in the page, and views move with `moveBefore`, which keeps an
@@ -1024,7 +1105,7 @@ with it in the text.
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
 canvas documents, the main one first, and switches between reading it beside its
-outline, editing its Markdown, or both side by side. **Reference in chat**
+outline, editing its Markdown, or both side by side. **Document options → Reference in chat**
 references the document in the next message, as the composer's design reference
 does, and text picked in it can be added to the chat as a quote. Canvas shows the
 same documents as nodes, so the two share one copy: an edit in either shows in the
@@ -1309,9 +1390,13 @@ only be changed once `pageUrl` is a `/g/<name>` page. The Cloud's rules are in i
 Community displays games in a responsive grid with 16:10 covers, titles, creator
 links, and view and like counts visible below each cover. Search across title,
 description, and author, sorting by first listing, views, or likes, the
-first-listed time filter, and reset stay above the grid. Clicking or tapping the
-cover opens the game detail, including on the owner's profile; creator links and
-likes stay independently clickable. Covers are requested only when cards approach
+first-listed time filter stay in one row above the grid (the time filter and
+search at its end, with no reset: each choice is one click back), under the page's title, and stick to the top while the list
+scrolls. Clicking or tapping a card opens the game's page, including on the
+owner's profile, where the game starts. Creator links and likes stay
+independently clickable. On
+the creator's own profile each card shows its publish date instead of their
+name, and a menu with the game's actions (edit, open the project, unpublish). Covers are requested only when cards approach
 the visible area; hosted covers are lazy images the browser keeps cached.
 Creator profiles and related games use the same cards, with
 colors following the app's light or dark theme. See the
@@ -1323,11 +1408,22 @@ card shapes instead of a message. `src/renderer/community-cache.ts` keeps what
 the Community pages have read in the window: going back to the list or a
 profile shows it at once, with its filters and scroll position, and reloads it
 in the background, keeping it if that fails. A game opened from a card shows
-its title, creator, actions and related games, and starts its player, before
-its own read returns; a game opened by link shows placeholder details until
-then. The player is black with the controller's halftone loading animation
-(the website's player loader) until the game's page loads, and stays at least
-long enough not to flash. Likes and edits made on one page update the kept
+its title, creator, actions and related games before its own read returns; a
+game opened by link shows placeholder details until then.
+
+A game page starts its game as it opens, in the page and nowhere else: the
+player is black with the controller's halftone loading animation (the website's
+player loader) until the game's page loads, and stays at least long enough not
+to flash. Beside the game's views and likes, under the player, are share, a
+new window (desktop app only) and fullscreen (also with F); reloading the app
+starts the game again. The new
+window is a sandboxed window of the game's own, one per game, without the app's
+preload; it shows the published address (HTTPS, or loopback from local
+publishing) and nothing else: other sites open in the browser and only the
+account service's sign-in may open a popup, as in the app. It shares the
+player's session, so a game's saves carry over, and can go fullscreen itself.
+While it is open the page stops its copy and shows **Play here** and **Go to
+window**, including after navigating back or reloading. Closing the window brings the game back to the page. Likes and edits made on one page update the kept
 copies. A different account, or signing out, clears them, so likes and an
 owner's hidden works never carry over; a game that is no longer found leaves
 them too.

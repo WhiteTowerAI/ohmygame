@@ -20,7 +20,7 @@ import {
   saveOpenAIImageSettings,
 } from "./api.js";
 import {
-  LoaderCircle,
+  Spinner,
   Pencil,
   Plus,
   RefreshCw,
@@ -28,6 +28,7 @@ import {
   Trash2,
 } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const templateName = (template: OpenAIImageModelConfiguration["template"]) =>
@@ -284,23 +285,19 @@ export function OpenAIImageModels({
             {editing ? (
               form.mode !== "disabled" ? (
                 <>
-                  <button
-                    className="settings-secondary-button"
-                    type="button"
+                  <Button
                     disabled={locked || fetching || !canFetch}
                     onClick={() => void fetchModels()}
                   >
                     <RefreshCw
-                      size={13}
+                      size="sm"
                       className={fetching ? "spin" : undefined}
                     />
                     {fetching
                       ? t("customProvider.fetching")
                       : t("openAIImages.fetchModels")}
-                  </button>
-                  <button
-                    className="settings-secondary-button"
-                    type="button"
+                  </Button>
+                  <Button
                     disabled={locked || fetching}
                     aria-expanded={adding}
                     onClick={() => {
@@ -308,15 +305,13 @@ export function OpenAIImageModels({
                       setEditingModel(undefined);
                     }}
                   >
-                    <Plus size={13} />
+                    <Plus size="sm" />
                     {t("models.add")}
-                  </button>
+                  </Button>
                 </>
               ) : null
             ) : (
-              <button
-                className="settings-secondary-button"
-                type="button"
+              <Button
                 aria-label={
                   connected
                     ? t("openAIImages.editModels")
@@ -331,9 +326,9 @@ export function OpenAIImageModels({
                   } else editConnection("mode");
                 }}
               >
-                {connected ? <Pencil size={13} /> : <Plus size={13} />}
+                {connected ? <Pencil size="sm" /> : <Plus size="sm" />}
                 {connected ? t("common.edit") : t("providers.action.connect")}
-              </button>
+              </Button>
             )}
           </div>
         ) : null}
@@ -351,7 +346,7 @@ export function OpenAIImageModels({
       {!saved ? (
         !error ? (
           <div className="settings-loading">
-            <LoaderCircle size={16} className="spin" />
+            <Spinner size="md" />
             {t("openAIImages.loading")}
           </div>
         ) : null
@@ -558,7 +553,7 @@ export function OpenAIImageModels({
                       data-tooltip={row.ariaLabel}
                       onClick={() => editConnection(row.setting)}
                     >
-                      <Pencil size={15} aria-hidden="true" />
+                      <Pencil size="sm" aria-hidden="true" />
                     </button>
                   ) : null}
                 </div>
@@ -574,7 +569,7 @@ export function OpenAIImageModels({
               {editing || enabledCount > 5 ? (
                 <div className="provider-models-controls">
                   <label className="settings-provider-search">
-                    <Search size={14} />
+                    <Search size="sm" />
                     <input
                       aria-label={t("openAIImages.search")}
                       value={query}
@@ -618,22 +613,19 @@ export function OpenAIImageModels({
                     onChange={setManualTemplate}
                   />
                   <div className="settings-form-actions">
-                    <button
-                      className="settings-secondary-button"
-                      type="button"
+                    <Button
                       disabled={locked}
                       onClick={() => setAdding(false)}
                     >
                       {t("common.cancel")}
-                    </button>
-                    <button
-                      className="settings-primary-button"
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="primary"
                       disabled={locked || !manualId.trim()}
                       onClick={addModel}
                     >
                       {t("common.add")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : null}
@@ -699,7 +691,7 @@ export function OpenAIImageModels({
                                 )
                               }
                             >
-                              <Pencil size={14} />
+                              <Pencil size="sm" />
                             </button>
                             <button
                               className="icon-button provider-model-delete"
@@ -722,7 +714,7 @@ export function OpenAIImageModels({
                                   setEditingModel(undefined);
                               }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size="sm" />
                             </button>
                           </>
                         ) : null}
@@ -766,34 +758,31 @@ export function OpenAIImageModels({
                   disabled={locked || fetching}
                   onClick={() => setRemoving(true)}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size="sm" />
                 </button>
               ) : null}
               <div className="provider-model-form-actions">
-                <button
-                  className="settings-secondary-button"
-                  type="button"
+                <Button
                   disabled={locked}
                   onClick={cancel}
                 >
                   {t("common.cancel")}
-                </button>
-                <button
-                  className="settings-primary-button"
+                </Button>
+                <Button
+                  variant="primary"
                   type="submit"
                   disabled={locked || fetching || !dirty}
                 >
                   {busy ? t("common.saving") : t("common.save")}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
           {removing ? (
             <div className="settings-provider-delete-confirmation">
               <span>{t("openAIImages.removeConfirmation")}</span>
-              <button
-                className="settings-danger-button"
-                type="button"
+              <Button
+                variant="danger"
                 disabled={locked}
                 onClick={() =>
                   void persist(
@@ -803,15 +792,13 @@ export function OpenAIImageModels({
                 }
               >
                 {t("openAIImages.remove")}
-              </button>
-              <button
-                className="settings-secondary-button"
-                type="button"
+              </Button>
+              <Button
                 disabled={locked}
                 onClick={() => setRemoving(false)}
               >
                 {t("common.cancel")}
-              </button>
+              </Button>
             </div>
           ) : null}
         </form>

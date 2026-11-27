@@ -7,7 +7,7 @@ import {
   ArrowLeft,
   Download,
   FolderOpen,
-  LoaderCircle,
+  Spinner,
   MessageSquarePlus,
   ChatSquare,
   Code,
@@ -18,11 +18,12 @@ import {
   LayoutGrid,
   Settings,
   RefreshCw,
-  Globe2,
   Share2,
   Upload,
-  X,
-  Package
+  TriangleAlert,
+  Package,
+  WindowFrame,
+  UsersGroupRounded,
 } from "./icons.js";
 import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -42,6 +43,7 @@ import {
 import { previewElementContext } from "../shared/preview-element-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
 import { publicationOf } from "../shared/publish-v1.js";
+import { isAppProjectType } from "./project-types.js";
 import type { AgentContextUsage, AgentModel, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationDetail, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, QuestionnaireResponse, RuntimeEvent, RuntimeEventData, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
@@ -153,6 +155,7 @@ import type { PublishDetails } from "./publish-dialog.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { PanelTool, PanelTools } from "./panel-tools.js";
 import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
@@ -166,9 +169,10 @@ import { ProjectRail, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
-import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, IconButton, Loading, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { openPluginWorkspace } from "./plugin-builder-navigation.js";
-import { useCommands, useLeaveGuard } from "./command-menu.js";
+import { leave, useLeaveGuard } from "./app-navigation.js";
+import { useCommands } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -240,7 +244,7 @@ const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
   assets: Layers3,
   canvas: GalleryWide,
   plugin: Package,
-  browser: Globe2,
+  browser: WindowFrame,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -1200,15 +1204,9 @@ export function ProjectShell({
     setConversations((items) => [restored, ...items.filter((item) => item.id !== restored.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   }
 
-  // Leaving the project saves the open design first.
-  function leave(go: () => void): void {
-    const save = saveDesign.current;
-    if (!save) { go(); return; }
-    void save().then(go).catch((cause) => {
-      dispatch({ type: "notice", message: errorMessage(cause) });
-    });
-  }
-  useLeaveGuard(leave);
+  useLeaveGuard(() => saveDesign.current?.(), (cause) => {
+    dispatch({ type: "notice", message: errorMessage(cause) });
+  });
 
   const [exporting, setExporting] = useState<"project" | "web">();
   const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
@@ -1330,7 +1328,7 @@ export function ProjectShell({
   /** Menu entries for the plugin commands a slot shows. */
   function pluginCommandEntries(slot: string): MenuEntry[] {
     const commands = commandsForSlot(plugins.commands, slot, plugins.when);
-    return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
+    return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
   }
   /** Refreshes the views of the project's files once a page's change to them lands. */
   async function changedFiles<T>(change: Promise<T>): Promise<T> {
@@ -1498,7 +1496,9 @@ export function ProjectShell({
     // A plugin the project made for itself can become a plugin for every project.
     if (!panel.plugin.startsWith("project/")) return toolbar;
     return <>
-      <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size={14} /></IconButton>
+      <PanelTool id="make-shared" menu={[{ label: t("projectPlugins.makeShared"), icon: <Package size="sm" />, onSelect: () => void makeSharedPlugin(panel.plugin) }]}>
+        <IconButton size="sm" label={t("projectPlugins.makeShared")} onClick={() => void makeSharedPlugin(panel.plugin)}><Package size="sm" /></IconButton>
+      </PanelTool>
       {toolbar}
     </>;
   }
@@ -1518,13 +1518,13 @@ export function ProjectShell({
   // Web projects add a tab of their own to the project's settings.
   const workspaceSettingsTab = project && coding && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? t("projectSettings.tab.preview") : undefined;
   const projectMenu: MenuEntry[] = [
-    { label: t("projectShell.settings"), icon: <Settings size={14} />, disabled: !project, onSelect: () => setSettingsTab("general") },
-    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    { label: t("projectShell.settings"), icon: <Settings size="sm" />, disabled: !project, onSelect: () => setSettingsTab("general") },
+    { label: t("projectPlugins.menu"), icon: <Plug size="sm" />, disabled: !project, onSelect: () => setPluginsOpen(true) },
     "separator",
-    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
+    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
-    { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
+    { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size="sm" />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     ...pluginCommandEntries("project.menu"),
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
@@ -1745,12 +1745,12 @@ export function ProjectShell({
       return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: title }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
     }),
     ...presetsFor(offered).map((preset): Command => ({
-      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
+      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size="md" />,
       run: () => changeLayout(presetLayout(preset, offered, homes, onRequest)),
     })),
     // Plugins' layouts, which open the panels they need.
     ...commandsForSlot(plugins.commands, "project.layout", plugins.when).map((command): Command => ({
-      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size={16} />,
+      id: `plugin-layout-${command.id}`, group: t("commandMenu.panels"), label: command.title, keywords: `layout ${command.plugin}`, icon: <LayoutGrid size="md" />,
       run: () => void runProjectPluginCommand(command),
     })),
   ] : []);
@@ -1887,18 +1887,18 @@ export function ProjectShell({
         {/* Play stays in place from every view. A Web preview fills the slot
             with Play in its own window; an external preview can only be shown. */}
         {project && offered.includes("game") && !gameAddable ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
-          : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
+          : <IconButton size="sm" label={t("workspace.play")} onClick={() => revealPanel("game")}><Play size="sm" /></IconButton> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           ...(publishButton.builtIn ? [
-            { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+            { label: t("workspace.publishToCommunity"), icon: <UsersGroupRounded size="sm" />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
             "separator",
-            { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
+            { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size="sm" />, disabled: !!exporting, onSelect: () => void exportFile("web") },
           ] satisfies MenuEntry[] : []),
           // Plugins' ways to publish; one that builds the game waits for an export.
           ...(publishButton.builtIn && publishCommands.length ? ["separator" as const] : []),
           ...publishCommands.map((command): MenuEntry => ({
             label: command.title,
-            icon: <Plug size={14} />,
+            icon: <Plug size="sm" />,
             disabled: "native" in command.run && command.run.build === "web" && !!exporting,
             // Plugin code shows as publishing until it ends; the rest only opens or fills something.
             onSelect: () => void ("native" in command.run || "tool" in command.run
@@ -1906,7 +1906,7 @@ export function ProjectShell({
               : runProjectPluginCommand(command)),
           })),
         ]} trigger={(props) => (
-          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <Spinner size="sm" /> : <Share2 size="sm" />}
             disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
         )} /> : null}
       </ProjectTop>}>
@@ -1943,15 +1943,16 @@ export function ProjectShell({
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} /> : null} /> : null}
-    {createPortal(<div className="pane-header-actions chat-header-actions">
-            <span className="chat-header-spacer" />
-            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
-              <AgentAccountMenu runtime={accountRuntime} profiles={accountProfiles} value={selectedProfileId}
-                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)}
-                // Checking again clears the daemon's cache; the usual reload then reads the fresh accounts and models.
-                onRefresh={async () => { await listAccountProfiles(accountRuntime, true); window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); }} />
-            </div> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes, onRequest))}>{t("panels.reset")}</Button>} />
+        // While the project loads, its loading state shows only if it takes a moment.
+        : <Loading />} /> : null}
+    {createPortal(<div className="chat-header-actions">
+            {accountRuntime && accountProfiles.length > 1 ? <AgentAccountMenu
+              runtime={accountRuntime} profiles={accountProfiles} value={selectedProfileId}
+              disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)}
+              // Checking again clears the daemon's cache; the usual reload then reads the fresh accounts and models.
+              onRefresh={async () => { await listAccountProfiles(accountRuntime, true); window.dispatchEvent(new Event(MODELS_CHANGED_EVENT)); }}
+            /> : null}
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1967,16 +1968,13 @@ export function ProjectShell({
               } : undefined}
               onShowInstructions={() => setInstructionsOpen(true)}
             />
-            <button
-              className="icon-button pane-header-action"
-              type="button"
+            <IconButton size="sm"
               disabled={!project || creatingConversation}
               onClick={() => void newConversation()}
-              title={t("projectShell.newConversation")}
-              aria-label={t("projectShell.newConversation")}
+              label={t("projectShell.newConversation")}
             >
-              {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
-            </button>
+              {creatingConversation ? <Spinner size="sm" /> : <MessageSquarePlus size="sm" />}
+            </IconButton>
     </div>, nodes.chat.toolbar)}
     {instructionsOpen && projectId && conversation ? <ConversationInstructionsDialog projectId={projectId} conversationId={conversation.id} onClose={() => setInstructionsOpen(false)} /> : null}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
@@ -1987,6 +1985,7 @@ export function ProjectShell({
       }}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
+            {project && state.phase !== "loading" && state.turns.length === 0 && state.pendingPrompts.length === 0 ? <ChatStart type={project.type} /> : null}
             <Activity mode={chatShown ? "visible" : "hidden"}>
               <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
               <AgentTimeline
@@ -2051,7 +2050,7 @@ export function ProjectShell({
             play: playSlot,
           }}
         />
-      ) : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      ) : canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<Loading />}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
@@ -2060,7 +2059,7 @@ export function ProjectShell({
       /></Suspense></ErrorBoundary>, nodes.canvas.body) : null}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
-        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(<PanelTools from={target.toolbar}>{pluginPanelToolbar(panel)}</PanelTools>, target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       {project && browserOpenedIn === project.id && window.ohMyGameDesktop?.browser ? createPortal(<ErrorBoundary label={panelTitle("browser")} resetKey={project.id}>
         <BrowserPanel key={project.id} bridge={window.ohMyGameDesktop.browser} projectId={project.id} visible={visible.includes("browser")} pluginsRevision={capabilitiesRevision} openRequests={browserOpenRequests.filter((request) => request.projectId === project.id)} onOpened={(opened) => setBrowserOpenRequests((requests) => requests.filter((request) => request !== opened))} />
@@ -2129,7 +2128,7 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
       {changes?.length === 0 ? <>
         <p>{t("checkpoints.unfinished.alreadyBack")}</p>
         <div className="unfinished-restore-actions">
-          <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.ok")}</button>
+          <Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.ok")}</Button>
         </div>
       </> : changes ? <>
         <p>{t("checkpoints.unfinished.willPutBack", { count: changes.length })}</p>
@@ -2138,10 +2137,10 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
           {changes.length > NAMED_UNFINISHED_FILES ? <li>{t("checkpoints.andMore", { count: changes.length - NAMED_UNFINISHED_FILES })}</li> : null}
         </ul>
         <div className="unfinished-restore-actions">
-          <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.putBack", { count: changes.length })}</button>
-          <button type="button" disabled={busy} onClick={onClose}>{t("checkpoints.unfinished.notNow")}</button>
+          <Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => { await restoreUnfinished(projectId); onClose(); })}>{t("checkpoints.unfinished.putBack", { count: changes.length })}</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>{t("checkpoints.unfinished.notNow")}</Button>
         </div>
-      </> : <button type="button" disabled={busy || disabled} onClick={() => void attempt(async () => setChanges(await getUnfinishedChanges(projectId)))}>{t("checkpoints.unfinished.putFilesBack")}</button>}
+      </> : <div className="unfinished-restore-actions"><Button size="sm" variant="primary" disabled={busy || disabled} onClick={() => void attempt(async () => setChanges(await getUnfinishedChanges(projectId)))}>{t("checkpoints.unfinished.putFilesBack")}</Button></div>}
     </div>
   );
 }
@@ -2149,13 +2148,10 @@ function UnfinishedRestoreBanner({ projectId, disabled, workspaceRevision, onClo
 function FatalState({ message, onHome, homeLabel }: { message: string; onHome: () => void; homeLabel: string }) {
   return (
     <main className="fatal-state">
-      <X size={24} />
-      <h1>{t("projectShell.unavailable")}</h1>
-      <p>{message}</p>
-      <div className="fatal-actions">
-        <button type="button" onClick={onHome}><ArrowLeft size={15} />{homeLabel}</button>
-        <button type="button" onClick={() => window.location.reload()}><RefreshCw size={15} />{t("common.reload")}</button>
-      </div>
+      <Empty fill tone="error" icon={<TriangleAlert size="md" />} title={t("projectShell.unavailable")} description={message} action={<>
+        <Button variant="primary" icon={<ArrowLeft size="sm" />} onClick={onHome}>{homeLabel}</Button>
+        <Button icon={<RefreshCw size="sm" />} onClick={() => window.location.reload()}>{t("common.reload")}</Button>
+      </>} />
     </main>
   );
 }
@@ -2184,4 +2180,10 @@ export function mergeFileChanges(
   const all = [...new Set([...earlier.paths, ...later.paths])].sort();
   const truncated = earlier.truncated || later.truncated || all.length > HOOK_FILES_MAX;
   return { paths: all.slice(0, HOOK_FILES_MAX), ...(truncated ? { truncated: true } : {}) };
+}
+
+/** A conversation with nothing in it yet asks what to make, with a line on what happens for the project's type. */
+function ChatStart({ type }: { type: string }) {
+  const key = isAppProjectType(type) ? type : "other";
+  return <div className="chat-start"><Empty fill title={t("projectShell.start.title")} description={t(`projectShell.start.${key}`)} /></div>;
 }

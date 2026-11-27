@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { PluginMediaKind, PluginMediaModelList } from "../shared/plugin-manifest.js";
 import { getPluginMediaModels, listPluginMediaModels, setPluginMediaModelsShown, savePluginModel3D, removePluginModel3D } from "./api.js";
-import { ChevronDown, LoaderCircle, RefreshCw, Search, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ChevronDown, Spinner, RefreshCw, Search, Pencil, Plus, Trash2, X } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 import { PluginModel3DForm } from "./plugin-model3d-form.js";
 
 const TITLES: Record<PluginMediaKind, () => string> = {
@@ -99,19 +100,19 @@ function Models({ providerId, providerName, kind }: { providerId: string; provid
     <div className="provider-models-heading">
       <h4>{title} <small>{list ? shown : ""}</small></h4>
       {list && (list.discoverable || list.editor?.templates.length) ? <div className="provider-models-heading-actions">
-        {list.editor?.templates.length ? <button ref={addButton} className="settings-secondary-button" type="button" disabled={busy || Boolean(editing)} onClick={event => { editButton.current = event.currentTarget; setEditing({ editor: list.editor! }); setDeleting(undefined); setError(undefined); }}><Plus size={13} /><span>{t("common.add")}</span></button> : null}
-        {list.discoverable ? <button className="settings-secondary-button" type="button" disabled={busy || Boolean(editing)} onClick={() => { setHiddenOpen(true); void run(() => listPluginMediaModels(providerId, kind)); }} title={t("providers.mediaModels.loadTitle", { name: providerName })}>
-          <RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{list.listedAt ? t("models.refresh") : t("providers.mediaModels.load")}</span>
-        </button> : null}
+        {list.editor?.templates.length ? <Button ref={addButton} disabled={busy || Boolean(editing)} onClick={event => { editButton.current = event.currentTarget; setEditing({ editor: list.editor! }); setDeleting(undefined); setError(undefined); }}><Plus size="sm" /><span>{t("common.add")}</span></Button> : null}
+        {list.discoverable ? <Button disabled={busy || Boolean(editing)} onClick={() => { setHiddenOpen(true); void run(() => listPluginMediaModels(providerId, kind)); }} title={t("providers.mediaModels.loadTitle", { name: providerName })}>
+          <RefreshCw size="sm" className={busy ? "spin" : undefined} /><span>{list.listedAt ? t("models.refresh") : t("providers.mediaModels.load")}</span>
+        </Button> : null}
       </div> : null}
     </div>
-    {error && !editing ? <><p className="settings-error" role="alert">{error}</p>{!editing ? <button className="settings-secondary-button" type="button" disabled={busy} onClick={() => { void run(() => getPluginMediaModels(providerId, kind)); }}>{t("models.refresh")}</button> : null}</> : null}
+    {error && !editing ? <><p className="settings-error" role="alert">{error}</p>{!editing ? <Button disabled={busy} onClick={() => { void run(() => getPluginMediaModels(providerId, kind)); }}>{t("models.refresh")}</Button> : null}</> : null}
     {editing ? <PluginModel3DForm editor={editing.editor} initial={editing.initial} busy={busy} saveError={error} onSave={request => { void run(() => savePluginModel3D(providerId, request)).then(saved => { if (saved) finishEdit(); }); }} onCancel={() => { finishEdit(); void run(() => getPluginMediaModels(providerId, kind)); }} onReset={editing.initial?.default && !editing.initial.custom && editing.initial.edited ? () => { void run(() => removePluginModel3D(providerId, editing.initial!.id, editing.editor.revision, true)).then(saved => { if (saved) finishEdit(); }); } : undefined} /> : null}
     {list ? <>
       {list.discoverable && !list.listedAt ? <p className="settings-detail-hint">{t("providers.mediaModels.hint", { name: providerName })}</p> : null}
       {list.skipped ? <p className="settings-detail-hint">{t("providers.mediaModels.skipped", { count: list.skipped })}</p> : null}
       {list.models.length > SEARCH_FROM ? <div className="provider-models-controls">
-        <label className="settings-provider-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} /></label>
+        <label className="settings-provider-search"><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} /></label>
       </div> : null}
       <div className="provider-models-list" role="list" aria-label={title} aria-busy={busy}>
         {[...shownModels, ...(hiddenOpen ? hiddenModels : [])].map((model) => {
@@ -121,19 +122,19 @@ function Models({ providerId, providerName, kind }: { providerId: string; provid
               <input type="checkbox" checked={model.shown} disabled={busy || Boolean(editing)} onChange={(event) => toggle(model, event.target.checked)} aria-label={t("plugins.enableName", { name: model.name })} />
               <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{description ? <small title={description}>{description}</small> : null}</span>
             </label>
-            {list.editor && model.definition && (model.default || model.shown || model.edited) ? <button className="icon-button" type="button" disabled={busy || Boolean(editing)} title={t("common.editName", { name: model.name })} aria-label={t("common.editName", { name: model.name })} onClick={event => { editButton.current = event.currentTarget; setEditing({ editor: list.editor!, initial: model }); setDeleting(undefined); setError(undefined); }}><Pencil size={14} /></button> : null}
+            {list.editor && model.definition && (model.default || model.shown || model.edited) ? <button className="icon-button" type="button" disabled={busy || Boolean(editing)} title={t("common.editName", { name: model.name })} aria-label={t("common.editName", { name: model.name })} onClick={event => { editButton.current = event.currentTarget; setEditing({ editor: list.editor!, initial: model }); setDeleting(undefined); setError(undefined); }}><Pencil size="sm" /></button> : null}
             {list.editor && (model.custom || model.edited && !model.default) ? deleting === model.id ? <div className="provider-model-delete-confirm">
-              <button type="button" className="settings-danger-button" disabled={busy || Boolean(editing)} onClick={() => { void run(() => removePluginModel3D(providerId, model.id, list.editor!.revision)).then(saved => { if (saved) { setDeleting(undefined); editButton.current = null; restoreFocus.current = true; } }); }}>{t("common.delete")}</button>
-              <button type="button" className="icon-button" disabled={busy} title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} onClick={() => setDeleting(undefined)}><X size={13} /></button>
-            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy || Boolean(editing)} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model.id)}><Trash2 size={14} /></button> : null}
+              <Button size="sm" variant="danger" disabled={busy || Boolean(editing)} onClick={() => { void run(() => removePluginModel3D(providerId, model.id, list.editor!.revision)).then(saved => { if (saved) { setDeleting(undefined); editButton.current = null; restoreFocus.current = true; } }); }}>{t("common.delete")}</Button>
+              <button type="button" className="icon-button" disabled={busy} title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} onClick={() => setDeleting(undefined)}><X size="sm" /></button>
+            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy || Boolean(editing)} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model.id)}><Trash2 size="sm" /></button> : null}
           </div>;
         })}
         {!shownModels.length && !(hiddenOpen && hiddenModels.length) ? <p className="settings-empty">{search ? t("models.empty.noMatch") : t("models.empty.noneShown")}</p> : null}
       </div>
       {hiddenModels.length ? <button className="provider-models-hidden-toggle" type="button" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((open) => !open)}>
-        {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size={12} aria-hidden="true" />
+        {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size="xs" aria-hidden="true" />
       </button> : null}
-    </> : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+    </> : !error ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingModels")}</div> : null}
   </section>;
 }
 

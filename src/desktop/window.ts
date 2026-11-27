@@ -72,7 +72,9 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     ? {
         titleBarStyle: "hiddenInset" as const,
         ...(options.sidebarVibrancy ? {
-          trafficLightPosition: { x: 24, y: 18 },
+          // The buttons' circles start 2px inside this box, so y: 16 centres
+          // them on the 48px title bar's middle (24px), with its tabs.
+          trafficLightPosition: { x: 24, y: 16 },
           backgroundColor: "#00000000",
           transparent: true,
           vibrancy: "sidebar" as const,

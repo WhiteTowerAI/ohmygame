@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { MINIMAX_RETIRED_RETRY, SEEDANCE_RETIRED_RETRY, SEEDANCE_RETIRED_PROVIDER } from "../src/shared/media-migration-errors.js";
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
-import { request } from "../src/renderer/api.js";
+import { ApiError, request, ServiceUnreachableError } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
@@ -32,6 +32,22 @@ describe("renderer event stream", () => {
     try {
       await i18next.changeLanguage("zh-CN");
       await expect(retryToolJob("legacy-minimax")).rejects.toMatchObject({ status: 409, message: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。" });
+    } finally {
+      await i18next.changeLanguage(previousLanguage);
+    }
+  });
+
+  it("says a request that got no answer in the UI language, apart from a refusal", async () => {
+    installWindow();
+    const previousLanguage = i18next.language;
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    try {
+      await i18next.changeLanguage("zh-CN");
+      const failure = await request("/health").catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(ServiceUnreachableError);
+      // Not a refusal: the service may still have acted on it.
+      expect(failure).not.toBeInstanceOf(ApiError);
+      expect((failure as Error).message).toBe("后台服务不可用");
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }

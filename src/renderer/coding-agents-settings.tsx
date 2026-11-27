@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   ChevronRight,
   ExternalLink,
-  LoaderCircle,
+  Spinner,
   Plug,
   RefreshCw,
   Terminal,
@@ -170,7 +170,7 @@ export function CodingAgentsGroup({
     >
       {!agents && !error ? (
         <div className="settings-loading-row">
-          <LoaderCircle className="spin" size={16} />
+          <Spinner size="md" />
           {t("codingAgents.checking")}
         </div>
       ) : null}
@@ -214,12 +214,12 @@ export function CodingAgentsGroup({
                 }}
               />
             ) : (
-              <Button size="sm" icon={<ExternalLink size={14} />} onClick={() => onOpen(agent.id)}>
+              <Button size="sm" icon={<ExternalLink size="sm" />} onClick={() => onOpen(agent.id)}>
                 {t("codingAgents.installGuide")}
               </Button>
             )}
             <IconButton size="sm" label={action} onClick={() => onOpen(agent.id)}>
-              <ChevronRight size={16} />
+              <ChevronRight size="md" />
             </IconButton>
           </SettingsRow>
         );
@@ -227,7 +227,7 @@ export function CodingAgentsGroup({
       {agents ? (
         <SettingsRow
           className="settings-agent-row"
-          icon={<Plug size={18} />}
+          icon={<Plug size="md" />}
           title={t("codingAgents.more")}
           description={t("codingAgents.moreHint")}
         >
@@ -323,7 +323,7 @@ export function CodingAgentDetail({
           <SettingsNote tone="danger">{error}</SettingsNote>
         ) : (
           <div className="settings-loading-row">
-            <LoaderCircle className="spin" size={16} />
+            <Spinner size="md" />
             {t("codingAgents.checking")}
           </div>
         )}
@@ -364,7 +364,7 @@ export function CodingAgentDetail({
             disabled={busy !== undefined}
             onClick={() => void recheck()}
           >
-            <RefreshCw size={15} className={busy === "recheck" ? "spin" : undefined} />
+            <RefreshCw size="sm" className={busy === "recheck" ? "spin" : undefined} />
           </IconButton>
         </SettingsRow>
         {agent.installed && agent.id === "opencode-cli" ? (
@@ -537,7 +537,7 @@ function Diagnostic({
         className={`settings-note coding-agent-diagnostic${blocking ? " is-danger" : ""} is-${diagnostic.code}`}
         role={blocking ? "alert" : "status"}
       >
-        <Terminal size={14} aria-hidden="true" />
+        <Terminal size="sm" aria-hidden="true" />
         <span>
           {text}
           {diagnostic.command && diagnostic.code === "not-installed" ? (
@@ -572,7 +572,7 @@ export function AgentMark({ id, iconRevision }: { id: AgentRuntimeId; iconRevisi
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">
       {/* A plugin's icon loading keeps the space empty, rather than flashing the terminal. */}
-      {icon ? <img src={icon.src} alt="" /> : pluginIcon === undefined ? null : <Terminal size={18} />}
+      {icon ? <img src={icon.src} alt="" /> : pluginIcon === undefined ? null : <Terminal size="md" />}
     </span>
   );
 }

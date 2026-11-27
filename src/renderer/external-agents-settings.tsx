@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import {
   externalClientAddArguments,
   type ExternalAgentClientId,
@@ -9,7 +9,7 @@ import {
 } from "../shared/external-mcp.js";
 import { getExternalAgentSettings, updateExternalAgentSettings } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Alert, Badge, CodeBlock, Switch } from "./ui/index.js";
+import { Badge, CodeBlock, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 /**
@@ -45,7 +45,7 @@ export function ExternalAgentsSettings() {
     <>
       {!settings && !error ? (
         <div className="settings-loading-row">
-          <LoaderCircle className="spin" size={16} />
+          <Spinner size="md" />
           {t("externalAgents.loading")}
         </div>
       ) : null}
@@ -60,9 +60,6 @@ export function ExternalAgentsSettings() {
             />
           </SettingsRow>
         </SettingsGroup>
-      ) : null}
-      {settings && !settings.enabled ? (
-        <Alert title={t("externalAgents.off")}>{t("externalAgents.offHint")}</Alert>
       ) : null}
       {settings?.enabled && !settings.launcher ? (
         <SettingsNote>{t("externalAgents.desktopOnly")}</SettingsNote>

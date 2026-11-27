@@ -1438,6 +1438,30 @@ describe("daemon", () => {
     expect(unchangedProject.json().name).toBe(project.name);
   });
 
+  it("suggests a new game idea with the chosen model, or Pi's default for a coding agent's", async () => {
+    const model = { provider: "provider-one", id: "model-one", name: "Model One", reasoning: false, input: ["text"], maxTokens: 4_000 };
+    const completeSimple = vi.fn(async () => ({ role: "assistant", content: [{ type: "text", text: '{"idea":"Make a moth racing game"}' }], stopReason: "stop" }));
+    const runtime = Object.assign(fakeModelRuntime([model]), { completeSimple });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-ideas-")), createModelRuntime: async () => runtime });
+    apps.push(app);
+    const idea = (payload: object) => app.inject({ method: "POST", url: "/ideas/game", payload });
+
+    // Without a model it can use, the dialog falls back to its own ideas.
+    expect((await idea({ type: "general", locale: "en", model: { provider: "claude-code-cli", id: "opus" } })).statusCode).toBe(409);
+    expect((await idea({ type: "board-game", locale: "en" })).statusCode).toBe(400);
+    const chosen = await idea({ type: "web-game", locale: "zh-CN", model: { provider: model.provider, id: model.id }, avoid: "Make a maze" });
+    expect(chosen.json()).toEqual({ idea: "Make a moth racing game" });
+    expect(completeSimple).toHaveBeenLastCalledWith(expect.objectContaining({ id: model.id }), expect.objectContaining({
+      systemPrompt: expect.stringContaining("Simplified Chinese"),
+      messages: [expect.objectContaining({ content: expect.stringContaining("Make a maze") })],
+    }), expect.anything());
+
+    await app.inject({ method: "PUT", url: "/models/default", payload: { model: { provider: model.provider, id: model.id }, reasoningLevel: "off" } });
+    expect((await idea({ type: "general", locale: "en", model: { provider: "claude-code-cli", id: "opus" } })).json()).toEqual({ idea: "Make a moth racing game" });
+    completeSimple.mockResolvedValueOnce({ role: "assistant", content: [{ type: "text", text: "Not JSON" }], stopReason: "stop" });
+    expect((await idea({ type: "general", locale: "en" })).statusCode).toBe(502);
+  });
+
   it("lists Pi models and stores a conversation model without starting a session", async () => {
     const first = { provider: "provider-one", id: "model-one", name: "Model One", reasoning: true };
     const second = { provider: "provider-one", id: "model-two", name: "Model Two", reasoning: true };

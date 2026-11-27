@@ -36,9 +36,9 @@ export function CanvasReferenceThumbnail({ reference, caption, disabled, onRemov
   return <div className={`canvas-media-reference${textual ? " canvas-text-reference" : ""}${preview.error ? " is-unavailable" : ""}`} title={title}>
     {preview.url && reference.type === "image" ? <TemplateExampleImage src={preview.url} alt={reference.name} /> : null}
     {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
-    {textual ? <FileText size={19} /> : reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : !preview.url ? reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} /> : null}
+    {textual ? <FileText size="lg" /> : reference.type === "audio" ? <Music2 size="md" /> : reference.type === "model" ? <Box size="md" /> : !preview.url ? reference.type === "video" ? <Film size="md" /> : <ImageIcon size="md" /> : null}
     {caption ? <small>{caption}</small> : null}
     {preview.error ? <button className="canvas-reference-retry" type="button" title={t("canvasNode.recheckDetail", { name: reference.name, error: preview.error })} aria-label={t("canvasNode.recheck", { name: reference.name })} disabled={preview.loading} onClick={preview.retry}>↻</button> : null}
-    <button type="button" title={t("attachments.remove", { name: reference.name })} aria-label={t("attachments.remove", { name: reference.name })} disabled={disabled} onClick={onRemove}><X size={11} /></button>
+    <button type="button" title={t("attachments.remove", { name: reference.name })} aria-label={t("attachments.remove", { name: reference.name })} disabled={disabled} onClick={onRemove}><X size="xs" /></button>
   </div>;
 }

@@ -1,12 +1,12 @@
 import { useNearViewport } from "./asset-gallery.js";
 import { useListPage } from "./use-list-page.js";
 import { language, t } from "./i18n.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
 import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
+import { Eye, Gamepad2, Heart, Spinner } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 import { Button, Skeleton } from "./ui/index.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -18,6 +18,7 @@ export function GameGrid<T extends CommunityGame>({
   accessToken,
   onStatsChange,
   keepPageAs,
+  owned,
 }: {
   games: T[];
   onOpen: (game: T) => void;
@@ -25,6 +26,8 @@ export function GameGrid<T extends CommunityGame>({
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
   /** Keeps how many cards were shown, for a page that restores its scroll. */
   keepPageAs?: string;
+  /** The creator's own games: each card dates the game and holds these actions. */
+  owned?: (game: T) => ReactNode;
 }) {
   const page = useListPage(games.length, keepPageAs);
   return (
@@ -36,6 +39,7 @@ export function GameGrid<T extends CommunityGame>({
           onOpen={() => onOpen(game)}
           accessToken={accessToken}
           onStatsChange={onStatsChange}
+          actions={owned?.(game)}
         />
       ))}
     </div>{page.next}</>
@@ -58,17 +62,21 @@ export function GameGridSkeleton({ label, count = 8 }: { label: string; count?: 
 }
 
 /** A cover card: the cover is the card and the text sits under it. The title
- * button covers the whole card; the creator and like stay clickable above it. */
+ * button covers the whole card and opens the game's page, where the game
+ * starts; the creator and the like stay clickable above it. A creator's own card says
+ * when the game was published, and holds its actions, instead of their name. */
 export function GameTile({
   game,
   onOpen,
   accessToken,
   onStatsChange,
+  actions,
 }: {
   game: CommunityGame;
   onOpen: () => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
+  actions?: ReactNode;
 }) {
   const [tile, visible] = useNearViewport<HTMLElement>();
   const coverUrl = useGameCover(game, accessToken, visible);
@@ -90,7 +98,6 @@ export function GameTile({
         <button
           className="community-card-open"
           type="button"
-          aria-label={t("community.play", { title: game.title })}
           title={game.description || game.title}
           onClick={onOpen}
         >
@@ -98,13 +105,14 @@ export function GameTile({
         </button>
       </h2>
       <div className="community-card-meta">
-        <CreatorLink author={game.author} />
+        {actions ? <span className="community-card-date">{publishedDay(game.publishedAt)}</span> : <CreatorLink author={game.author} />}
         <GameStats
           game={game}
           onChange={
             onStatsChange ? (stats) => onStatsChange(game.id, stats) : undefined
           }
         />
+        {actions}
       </div>
     </article>
   );
@@ -223,9 +231,9 @@ export function GameStats({
     ? t("community.likes", { count: stats.likeCount })
     : t("community.likesUnavailable");
   const likeIcon = busy ? (
-    <LoaderCircle className="spin" size={14} />
+    <Spinner size="sm" />
   ) : (
-    <Heart size={14} />
+    <Heart size="sm" />
   );
   const likeProps = {
     onClick: () => void like(),
@@ -244,7 +252,7 @@ export function GameStats({
         aria-label={viewLabel}
         title={viewLabel}
       >
-        <Eye size={14} />
+        <Eye size="sm" />
         {variant === "page" && viewCount !== undefined
           ? viewLabel
           : viewCount !== undefined
@@ -253,6 +261,7 @@ export function GameStats({
       </span>
       {canLike && variant === "page" ? (
         <Button
+          variant="ghost"
           className={liked ? "is-liked" : undefined}
           icon={likeIcon}
           {...likeProps}
@@ -274,7 +283,7 @@ export function GameStats({
           aria-label={likeLabel}
           title={likeLabel}
         >
-          <Heart size={14} />
+          <Heart size="sm" />
           {likes}
         </span>
       )}
@@ -325,6 +334,11 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The day a game was published, as its page and its creator's own card show it. */
+export function publishedDay(value: string): string {
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
 }
 
 export function compactCount(count: number): string {

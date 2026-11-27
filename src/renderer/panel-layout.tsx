@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X } from "./icons.js";
+import { Maximize, Minimize, MoreHorizontal, Plus, X } from "./icons.js";
+import { PanelTools, toolScopeOf, type ToolScope } from "./panel-tools.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
 import "./panel-layout.css";
@@ -40,8 +41,12 @@ export interface PanelDef {
 const MIN_SIZE = 200;
 const SIDE_MIN = 160;
 const CENTER_MIN = 320;
-/** The gap between areas, from panel-layout.css. */
-const GAP = 6;
+/** Below this width the rail toggle, project menu and chat actions need separate rows on macOS. */
+const CHAT_TITLEBAR_MIN = 280;
+/** The narrowest area that ends the title bar: its panel's toolbar beside the project's actions. */
+const TITLEBAR_END_MIN = 560;
+/** The line between areas, from panel-layout.css. */
+const GAP = 1;
 
 function useWidth(element: RefObject<HTMLElement | null>): number | undefined {
   const [width, setWidth] = useState<number>();
@@ -63,7 +68,7 @@ const ToolbarSlot = createContext<HTMLElement | null>(null);
 
 export function PanelToolbar({ children }: { children: ReactNode }) {
   const slot = useContext(ToolbarSlot);
-  return slot ? createPortal(children, slot) : null;
+  return slot ? createPortal(<PanelTools from={slot}>{children}</PanelTools>, slot) : null;
 }
 
 /**
@@ -75,6 +80,20 @@ export interface PanelNodes {
   body: HTMLDivElement;
   toolbar: HTMLDivElement;
 }
+
+/**
+ * What a frame shows in the window's title bar: its start (the project's name)
+ * and end (the project's actions). A layout that reaches the top of the window
+ * moves them into its top strips, so the panels' tabs share the title bar's
+ * row; `release` hands them back to the frame's own title bar.
+ */
+export interface TitlebarNodes {
+  start: HTMLElement;
+  end: HTMLElement;
+  release: () => void;
+}
+
+export const Titlebar = createContext<TitlebarNodes | null>(null);
 
 export function createPanelNodes(): PanelNodes {
   const body = document.createElement("div");
@@ -191,11 +210,16 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   locked?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const titlebar = useContext(Titlebar);
+  const [titleStart, setTitleStart] = useState<HTMLElement | null>(null);
+  const [titleEnd, setTitleEnd] = useState<HTMLElement | null>(null);
   const resizeDrag = useRef<{ area: (typeof SIDES)[number]; bounds: DOMRect; size: number }>(null);
   useEffect(() => () => {
     if (resizeDrag.current) document.documentElement.classList.remove("is-resizing-dock");
   }, []);
   const [dragging, setDragging] = useState<string>();
+  // One area may fill the whole layout for a while; it isn't saved.
+  const [maximized, setMaximized] = useState<AreaId>();
   const [target, setTarget] = useState<{ area: AreaId; before?: string }>();
   const [slots, setSlots] = useState<Record<string, HTMLElement | null>>({});
   // Stable ref callbacks, so a render doesn't detach and reattach every slot.
@@ -212,7 +236,10 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const known = new Set(byId.keys());
   const shown = (area: AreaId) => layout[area].panels.filter((id) => known.has(id));
   const present = SIDES.filter((area) => shown(area).length);
-  const has = (area: AreaId) => area === "center" || present.includes(area as (typeof SIDES)[number]);
+  const exists = (area: AreaId) => area === "center" || present.includes(area as (typeof SIDES)[number]);
+  const max = maximized && exists(maximized) && present.length ? maximized : undefined;
+  // What takes room: every area, or only the one maximized.
+  const has = (area: AreaId) => max ? area === max : exists(area);
 
   // Too narrow for the side areas beside the center, the areas stack and the
   // layout scrolls.
@@ -223,7 +250,28 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${layout.left.size}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
   const order = (["left", "center", "right", "bottom"] as const).filter(has);
-  const style: CSSProperties = stacked ? {
+  // Side by side, the areas along the top are the title bar: the leftmost
+  // starts it, the rightmost ends it with the project's actions. Stacked, or
+  // with too little room at the end for a panel's toolbar and those actions,
+  // the frame keeps a title bar row of its own.
+  const startArea: AreaId = max ?? (has("left") ? "left" : "center");
+  const endArea: AreaId = max ?? (has("right") ? "right" : "center");
+  const endWidth = max ? width ?? 0 : endArea === "right" ? layout.right.size
+    : (width ?? 0) - (has("left") ? layout.left.size + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
+  const narrowChat = !max && startArea === "left" && (layout.left.active ?? shown("left")[0]) === "chat" && layout.left.size < CHAT_TITLEBAR_MIN;
+  const inTitlebar = !!titlebar && !stacked && !narrowChat && (!width || endWidth >= TITLEBAR_END_MIN);
+  useLayoutEffect(() => {
+    if (!titlebar || !titleStart || !titleEnd) return;
+    place(titleStart, titlebar.start);
+    place(titleEnd, titlebar.end);
+    return () => titlebar.release();
+  }, [titlebar, titleStart, titleEnd]);
+  // A maximized area is the only cell; the others keep no column or row.
+  const style: CSSProperties = max ? {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
+    gridTemplateAreas: `"${max}"`,
+  } : stacked ? {
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: order.map((area) => area === "center" ? "minmax(320px, 2fr)" : "minmax(240px, 1fr)").join(" "),
     gridTemplateAreas: order.map((area) => `"${area}"`).join(" "),
@@ -255,6 +303,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     onActivate?.(id);
   };
   const close = (id: string) => onChange(closePanel(layout, id));
+  const toggleMax = (area: AreaId) => setMaximized(max ? undefined : area);
   // The + menu: panels not in the layout, opened in this area.
   const closed = panels.filter((panel) => !areaOf(layout, panel.id));
   const addMenu = (area: AreaId): MenuEntry[] => {
@@ -287,54 +336,97 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   return (
     <div ref={root} className={`dock${dragging ? " is-dragging" : ""}${stacked ? " is-stacked" : ""}`} style={style}
       onDragEnd={() => { setDragging(undefined); setTarget(undefined); }}>
-      {(["left", "center", "right", "bottom"] as const).filter(has).map((area) => {
+      {(["left", "center", "right", "bottom"] as const).filter(exists).map((area) => {
         const ids = shown(area);
         const active = ids.includes(layout[area].active ?? "") ? layout[area].active : ids[0];
         return (
-          <section key={area} className={`dock-area dock-area-${area}${target?.area === area && !target.before ? " is-drop" : ""}`}
+          <section key={area} className={`dock-area dock-area-${area}${target?.area === area && !target.before ? " is-drop" : ""}${has(area) ? "" : " is-hidden"}`}
             style={{ gridArea: area }} aria-label={areaLabel(area)}
             onPointerDownCapture={(event) => {
               if (active && !(event.target as Element).closest(".dock-resizer")) onActivate?.(active);
             }}>
-            <DockTabStrip single={ids.length === 1} resetKey={`${ids.join()}:${active}`}
+            <DockTabStrip single={ids.length === 1} resetKey={`${ids.join()}:${active}`} titlebar={inTitlebar && area !== "bottom"}
               onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
-              {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below. */}
-              <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}>
+              {inTitlebar && area === startArea ? <div ref={setTitleStart} className="dock-title-start" /> : null}
+              {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below.
+                  Beside the project's name, a lone panel needs no title of its own. */}
+              <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}
+                hidden={inTitlebar && area === startArea && ids.length === 1}
+                onKeyDown={(event) => {
+                  // Arrows, Home and End move along the tabs and open the one they land on.
+                  const at = ids.indexOf(active ?? "");
+                  const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: ids.length - 1 }[event.key];
+                  if (next === undefined || !(event.target as Element).matches(".dock-tab-button")) return;
+                  event.preventDefault();
+                  const index = (next + ids.length) % ids.length;
+                  activate(area, ids[index]!);
+                  event.currentTarget.querySelectorAll<HTMLElement>(".dock-tab-button")[index]?.focus();
+                }}
+                onWheel={(event) => {
+                  // A mouse wheel scrolls a crowded strip sideways.
+                  const list = event.currentTarget;
+                  if (!event.deltaX && list.scrollWidth > list.clientWidth) list.scrollLeft += event.deltaY;
+                }}>
               {ids.map((id) => {
                 const panel = byId.get(id)!;
                 const moves = (["left", "center", "right", "bottom"] as const).filter((to) => to !== area)
                   .map((to) => ({ label: t("panels.moveTo", { area: areaLabel(to) }), onSelect: () => { onChange(movePanel(layout, id, to)); onActivate?.(id); } }));
+                const others = ids.filter((other) => other !== id);
+                const menu = [
+                  moves,
+                  [
+                    ...(present.length ? [{ label: t(max ? "panels.restore" : "panels.maximize"), onSelect: () => toggleMax(area) }] : []),
+                    ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []),
+                  ],
+                  [
+                    { label: t("common.close"), onSelect: () => close(id) },
+                    ...(others.length ? [{ label: t("panels.closeOthers"), onSelect: () => onChange(others.reduce(closePanel, layout)) }] : []),
+                  ],
+                ].filter((group) => group.length).flatMap((group, index): MenuEntry[] => index ? ["separator", ...group] : group);
                 const tab = (
                     <div key={id} className={`dock-tab${id === active ? " is-active" : ""}${dragging === id ? " is-dragged" : ""}${target?.area === area && target.before === id ? " is-drop-before" : ""}`}
                       draggable={!locked} title={panel.source ? t("panels.fromPlugin", { title: panel.title, plugin: panel.source }) : panel.title}
+                      // A middle click closes a tab, as in a browser.
+                      onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
+                      onAuxClick={(event) => { if (event.button === 1 && !locked) close(id); }}
                       onDragStart={(event) => {
                         event.dataTransfer.setData("text/plain", panel.title);
                         event.dataTransfer.effectAllowed = "move";
+                        setMaximized(undefined);
                         setDragging(id);
                       }}
                       onDragOver={(event) => over(event, area, id)} onDrop={(event) => drop(event, area, id)}>
-                      <button type="button" role="tab" aria-selected={id === active} className="dock-tab-button"
-                        aria-label={panel.badge ? `${panel.title} (${panel.badge})` : panel.title} onClick={() => activate(area, id)}>
+                      <button type="button" role="tab" aria-selected={id === active} tabIndex={id === active ? 0 : -1} className="dock-tab-button"
+                        aria-label={panel.badge ? `${panel.title} (${panel.badge})` : panel.title} onClick={() => activate(area, id)}
+                        onDoubleClick={() => { if (present.length) toggleMax(area); }}>
                         <span className="dock-tab-icon" aria-hidden="true">{panel.icon}</span>
                         <span className="dock-tab-label">{panel.title}</span>
                         {panel.badge ? <span className="dock-tab-badge">{panel.badge}</span> : null}
                       </button>
                       {locked ? null : <button type="button" className="dock-tab-close" aria-label={t("panels.close", { title: panel.title })} onClick={() => close(id)}>
-                        <X size={12} />
+                        <X size="xs" />
                       </button>}
                     </div>
                 );
                 return locked ? tab : (
-                  <ContextMenu key={id} items={[...moves, "separator", ...(onReset ? [{ label: t("panels.reset"), onSelect: onReset }] : []), { label: t("common.close"), onSelect: () => close(id) }]}>{tab}</ContextMenu>
+                  <ContextMenu key={id} items={menu}>{tab}</ContextMenu>
                 );
               })}
               {closed.length ? (
                 <DropdownMenu trigger={(props) => (
-                  <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size={14} /></IconButton>
+                  <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size="sm" /></IconButton>
                 )} items={addMenu(area)} />
               ) : null}
               </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
+              <DockToolsMenu />
+              {present.length ? (
+                <IconButton size="sm" className="dock-maximize" label={t(max ? "panels.restore" : "panels.maximize")}
+                  onClick={() => toggleMax(area)}>
+                  {max ? <Minimize size="sm" /> : <Maximize size="sm" />}
+                </IconButton>
+              ) : null}
+              {inTitlebar && area === endArea ? <div ref={setTitleEnd} className="dock-title-end" /> : null}
             </DockTabStrip>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}
               onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
@@ -350,7 +442,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
               {ids.length ? null : empty}
               {area === "center" ? overlay : null}
             </div>
-            {area === "center" || stacked ? null : (
+            {area === "center" || stacked || max ? null : (
               <div className={`dock-resizer dock-resizer-${area}`} role="separator" tabIndex={0}
                 aria-orientation={area === "bottom" ? "horizontal" : "vertical"} aria-label={t("panels.resize", { area: areaLabel(area) })}
                 aria-valuenow={layout[area].size}
@@ -388,37 +480,120 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
 /**
  * An area's tab strip. The active panel's toolbar shortens its titles first;
  * when it still does not fit beside the tabs, the tabs you aren't on keep only
- * their icons. They get their labels back once the strip is wider than when it
- * compacted, or the tabs change. A single tab reads as the area's title,
- * without a selected fill or close button.
+ * their icons, and then the toolbar's tools fold into a menu one at a time
+ * (see panel-tools.tsx). As the strip widens, the tools come back first, each
+ * once its toolbar has the room it lacked; then the tabs get their labels back
+ * once the strip is wider than when it compacted, or the tabs change. A single
+ * tab reads as the area's title, without a selected fill or close button.
  */
-function DockTabStrip({ single, resetKey, children, ...props }: { single: boolean; resetKey: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { single: boolean; resetKey: string; titlebar: boolean; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
   const compactWidth = useRef(0);
+  // The active panel's tools, and their version, so folding one checks again.
+  const [tools, setTools] = useState<ToolScope>();
+  const [toolsVersion, setToolsVersion] = useState(0);
   useLayoutEffect(() => setCompact(false), [resetKey]);
+  // The open tab scrolls into view in a crowded strip, without moving anything around it.
+  useLayoutEffect(() => {
+    const list = strip.current?.querySelector(".dock-tab-list");
+    const tab = list?.querySelector(".dock-tab.is-active");
+    if (!list || !tab) return;
+    const box = list.getBoundingClientRect(), at = tab.getBoundingClientRect();
+    if (at.left < box.left) list.scrollLeft -= box.left - at.left;
+    else if (at.right > box.right) list.scrollLeft += at.right - box.right;
+  }, [resetKey, compact]);
   useLayoutEffect(() => {
     const element = strip.current;
     const list = element?.querySelector(".dock-tab-list");
     if (!element || !list) return;
+    const toolbar = element.querySelector<HTMLElement>(".dock-toolbar:not([hidden])");
+    // A view from outside the layout brings its toolbar's node after the slot appears.
+    let scope: ToolScope | undefined;
+    let unsubscribe: (() => void) | undefined;
+    const follow = () => {
+      const next = toolbar ? toolScopeOf(toolbar.querySelector(":scope > .dock-view-toolbar") ?? toolbar) : undefined;
+      if (next === scope) return;
+      unsubscribe?.();
+      scope = next;
+      unsubscribe = next?.subscribe(() => setToolsVersion(next.version));
+      setTools(next);
+    };
+    // One fold or unfold at a time: the next check waits for the tools to show it.
+    let waiting = false;
     const check = () => {
-      if (compact) {
-        if (element.clientWidth > compactWidth.current + 24) setCompact(false);
+      follow();
+      if (waiting) return;
+      const over = Math.max(overflow(element), toolbar ? overflow(toolbar) : 0);
+      if (over > 1) {
+        if (!compact && element.querySelector(".dock-tab:not(.is-active)")) {
+          compactWidth.current = element.clientWidth;
+          setCompact(true);
+        } else if (scope?.canFold() && toolbar) {
+          waiting = true;
+          scope.fold(toolbar.clientWidth + over);
+        }
         return;
       }
-      const toolbar = element.querySelector<HTMLElement>(".dock-toolbar:not([hidden])");
-      const overflows = (box: HTMLElement | null) => Boolean(box && box.scrollWidth > box.clientWidth + 1);
-      if (element.querySelector(".dock-tab:not(.is-active)") && (overflows(element) || overflows(toolbar))) {
-        compactWidth.current = element.clientWidth;
-        setCompact(true);
+      if (scope?.folded) {
+        if (toolbar && toolbar.clientWidth >= scope.nextNeed()) {
+          waiting = true;
+          scope.unfold();
+        }
+        return;
       }
+      if (compact && element.clientWidth > compactWidth.current + 24) setCompact(false);
     };
     check();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(check);
-    observer.observe(element);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, [compact, resetKey]);
-  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}`} {...props}>{children}</div>;
+    const arrivals = new MutationObserver(check);
+    if (toolbar) arrivals.observe(toolbar, { childList: true });
+    // Folding changes the sizes being observed, so it waits for the next frame
+    // rather than changing them while the observer reports.
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(check);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(later);
+    observer?.observe(element);
+    observer?.observe(list);
+    if (toolbar) observer?.observe(toolbar);
+    return () => {
+      cancelAnimationFrame(frame);
+      arrivals.disconnect();
+      observer?.disconnect();
+      unsubscribe?.();
+    };
+  }, [compact, resetKey, toolsVersion]);
+  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
+    <StripTools.Provider value={{ scope: tools, version: toolsVersion }}>{children}</StripTools.Provider>
+  </div>;
+}
+
+/**
+ * How far `box`'s content runs past it. Content aligned to the end spills
+ * past its start, where scrollWidth doesn't count it.
+ */
+function overflow(box: HTMLElement): number {
+  const start = box.getBoundingClientRect().left + (parseFloat(getComputedStyle(box).paddingLeft) || 0);
+  let first = start;
+  for (const child of visibleChildren(box)) first = Math.min(first, child.getBoundingClientRect().left);
+  return Math.max(box.scrollWidth - box.clientWidth, 0) + (start - first);
+}
+
+function visibleChildren(box: Element): Element[] {
+  return [...box.children].flatMap((child) => getComputedStyle(child).display === "contents" ? visibleChildren(child)
+    : child.getClientRects().length ? [child] : []);
+}
+
+const StripTools = createContext<{ scope?: ToolScope; version: number }>({ version: 0 });
+
+/** The strip's ··· for tools that folded, when their panel has no menu of its own to take them. */
+function DockToolsMenu() {
+  const { scope } = useContext(StripTools);
+  const items = scope && !scope.menus ? scope.menu() : [];
+  if (!items.length) return null;
+  return <DropdownMenu placement="bottom-end" items={items} trigger={(props) => (
+    <IconButton {...props} size="sm" label={t("panels.moreTools")} className="dock-tools-more"><MoreHorizontal size="sm" /></IconButton>
+  )} />;
 }

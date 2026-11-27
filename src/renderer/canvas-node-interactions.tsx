@@ -132,7 +132,7 @@ export function CanvasPort({
       }}
     >
       <span className="canvas-port-icon">
-        <Plus size={14} />
+        <Plus size="sm" />
       </span>
     </Handle>
   );
@@ -189,7 +189,7 @@ function CanvasReferenceEdge(props: EdgeProps) {
               actions.disconnect(props.id);
             }}
           >
-            <Scissors size={16} />
+            <Scissors size="md" />
           </button>
         </EdgeLabelRenderer>
       ) : null}
@@ -291,7 +291,7 @@ export function CanvasComposer({
             {pick ? (
               <div className="canvas-composer-toolbar">
                 <Button size="sm" variant="ghost" onClick={pick}>
-                  <MousePointer2 size={14} />
+                  <MousePointer2 size="sm" />
                   {pickLabel}
                 </Button>
               </div>
@@ -304,7 +304,7 @@ export function CanvasComposer({
           {pick || expandable ? <div className="canvas-composer-toolbar">
             {pick ? (
               <IconButton size="sm" label={pickLabel} onClick={pick}>
-                <MousePointer2 size={14} />
+                <MousePointer2 size="sm" />
               </IconButton>
             ) : null}
             {expandable ? <IconButton
@@ -316,7 +316,7 @@ export function CanvasComposer({
                 setExpanded(true);
               }}
             >
-              <Maximize size={14} />
+              <Maximize size="sm" />
             </IconButton> : null}
           </div> : null}
           {children}

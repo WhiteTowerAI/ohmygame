@@ -3,7 +3,7 @@ import { Cloud, ExternalLink, Globe2, MessageCircle } from "./icons.js";
 import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
-import { AgentsSettings, OHMYGAME_AGENT } from "./agents-settings.js";
+import { AgentsSettings } from "./agents-settings.js";
 import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -96,8 +96,8 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
           {section === "notifications" ? <NotificationSettings /> : null}
-          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} onOpenChatModel={() => onSectionChange("agents", OHMYGAME_AGENT)} /> : null}
-          {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
+          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} /> : null}
+          {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
@@ -123,7 +123,7 @@ function GeneralSettings() {
   return (
     <>
       <SettingsGroup>
-        <SettingsRow title={t("settings.general.openTo")} description={t("settings.general.openToHint")}>
+        <SettingsRow title={t("settings.general.openTo")}>
           <Select size="sm" label={t("settings.general.openTo")} value={preferences.openTo} onChange={(value) => change("openTo", value)} options={[
             { value: "home", label: t("settings.general.openToHome") },
             { value: "last", label: t("settings.general.openToLast") },
@@ -149,7 +149,7 @@ function GeneralSettings() {
         {!window.ohMyGameDesktop?.notifications ? <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
           <Switch label={t("settings.general.runNotifications")} checked={preferences.runNotifications} onChange={(value) => change("runNotifications", value)} />
         </SettingsRow> : null}
-        <SettingsRow title={t("settings.general.runSound")} description={t("settings.general.runSoundHint")}>
+        <SettingsRow title={t("settings.general.runSound")}>
           <Switch label={t("settings.general.runSound")} checked={preferences.runSound} onChange={(value) => change("runSound", value)} />
         </SettingsRow>
       </SettingsGroup>
@@ -454,7 +454,7 @@ function BillingSettings() {
   return (
     <SettingsGroup>
       <SettingsRow title={t("settings.billing.title")} description={t("settings.billing.description")}>
-        <Button icon={<ExternalLink size={14} />} onClick={() => void link.open(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
+        <Button icon={<ExternalLink size="sm" />} onClick={() => void link.open(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
       </SettingsRow>
       <ExternalLinkFallback url={link.failedUrl} />
     </SettingsGroup>
@@ -465,8 +465,14 @@ function BillingSettings() {
 
 const PROJECT_LINKS = [
   { href: "https://github.com/WhiteTowerAI/ohmygame", title: () => "GitHub", icon: <span className="settings-about-github" aria-hidden="true" style={{ maskImage: `url("${githubMark}")` }} /> },
-  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size={16} aria-hidden="true" /> },
-  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
+  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size="md" aria-hidden="true" /> },
+  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size="md" aria-hidden="true" /> },
+];
+
+/** Artwork the app ships under a licence; Solar's CC BY 4.0 requires this credit. */
+const CREDITS = [
+  { href: "https://github.com/480-Design/Solar-Icon-Set", title: () => t("settings.about.solarIcons"), licence: "CC BY 4.0" },
+  { href: "https://github.com/Nieobie/game-icon-pack", title: () => t("settings.about.gameIcons"), licence: "CC0 1.0" },
 ];
 
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
@@ -529,7 +535,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
       </SettingsGroup>
       {onOpenOnboarding ? (
         <SettingsGroup label={t("settings.about.gettingStarted")}>
-          <SettingsRow title={t("settings.about.gettingStarted")} description={t("settings.about.gettingStartedHint")}>
+          <SettingsRow title={t("settings.about.gettingStarted")}>
             <Button size="sm" variant="ghost" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</Button>
           </SettingsRow>
         </SettingsGroup>
@@ -537,6 +543,16 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
       <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
       <UsageDataSettings />
+      <SettingsGroup title={t("settings.about.acknowledgements")}>
+        {CREDITS.map((credit) => (
+          <SettingsRow key={credit.href} title={credit.title()} description={credit.licence}>
+            <Tooltip content={credit.href.replace("https://", "")} placement="top">
+              <a className="ui-icon-button ui-icon-button-md" href={credit.href} target="_blank" rel="noreferrer"
+                aria-label={t("settings.about.openCredit", { name: credit.title() })}><ExternalLink size="md" aria-hidden="true" /></a>
+            </Tooltip>
+          </SettingsRow>
+        ))}
+      </SettingsGroup>
     </>
   );
 }
@@ -572,7 +588,7 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
       return <div className="settings-actions">
         {status?.type === "up-to-date" ? <Badge tone="success">{t("settings.about.upToDate")}</Badge> : null}
         {status?.type === "checking" ? <Spinner label={t("settings.about.checking")} /> : null}
-        <span className="settings-about-actions"><Button icon={<Cloud size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
+        <span className="settings-about-actions"><Button icon={<Cloud size="sm" />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
       </div>;
   }
 }

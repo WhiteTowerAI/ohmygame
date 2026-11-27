@@ -99,9 +99,10 @@ it("lists the clients that used the server since OhMyGame started", async () => 
   ]);
 });
 
-it("says when the server is off", async () => {
+it("shows only its switch while the server is off", async () => {
   await act(async () => root.render(<ExternalAgentsSettings />));
-  expect(host.textContent).toContain("MCP server is off");
+  expect(host.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+  expect(host.textContent).toBe("MCP ServerLets external agents such as Claude Code and Codex use OhMyGame's projects, canvases and assets.");
 });
 
 it("explains that connecting needs the desktop app", async () => {

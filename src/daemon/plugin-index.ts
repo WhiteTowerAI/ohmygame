@@ -288,6 +288,9 @@ function checkPackage(
   file("/entrypoints/native", manifest.entrypoints?.native);
   contributes.projectTypes?.forEach((type, index) => {
     file(`/contributes/projectTypes/${index}/icon`, type.icon);
+    const cover = type.cover ? files.get(type.cover) : undefined;
+    if (type.cover && !cover) issue(`/contributes/projectTypes/${index}/cover`, `${type.cover} is not in the package`);
+    else if (cover && cover.length > PLUGIN_SCREENSHOT_MAX_BYTES) issue(`/contributes/projectTypes/${index}/cover`, `${type.cover} is larger than ${PLUGIN_SCREENSHOT_MAX_BYTES / 1024 / 1024} MB`);
     folder(`/contributes/projectTypes/${index}/template`, type.template);
   });
   contributes.templates?.forEach((template, index) => folder(`/contributes/templates/${index}/folder`, template.folder));

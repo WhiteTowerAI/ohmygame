@@ -1,6 +1,6 @@
 import { t } from "./i18n.js";
 import type { CommunityGame } from "../shared/contracts.js";
-import { Button, FilterChips, SearchInput, Select } from "./ui/index.js";
+import { FilterChips, SearchInput, Select } from "./ui/index.js";
 
 export interface CommunityFilters {
   search: string;
@@ -55,13 +55,14 @@ export function CommunityToolbar({
   value,
   onChange,
   search = false,
+  count,
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
   search?: boolean;
+  /** How many games the filters leave, announced to screen readers. */
+  count?: number;
 }) {
-  const filtered =
-    value.search || value.sort !== "latest" || value.period !== "all";
   return (
     <div className="community-filters">
       <FilterChips<CommunityFilters["sort"]>
@@ -80,14 +81,11 @@ export function CommunityToolbar({
         ]}
       />
       <span className="community-spacer" />
-      {filtered ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
-        >
-          {t("community.resetFilters")}
-        </Button>
+      {count !== undefined ? (
+        // Read out as the filters change; the grid itself shows how many there are.
+        <span className="visually-hidden" role="status">
+          {t("community.gameCount", { count })}
+        </span>
       ) : null}
       <Select<CommunityFilters["period"]>
         size="sm"
@@ -101,7 +99,8 @@ export function CommunityToolbar({
         ]}
       />
       {search ? (
-        <CommunitySearch size="sm" value={value} onChange={onChange} />
+        // A profile lists one creator's games, so its search is for games only.
+        <CommunitySearch size="sm" value={value} onChange={onChange} placeholder={t("community.searchGames")} />
       ) : null}
     </div>
   );
@@ -111,10 +110,12 @@ export function CommunitySearch({
   value,
   onChange,
   size,
+  placeholder = t("community.searchPlaceholder"),
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
   size?: "sm" | "md";
+  placeholder?: string;
 }) {
   return (
     <SearchInput
@@ -122,7 +123,7 @@ export function CommunitySearch({
       value={value.search}
       onChange={(search) => onChange({ ...value, search })}
       label={t("community.search")}
-      placeholder={t("community.searchPlaceholder")}
+      placeholder={placeholder}
     />
   );
 }

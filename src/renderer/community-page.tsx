@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { cachedScrollTop, keepScrollTop } from "./community-cache.js";
 import { t } from "./i18n.js";
-import { ChevronLeft } from "./icons.js";
+import { ChevronLeft, TriangleAlert } from "./icons.js";
 import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget } from "./routes.js";
-import { Button } from "./ui/index.js";
+import { Button, Empty } from "./ui/index.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import "./community.css";
 
@@ -49,7 +49,7 @@ export function CommunityPage({
               <Button
                 variant="ghost"
                 className="community-back"
-                icon={<ChevronLeft size={14} />}
+                icon={<ChevronLeft size="sm" />}
                 onClick={onBack}
               >
                 {t("community.title")}
@@ -66,23 +66,32 @@ export function CommunityPage({
   );
 }
 
-/** Loading, empty and error states, centered where the grid would be. */
+/** Empty and error states, centered where the grid would be. */
 export function CommunityState({
   children,
   tone,
+  art,
+  icon,
   action,
 }: {
   children: ReactNode;
   tone?: "error";
+  /** A game icon, where there is nothing yet. */
+  art?: ReactNode;
+  /** A plain icon in the neutral tile, as for no matches. */
+  icon?: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <div
-      className={`community-state${tone ? ` is-${tone}` : ""}`}
-      role={tone === "error" ? "alert" : undefined}
-    >
-      <span>{children}</span>
-      {action}
+    <div className="community-state">
+      <Empty
+        fill
+        tone={tone}
+        art={art}
+        icon={tone === "error" ? <TriangleAlert size="md" /> : icon}
+        title={children}
+        action={action}
+      />
     </div>
   );
 }

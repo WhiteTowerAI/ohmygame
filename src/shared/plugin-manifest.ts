@@ -236,6 +236,12 @@ const ProjectType = Type.Object(
     title: Text(),
     description: Type.Optional(Text(500)),
     icon: Type.Optional(Icon),
+    /**
+     * The type's picture on its Home card and the new project dialog's banner
+     * (API 2.38.0): a PNG, JPEG or WebP up to the screenshot size limit, shown
+     * 2:1 and cropped to fill. Without one, the plugin's icon stands in.
+     */
+    cover: Type.Optional(RelativePath("\\.(?:png|jpe?g|webp)")),
     template: Type.Optional(RelativePath("/?")),
     recognize: Type.Optional(
       Type.Object(

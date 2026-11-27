@@ -100,6 +100,17 @@ if (process.isMainFrame) {
     }),
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
+    communityGameWindow: Object.freeze({
+      open: (gameId: string, playUrl: string, title: string) =>
+        ipcRenderer.invoke("ohmygame:community-game-window", "open", gameId, playUrl, title) as Promise<boolean>,
+      isOpen: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "isOpen", gameId) as Promise<boolean>,
+      close: (gameId: string) => ipcRenderer.invoke("ohmygame:community-game-window", "close", gameId) as Promise<boolean>,
+      onChange: (listener: (gameId: string, open: boolean) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, gameId: string, open: boolean) => listener(gameId, open);
+        ipcRenderer.on("ohmygame:community-game-window-changed", callback);
+        return () => ipcRenderer.removeListener("ohmygame:community-game-window-changed", callback);
+      },
+    }),
     webGamePlayer: Object.freeze({
       preview: Object.freeze({
         attach: (projectId: string, attachment: string, url: string, layout: WebGamePreviewLayout) =>

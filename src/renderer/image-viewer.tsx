@@ -55,7 +55,7 @@ function useImageMenu(): (image: GalleryImage, index: number) => MenuEntry[] {
   return (image, index) => [
     {
       label: t("imageViewer.copy"),
-      icon: <Copy size={14} />,
+      icon: <Copy size="sm" />,
       onSelect: () => {
         // The write starts within the click, as clipboards allow it only then, and waits for the image.
         navigator.clipboard.write([new ClipboardItem({ "image/png": imageBlob(image).then(pngBlob) })])
@@ -65,7 +65,7 @@ function useImageMenu(): (image: GalleryImage, index: number) => MenuEntry[] {
     },
     {
       label: t("imageViewer.save"),
-      icon: <Download size={14} />,
+      icon: <Download size="sm" />,
       onSelect: () => {
         void imageBlob(image).then((blob) => {
           const url = URL.createObjectURL(blob);

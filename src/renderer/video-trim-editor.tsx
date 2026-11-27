@@ -271,7 +271,7 @@ export function VideoTrimEditor({
           aria-label={playing ? t("videoTrim.pause") : t("videoTrim.play")}
           onClick={togglePlay}
         >
-          {playing ? <Pause size={15} /> : <Play size={15} />}
+          {playing ? <Pause size="sm" /> : <Play size="sm" />}
         </button>
         <div
           ref={track}

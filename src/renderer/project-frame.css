@@ -1,36 +1,132 @@
-/* the project workspace: the rail, the top bar, and the body under it */
+/* The project workspace: the rail, and the body under the title bar. The
+   panels' top strips are the title bar; the frame's own row (.project-top)
+   shows only while no layout carries it, as when the panels stack. */
 .project-frame {
+  position: relative;
   --sidebar-width: 56px;
+  --titlebar-height: 48px;
+  /* where the window's own controls end, from the window's left edge */
+  --titlebar-controls: 0px;
   display: grid;
   width: 100%;
   height: 100dvh;
   min-height: 0;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas: "rail top" "rail body";
-  background: var(--color-app);
+  background: var(--color-surface);
+  transition: grid-template-columns var(--duration-base) var(--ease-out);
+}
+
+.desktop-macos .project-frame {
+  --titlebar-controls: 76px;
+}
+
+.project-frame.is-rail-hidden {
+  --sidebar-width: 0px;
+}
+
+.project-frame.is-rail-hidden > .sidebar {
+  visibility: hidden;
+}
+
+/* The rail shares the panels' surface, as the title bar above it does; only
+   the hairline sets it apart, so the narrow strip doesn't stand out. */
+.project-frame > .sidebar {
+  grid-area: rail;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
 }
 
 .project-top {
   grid-area: top;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   min-width: 0;
-  padding: 0 var(--space-3) 0 var(--space-1);
+  height: var(--titlebar-height);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project-frame:has(.dock-title-start) > .project-top {
+  display: none;
 }
 
 .project-body {
   grid-area: body;
+  grid-row: 1 / -1;
   display: flex;
   min-width: 0;
   min-height: 0;
-  padding: 0 6px 6px 0;
+}
+
+.project-frame:not(:has(.dock-title-start)) > .project-body {
+  grid-row: body;
 }
 
 .project-body > * {
   flex: 1;
   min-width: 0;
+}
+
+/* The title bar's start: the rail's toggle and the project's name, clear of
+   the window's controls where they reach past the rail. */
+.project-title-start {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-left: max(0px, calc(var(--titlebar-controls) - var(--sidebar-width)));
+  transition: padding-left var(--duration-base) var(--ease-out);
+}
+
+.project-title-toggle,
+.project-title-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.project-title-toggle {
+  flex: none;
+}
+
+/* the project's actions, at the title bar's end */
+.project-title-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+.project-title-end:empty {
+  display: none;
+}
+
+/* A thin line between the open panel's tools and the project's actions. */
+.dock-tabs:has(> .dock-toolbar:not([hidden]) :is(button, a, input, select)) .project-title-end::before {
+  content: "";
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-right: var(--space-1);
+  background: var(--color-border);
+}
+
+/* Everything on the title bar's row is the tabs' height, so the row lines up
+   with itself and with the macOS window controls at its middle. Menus that
+   open from it keep their own sizes. */
+:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-button, .ui-icon-button, .icon-button, .project-name):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
+  height: 26px;
+}
+
+:is(.project-top, .dock-tabs.is-titlebar) :is(.ui-icon-button, .icon-button):not(:is([role="menu"], [role="dialog"], [role="listbox"]) *) {
+  width: 26px;
 }
 
 /* the project's name, as its menu */
@@ -196,58 +292,44 @@
   color: var(--color-text-secondary);
 }
 
-/* The rail's back and forward lead the top bar, over the rail: after the
-   macOS window controls, or at the window's edge where the app draws its
-   own. */
-.project-frame:has(.sidebar-titlebar) {
-  position: relative;
-  --titlebar-start: 6px;
-  /* where the title-bar buttons end: start + 2 × 26 + 6 */
-  --titlebar-end: calc(var(--titlebar-start) + 58px);
-}
-
-.desktop-macos .project-frame {
-  --titlebar-start: 92px;
-}
-
-.project-frame:has(.sidebar-titlebar) .sidebar {
-  padding-top: 48px;
-}
-
+/* The rail's corner of the title bar: the title bar's surface and line, so
+   the macOS window controls sit on one row with the panels' tabs. */
 .project-frame .sidebar-titlebar {
   position: absolute;
+  z-index: 1;
   top: 0;
   right: auto;
   left: 0;
   justify-content: flex-start;
-  width: var(--titlebar-end);
+  width: var(--sidebar-width);
+  height: var(--titlebar-height);
   margin: 0;
-  padding-left: var(--titlebar-start);
+  padding: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
-.project-frame:has(.sidebar-titlebar) .sidebar-head {
+/* The rail's first item sits clear of the title bar's line. */
+.project-frame .sidebar {
+  padding-top: calc(var(--titlebar-height) + var(--space-2));
+}
+
+.project-frame .sidebar-head {
   height: 40px;
 }
 
-/* The bar starts after back and forward rather than padding past them: on
-   macOS it drags the window, and a drag region over them takes their clicks. */
-.project-frame:has(.sidebar-titlebar) .project-top {
-  margin-left: calc(var(--titlebar-end) - var(--sidebar-width));
-  padding-left: var(--space-2);
-}
-
-/* macOS: the top bar is the title bar, and the rest of it drags the window. */
-.desktop-macos .project-top {
+/* macOS: the title bar drags the window, except where it can be pressed. */
+.desktop-macos :is(.project-top, .project-rail .sidebar-titlebar, .dock-tabs.is-titlebar) {
   app-region: drag;
   -webkit-app-region: drag;
 }
 
-.desktop-macos .project-top :is(button, a, input, [role="tab"]) {
+.desktop-macos :is(.project-top, .dock-tabs.is-titlebar) :is(button, a, input, select, textarea, label, [role="tab"], [draggable="true"]) {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
-/* The top bar drags the window, so the panel headers under it don't. */
+/* The title bar drags the window, so the panel headers under it don't. */
 .desktop-macos .project-body .window-drag-handle {
   app-region: no-drag;
   user-select: auto;

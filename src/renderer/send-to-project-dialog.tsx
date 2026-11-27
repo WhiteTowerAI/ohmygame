@@ -1,10 +1,11 @@
-import { Check, ChevronRight, FolderOpen, LoaderCircle, Search } from "./icons.js";
+import { Check, ChevronRight, FolderOpen, Spinner, Search, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { addLibraryAssetToProject, listProjects } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { projectHash } from "./routes.js";
 import { t, tNodes } from "./i18n.js";
+import { Button, IconButton } from "./ui/index.js";
 
 type Phase =
   | { kind: "loading" }
@@ -55,27 +56,30 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
   const normalizedQuery = query.trim().toLowerCase();
   const visibleProjects = projects.filter((project) => !normalizedQuery || project.name.toLowerCase().includes(normalizedQuery));
   // React Flow ignores key presses inside .nokey, so typing in the search never edits the canvas behind the dialog.
-  return <div className="library-dialog-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="project-switcher-popover send-to-project-dialog" role="dialog" aria-modal="true" aria-labelledby="send-to-project-title">
-      <div className="plugin-try-heading">
-        <strong id="send-to-project-title">{t("sendToProject.title", { name })}</strong>
-        <span>{t("sendToProject.hint")}</span>
+  return <div className="ui-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="ui-dialog ui-dialog-sm send-to-project-dialog" role="dialog" aria-modal="true" aria-labelledby="send-to-project-title">
+      <div className="ui-dialog-head">
+        <div>
+          <h2 id="send-to-project-title" className="ui-dialog-title">{t("sendToProject.title", { name })}</h2>
+          <p className="ui-dialog-description">{t("sendToProject.hint")}</p>
+        </div>
+        <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" onClick={onClose}><X size="md" /></IconButton>
       </div>
       {phase.kind === "sent" ? <>
         <div className="project-switcher-state send-to-project-result" role="status">
-          <Check size={14} />
+          <Check size="sm" />
           <span>{tNodes("sendToProject.added", { project: <strong>{phase.project.name}</strong>, path: <code>{phase.path}</code> })}</span>
         </div>
-        <div className="project-switcher-footer">
-          <button type="button" onClick={() => { window.location.hash = projectHash(phase.project.id); }}><FolderOpen size={14} />{t("common.openName", { name: phase.project.name })}</button>
+        <div className="ui-dialog-footer">
+          <Button variant="primary" icon={<FolderOpen size="sm" />} onClick={() => { window.location.hash = projectHash(phase.project.id); }}>{t("common.openName", { name: phase.project.name })}</Button>
         </div>
       </> : <>
         <label className="project-switcher-search">
-          <Search size={13} />
+          <Search size="sm" />
           <input value={query} autoFocus placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <div className="project-switcher-list">
-          {phase.kind === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("projects.loading")}</div> : null}
+          {phase.kind === "loading" ? <div className="project-switcher-state"><Spinner size="sm" />{t("projects.loading")}</div> : null}
           {phase.kind === "error" ? <div className="project-switcher-state is-error"><span>{phase.message}</span><button type="button" onClick={phase.retry}>{t("common.retry")}</button></div> : null}
           {phase.kind === "ready" || phase.kind === "sending" ? visibleProjects.map((project) => <button
             className="project-switcher-item"
@@ -86,7 +90,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
           >
             <ProjectTypeIcon type={project.type} />
             <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
-            {phase.kind === "sending" && phase.projectId === project.id ? <LoaderCircle className="spin" size={13} /> : <ChevronRight size={13} />}
+            {phase.kind === "sending" && phase.projectId === project.id ? <Spinner size="sm" /> : <ChevronRight size="sm" />}
           </button>) : null}
           {phase.kind === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{normalizedQuery ? t("sendToProject.noMatch") : t("sendToProject.none")}</div> : null}
         </div>

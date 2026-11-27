@@ -25,7 +25,7 @@ import {
   X,
 } from "./icons.js";
 import { t } from "./i18n.js";
-import { Disclosure, DropdownMenu, type MenuEntry } from "./ui/index.js";
+import { Button, Disclosure, DropdownMenu, type MenuEntry } from "./ui/index.js";
 
 /** Named references to CLI-owned configuration directories, with the CLI's own sign-in flow. */
 export function AgentAccountProfiles({
@@ -145,14 +145,14 @@ export function AgentAccountProfiles({
         ? [
             {
               label: t("codingAgents.profileOpenDirectory"),
-              icon: <FolderOpen size={14} />,
+              icon: <FolderOpen size="sm" />,
               onSelect: () => void run(() => browse(runtime, profile.id)),
             },
           ]
         : []),
       {
         label: t("codingAgents.profileCopyDirectory"),
-        icon: <Copy size={14} />,
+        icon: <Copy size="sm" />,
         onSelect: () =>
           void run(() => navigator.clipboard.writeText(profile.directory)),
       },
@@ -161,7 +161,7 @@ export function AgentAccountProfiles({
     return [
       {
         label: t("codingAgents.profileEdit"),
-        icon: <Pencil size={14} />,
+        icon: <Pencil size="sm" />,
         onSelect: () => {
           setEditing(profile);
           setEditName(profile.name);
@@ -173,14 +173,14 @@ export function AgentAccountProfiles({
       },
       {
         label: t("codingAgents.profileMoveUp"),
-        icon: <ChevronUp size={14} />,
+        icon: <ChevronUp size="sm" />,
         // System default holds the first place.
         disabled: index <= 1,
         onSelect: () => move(-1),
       },
       {
         label: t("codingAgents.profileMoveDown"),
-        icon: <ChevronDown size={14} />,
+        icon: <ChevronDown size="sm" />,
         disabled: index === profiles.length - 1,
         onSelect: () => move(1),
       },
@@ -189,7 +189,7 @@ export function AgentAccountProfiles({
       "separator",
       {
         label: t("codingAgents.profileDelete", { name: label }),
-        icon: <Trash2 size={14} />,
+        icon: <Trash2 size="sm" />,
         danger: true,
         onSelect: () => {
           setDeleting(profile);
@@ -216,7 +216,7 @@ export function AgentAccountProfiles({
               })
             }
           >
-            <RefreshCw size={14} />
+            <RefreshCw size="sm" />
           </button>
           <button
             className="icon-button settings-provider-setting-edit"
@@ -233,7 +233,7 @@ export function AgentAccountProfiles({
               setError(undefined);
             }}
           >
-            {adding ? <X size={14} /> : <Plus size={14} />}
+            {adding ? <X size="sm" /> : <Plus size="sm" />}
           </button>
         </div>
       </div>
@@ -303,7 +303,7 @@ export function AgentAccountProfiles({
                 disabled={busy}
                 onClick={() => void onLogin(profile.id)}
               >
-                {signedOut ? t("common.signIn") : <RotateCcw size={14} />}
+                {signedOut ? t("common.signIn") : <RotateCcw size="sm" />}
               </button>
               <DropdownMenu
                 placement="bottom-end"
@@ -317,7 +317,7 @@ export function AgentAccountProfiles({
                     title={t("codingAgents.profileActions", { name: label })}
                     disabled={busy}
                   >
-                    <MoreHorizontal size={14} />
+                    <MoreHorizontal size="sm" />
                   </button>
                 )}
               />
@@ -339,9 +339,8 @@ export function AgentAccountProfiles({
               { name: deleting.name },
             )}
           </span>
-          <button
-            className="settings-danger-button"
-            type="button"
+          <Button
+            variant="danger"
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -355,15 +354,13 @@ export function AgentAccountProfiles({
             }
           >
             {t(working ? "common.deleting" : "common.delete")}
-          </button>
-          <button
-            className="settings-secondary-button"
-            type="button"
+          </Button>
+          <Button
             disabled={busy}
             onClick={() => setDeleting(undefined)}
           >
             {t("common.cancel")}
-          </button>
+          </Button>
         </div>
       ) : null}
       {editing ? (
@@ -384,21 +381,18 @@ export function AgentAccountProfiles({
               disabled={busy}
               onChange={(event) => setEditName(event.target.value)}
             />
-            <button
-              className="settings-add-button"
+            <Button
               type="submit"
               disabled={busy || !editName.trim() || !editDirectory.trim()}
             >
               {t("common.save")}
-            </button>
-            <button
-              className="settings-secondary-button"
-              type="button"
+            </Button>
+            <Button
               disabled={busy}
               onClick={() => setEditing(undefined)}
             >
               {t("common.cancel")}
-            </button>
+            </Button>
           </div>
           {editing.managed ? null : (
             <>
@@ -430,13 +424,12 @@ export function AgentAccountProfiles({
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
             />
-            <button
-              className="settings-add-button"
+            <Button
               type="submit"
               disabled={busy || !name.trim()}
             >
               {t("common.add")}
-            </button>
+            </Button>
           </div>
           <Disclosure summary={t("codingAgents.profileImport")}>
             <input

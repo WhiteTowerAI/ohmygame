@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { NodeToolbar, Position } from "@xyflow/react";
-import { Check, LoaderCircle, X } from "./icons.js";
+import { Check, Spinner, X } from "./icons.js";
 import { t } from "./i18n.js";
 
 type Point = { x: number; y: number };
@@ -328,7 +328,7 @@ export function CanvasImageCrop({
             aria-label={t("common.cancel")}
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </button>
           <button
             type="button"
@@ -337,9 +337,9 @@ export function CanvasImageCrop({
             onClick={() => onSubmit(integerCrop)}
           >
             {busy ? (
-              <LoaderCircle size={16} className="spin" />
+              <Spinner size="md" />
             ) : (
-              <Check size={16} />
+              <Check size="md" />
             )}
             {t("assetCanvas.mediaTools.cropConfirm")}
           </button>

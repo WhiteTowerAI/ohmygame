@@ -1,21 +1,22 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AUDIO_KINDS, type AudioKind, type AudioModelCatalog } from "../shared/audio.js";
-import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState, type ProviderCapability } from "../shared/contracts.js";
-import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
+import { MEDIA_MODEL_USAGES, type MediaModelCatalog, type MediaModelDefaults, type MediaModelUsage, type ModelRef, type ProjectState } from "../shared/contracts.js";
+import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
+import { listAudioModelCatalog, listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, notifyAgentModelsChanged, setDefaultMediaModel, updateAgentDefaults, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
-import { LoaderCircle, SlidersHorizontal } from "./icons.js";
+import { Spinner, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
-import { ProviderMark } from "./model-selector.js";
+import { chipMark, ProviderMark, useAgentModels } from "./model-selector.js";
 import { Select } from "./ui/index.js";
 
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
 type Catalogs = Partial<Record<MediaModelUsage, Catalog>>;
 
 const isAudioKind = (usage: MediaModelUsage): usage is AudioKind => (AUDIO_KINDS as readonly string[]).includes(usage);
-const usageCapability = (usage: MediaModelUsage): ProviderCapability => isAudioKind(usage) ? "audio" : usage;
 const usageLabel = (usage: MediaModelUsage) => t(`mediaDefaults.usage.${usage}`);
 
 /** One audio catalog as a catalog per kind: the models that make it, in the order the automatic choice takes them, and its default. */
@@ -74,9 +75,9 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
   const effectiveLabel = !catalog ? loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable") : effective?.name ?? (automatic ? t("mediaDefaults.modelUnavailable", { id: automatic.id }) : t("mediaDefaults.noModel"));
   const automaticLabel = catalog ? inherit ? t("mediaDefaults.useGlobal", { label: effectiveLabel }) : t("mediaDefaults.automatic", { label: effectiveLabel }) : effectiveLabel;
   const options: CanvasChipOption<string>[] = [
-    { value: "", label: automaticLabel, shortLabel: effectiveLabel },
+    { value: "", label: automaticLabel, shortLabel: effectiveLabel, ...(effective ? { mark: chipMark(effective) } : {}) },
     ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }), group: selected.provider }] : []),
-    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName })) ?? []),
+    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName, mark: chipMark(model) })) ?? []),
   ];
   return <div className="media-default-field">
     <span>{usageLabel(usage)}</span>
@@ -100,7 +101,7 @@ function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: 
     ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }) }] : []),
     ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, description: model.providerName, icon: <ProviderMark provider={model.provider} name={model.providerName} /> })) ?? []),
   ];
-  return <SettingsRow title={label}>
+  return <SettingsRow className="is-compact" title={label}>
     {!catalog ? <span className="settings-muted">{loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable")}</span>
       : !options.length ? <span className="settings-muted">{t("mediaDefaults.connectFirst")}</span>
       : <span className={disabled ? "settings-select-busy" : undefined}>
@@ -110,13 +111,63 @@ function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: 
   </SettingsRow>;
 }
 
-/** `leading` rows come first, such as the chat model, which Agents sets. */
-export function GlobalMediaModelDefaults({ capability, leading }: { capability: "all" | ProviderCapability; leading?: ReactNode }) {
+/**
+ * The model new conversations start on, chosen from OhMyGame's own models like
+ * the generation defaults. A conversation that switches model moves it too.
+ * A coding agent's model chosen elsewhere stays listed while it is the default.
+ */
+export function ChatModelDefaultRow({ title = t("settings.providers.chatUsage"), description }: { title?: string; description?: string }) {
+  const catalog = useAgentModels({ agentRuntimes: true });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const own = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
+  const chosen = catalog.defaultModel;
+  const current = chosen && catalog.models.find((model) => modelKey(model) === modelKey(chosen));
+  // Without a default, a new conversation starts on the first of OhMyGame's models.
+  const first = own[0];
+  const options = [
+    ...(!current && first ? [{ value: "", label: t("mediaDefaults.automatic", { label: first.name }), icon: <ProviderMark provider={first.provider} name={first.providerName} /> }] : []),
+    ...(current && isAgentRuntimeId(current.provider) ? [current] : []).concat(own).map((model) => ({
+      value: modelKey(model), label: model.name, description: model.providerName, icon: <ProviderMark provider={model.provider} name={model.providerName} />,
+    })),
+  ];
+  async function choose(value: string) {
+    const model = catalog.models.find((item) => modelKey(item) === value);
+    if (!model || saving || (current && modelKey(current) === value)) return;
+    setSaving(true); setError(undefined);
+    try {
+      await updateAgentDefaults(isAgentRuntimeId(model.provider)
+        ? { model, nativeReasoningLevel: nativeEffort(model, catalog.defaultNativeReasoningLevel) }
+        : { model, reasoningLevel: clampReasoningLevel(catalog.defaultReasoningLevel, model.reasoningLevels) });
+      notifyAgentModelsChanged();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  return <SettingsRow className="is-compact" title={title} description={error ?? description}>
+    {catalog.status === "loading" && !catalog.models.length ? <span className="settings-muted">{t("common.loading")}</span>
+      : !own.length && !current ? <span className="settings-muted">{t("mediaDefaults.connectFirst")}</span>
+      : <span className={saving ? "settings-select-busy" : undefined}>
+        <Select size="sm" label={title} value={current ? modelKey(current) : ""} options={options} onChange={(value) => void choose(value)} />
+      </span>}
+  </SettingsRow>;
+}
+
+/** A kind has a choice once a connected provider makes it, or a default is saved for it. */
+function hasChoice(catalog: Catalog | undefined): boolean {
+  return Boolean(catalog && (catalog.models.length || catalog.defaultModel));
+}
+
+/**
+ * The default model per kind, one line each, for the kinds a connection makes.
+ * The others stay out of the list until a provider makes them.
+ * `leading` rows come first, such as the chat model.
+ */
+export function GlobalMediaModelDefaults({ leading }: { leading?: ReactNode }) {
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const usages = MEDIA_MODEL_USAGES.filter((usage) => capability === "all" || usageCapability(usage) === capability);
-  if (!usages.length && !leading) return null;
+  const ready = !loading || MEDIA_MODEL_USAGES.some((usage) => catalogs[usage]);
+  const usable = MEDIA_MODEL_USAGES.filter((usage) => hasChoice(catalogs[usage]));
   async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (busy) return;
     setBusy(true); setError(undefined);
@@ -124,13 +175,10 @@ export function GlobalMediaModelDefaults({ capability, leading }: { capability: 
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <SettingsGroup className={`settings-generation-defaults${capability === "all" ? " is-all" : ""}`} label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
+  return <SettingsGroup className="settings-generation-defaults" label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")}>
     {leading}
-    {usages.filter((usage) => !isAudioKind(usage)).map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    {usages.some(isAudioKind) ? <div role="group" aria-label={t("assetCanvas.node.audio")} className="media-default-audio-group">
-      <div className="media-default-audio-label">{t("assetCanvas.node.audio")}</div>
-      {usages.filter(isAudioKind).map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    </div> : null}
+    {usable.map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
+    {!ready ? <div className="settings-defaults-waiting"><Spinner size="sm" />{t("mediaDefaults.loading")}</div> : null}
     {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
   </SettingsGroup>;
 }
@@ -194,10 +242,10 @@ export function ProjectMediaModelSettings({ project, onSaved }: {
     finally { setSaving(false); }
   }
   return <>
-    <button ref={trigger} className="icon-button pane-header-action" type="button" title={t("mediaDefaults.title")} aria-label={t("mediaDefaults.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size={14} /></button>
+    <button ref={trigger} className="icon-button pane-header-action" type="button" title={t("mediaDefaults.title")} aria-label={t("mediaDefaults.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size="sm" /></button>
     {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
       style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
-      <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <LoaderCircle className="spin" size={12} aria-label={t("mediaDefaults.saving")} /> : null}</div>
+      <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <Spinner size="xs" aria-label={t("mediaDefaults.saving")} /> : null}</div>
       {MEDIA_MODEL_USAGES.filter((usage) => !isAudioKind(usage)).map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
       <div role="group" aria-label={t("assetCanvas.node.audio")} className="media-default-audio-group">
         <div className="media-default-audio-label">{t("assetCanvas.node.audio")}</div>

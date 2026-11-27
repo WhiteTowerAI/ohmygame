@@ -12,9 +12,9 @@ import {
   NumberField,
   NumberListField,
 } from "./custom-model-usage-fields.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { t } from "./i18n.js";
-import { Disclosure } from "./ui/index.js";
+import { Button, Disclosure } from "./ui/index.js";
 
 /** Keep omitted capabilities omitted; preset edits must not rewrite the adapter's contract. */
 function editable(model: PluginMediaModels["3d"]): PluginEditable3DModel {
@@ -372,34 +372,30 @@ export function PluginModel3DForm({
       ) : null}
       <div className="provider-model-form-footer">
         {onReset ? (
-          <button
-            className="settings-secondary-button"
-            type="button"
+          <Button
             disabled={busy}
             onClick={onReset}
           >
             {t("model3dForm.restore")}
-          </button>
+          </Button>
         ) : (
           <span />
         )}
         <div className="provider-model-form-actions">
-          <button
-            className="settings-secondary-button"
-            type="button"
+          <Button
             disabled={busy}
             onClick={onCancel}
           >
             {t("common.cancel")}
-          </button>
-          <button
-            className="settings-primary-button"
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={busy || !model.id.trim()}
           >
-            {busy ? <LoaderCircle className="spin" size={13} /> : null}
+            {busy ? <Spinner size="sm" /> : null}
             {initial ? t("common.save") : t("common.add")}
-          </button>
+          </Button>
         </div>
       </div>
     </form>

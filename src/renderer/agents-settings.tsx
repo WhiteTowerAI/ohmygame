@@ -8,6 +8,7 @@ import { useAgentModels } from "./model-selector.js";
 import type { SettingsSection } from "./routes.js";
 import { Badge, Button, IconButton, Select } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { ChatModelDefaultRow } from "./media-model-defaults.js";
 import { t } from "./i18n.js";
 import { BrandLogo } from "./brand-logo.js";
 
@@ -25,18 +26,16 @@ export function AgentsSettings({
   onOpen,
   onBack,
   onOpenSection,
-  onOpenPlugins,
 }: {
   agent?: string;
   onOpen: (id: string) => void;
   onBack: () => void;
   onOpenSection: (section: SettingsSection) => void;
-  onOpenPlugins: () => void;
 }) {
   if (agent === AGENT_INSTRUCTIONS)
     return <AgentInstructionsSettings onBack={onBack} />;
   if (agent === OHMYGAME_AGENT)
-    return <OhMyGameAgent onBack={onBack} onOpenSection={onOpenSection} onOpenPlugins={onOpenPlugins} />;
+    return <OhMyGameAgent onBack={onBack} onOpenSection={onOpenSection} />;
   if (agent && isAgentRuntimeId(agent))
     return <CodingAgentDetail key={agent} id={agent} onBack={onBack} />;
   if (agent)
@@ -92,7 +91,7 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
           onClick={() => onOpen(OHMYGAME_AGENT)}
         >
           <IconButton size="sm" label={t("settings.agents.manage", { name: "OhMyGame" })} onClick={() => onOpen(OHMYGAME_AGENT)}>
-            <ChevronRight size={16} />
+            <ChevronRight size="md" />
           </IconButton>
         </SettingsRow>
       </SettingsGroup>
@@ -102,20 +101,20 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
         onOpen={onOpen}
         actions={
           <IconButton size="sm" label={t("agents.rescan")} disabled={rescanning} onClick={() => void rescan()}>
-            <RefreshCw size={15} className={rescanning ? "spin" : undefined} />
+            <RefreshCw size="sm" className={rescanning ? "spin" : undefined} />
           </IconButton>
         }
       />
       <QuestionSettings />
       <SettingsGroup title={t("settings.agents.instructions.group")}>
         <SettingsRow
-          icon={<FileText size={18} />}
+          icon={<FileText size="md" />}
           title={t("settings.agents.instructions.title")}
           description={t("settings.agents.instructions.rowHint")}
           onClick={() => onOpen(AGENT_INSTRUCTIONS)}
         >
           <IconButton size="sm" label={t("settings.agents.instructions.title")} onClick={() => onOpen(AGENT_INSTRUCTIONS)}>
-            <ChevronRight size={16} />
+            <ChevronRight size="md" />
           </IconButton>
         </SettingsRow>
       </SettingsGroup>
@@ -125,18 +124,13 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 /**
- * The built-in agent. Its models come from Providers; a conversation picks
- * one in its model picker and new conversations start on the last one used.
+ * The built-in agent: the model new conversations start on, from the models
+ * connected in Providers. A conversation picks its own in its model picker.
  */
-function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
+function OhMyGameAgent({ onBack, onOpenSection }: {
   onBack: () => void;
   onOpenSection: (section: SettingsSection) => void;
-  onOpenPlugins: () => void;
 }) {
-  const catalog = useAgentModels({ agentRuntimes: true });
-  const ownModels = catalog.models.filter((model) => !isAgentRuntimeId(model.provider));
-  const defaultModel = catalog.defaultModel && ownModels.find((model) => model.provider === catalog.defaultModel!.provider && model.id === catalog.defaultModel!.id);
-  const chevron = <ChevronRight size={16} className="settings-row-chevron" />;
   return (
     <>
       <SettingsDetailHead mark={<BrandMark size={28} />} title="OhMyGame" description={t("settings.agents.ohmygameDescription")} onBack={onBack} backLabel={t("settings.agents.back")} />
@@ -145,23 +139,7 @@ function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
         description={t("settings.agents.modelsHint")}
         actions={<Button size="sm" variant="ghost" onClick={() => onOpenSection("providers")}>{t("agents.manageModels")}</Button>}
       >
-        <SettingsRow
-          title={t("settings.agents.chatModel")}
-          description={catalog.status === "loading" ? t("common.loading") : !ownModels.length ? t("agents.ohmygameNoModels") : t("settings.agents.chatModelHint", { count: ownModels.length })}
-        >
-          {defaultModel ? <span className="settings-muted">{defaultModel.name}<span className="settings-count"> · {defaultModel.providerName}</span></span> : null}
-        </SettingsRow>
-        <SettingsRow title={t("settings.agents.mediaDefaults")} description={t("settings.agents.mediaDefaultsHint")} onClick={() => onOpenSection("providers")}>
-          <IconButton size="sm" label={t("settings.agents.mediaDefaults")} onClick={() => onOpenSection("providers")}>{chevron}</IconButton>
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.agents.skillsAndTools")}>
-        <SettingsRow title={t("settings.agents.pluginSkills")} description={t("settings.agents.pluginSkillsHint")} onClick={onOpenPlugins}>
-          <IconButton size="sm" label={t("settings.agents.pluginSkills")} onClick={onOpenPlugins}>{chevron}</IconButton>
-        </SettingsRow>
-        <SettingsRow title={<>{t("settings.nav.mcpServer")}<Badge>{t("settings.nav.mcpServerLegacy")}</Badge></>} description={t("settings.agents.mcpHint")} onClick={() => onOpenSection("mcp-server")}>
-          <IconButton size="sm" label={t("settings.nav.mcpServer")} onClick={() => onOpenSection("mcp-server")}>{chevron}</IconButton>
-        </SettingsRow>
+        <ChatModelDefaultRow title={t("settings.agents.chatModel")} />
       </SettingsGroup>
     </>
   );

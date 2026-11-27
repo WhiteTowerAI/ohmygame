@@ -1,9 +1,9 @@
-import { Archive, Check, ChevronLeft, FilePenLine, FileText, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
+import { Archive, Check, ChevronLeft, Pencil, FileText, History, Spinner, RotateCcw, Search, Trash2, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
 import { editedAgo } from "./app-sidebar.js";
-import { Popover } from "./ui/index.js";
+import { IconButton, Popover } from "./ui/index.js";
 
 /** Below this many conversations the list fits at a glance and needs no search. */
 const SEARCH_FROM = 8;
@@ -26,8 +26,16 @@ interface ConversationMenuProps {
   onShowInstructions?: () => void;
 }
 
+/** The daemon's title for a conversation nothing has named yet. */
+const UNTITLED_CONVERSATION = "New conversation";
+
+/** Shows an unnamed conversation's title in the app's language. */
+function localizedTitle(conversation: ConversationSummary): ConversationSummary {
+  return conversation.title === UNTITLED_CONVERSATION ? { ...conversation, title: t("conversations.untitled") } : conversation;
+}
+
 export function ConversationMenu({
-  conversations,
+  conversations: listed,
   currentConversationId,
   activeConversationId,
   disabled,
@@ -37,6 +45,7 @@ export function ConversationMenu({
   archive,
   onShowInstructions,
 }: ConversationMenuProps) {
+  const conversations = listed.map(localizedTitle);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
   const [title, setTitle] = useState("");
@@ -44,10 +53,10 @@ export function ConversationMenu({
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   // The archive view replaces the list while it is open.
-  const [archived, setArchived] = useState<ConversationSummary[]>();
+  const [archivedSource, setArchived] = useState<ConversationSummary[]>();
+  const archived = archivedSource?.map(localizedTitle);
   const [busyId, setBusyId] = useState<string>();
   const [confirmingId, setConfirmingId] = useState<string>();
-  const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -120,21 +129,20 @@ export function ConversationMenu({
   const visibleConversations = conversations.filter((conversation) => !normalizedQuery || conversation.title.toLowerCase().includes(normalizedQuery));
 
   return (
-    <div className="conversation-menu" ref={root}>
-      <button
+    <>
+      <IconButton
         ref={trigger}
-        className="icon-button pane-header-action"
-        type="button"
-        aria-label={t("conversations.history")}
+        size="sm"
+        label={t("conversations.history")}
+        className={open ? "is-active" : undefined}
         disabled={disabled}
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
         aria-haspopup="dialog"
-        title={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
-        <History size={14} />
-      </button>
+        <History size="sm" />
+      </IconButton>
 
       <Popover open={open} onClose={close} anchor={trigger} placement="bottom-end" className="conversation-popover" label={t("conversations.label")}>
         <div id="conversation-menu-popover">
@@ -142,7 +150,7 @@ export function ConversationMenu({
             <div className="conversation-archive-head">
               <button type="button" className="conversation-archive-back" onClick={() => { setArchived(undefined); setConfirmingId(undefined); }}
                 aria-label={t("conversations.back")} title={t("conversations.back")}>
-                <ChevronLeft size={14} />
+                <ChevronLeft size="sm" />
               </button>
               <span>{t("conversations.showArchived")}</span>
             </div>
@@ -156,12 +164,12 @@ export function ConversationMenu({
                   <span className="conversation-row-actions is-visible">
                   <button className="conversation-rename-button" type="button" disabled={Boolean(busyId)} onClick={() => void restore(conversation)}
                     title={t("conversations.restoreName", { title: conversation.title })} aria-label={t("conversations.restoreName", { title: conversation.title })}>
-                    {busyId === conversation.id && confirmingId !== conversation.id ? <LoaderCircle className="spin" size={13} /> : <RotateCcw size={13} />}
+                    {busyId === conversation.id && confirmingId !== conversation.id ? <Spinner size="sm" /> : <RotateCcw size="sm" />}
                   </button>
                   <button className={`conversation-rename-button is-danger${confirmingId === conversation.id ? " is-confirming" : ""}`} type="button" disabled={Boolean(busyId)}
                     onClick={() => remove(conversation)} onBlur={() => setConfirmingId((id) => id === conversation.id ? undefined : id)}
                     title={t("conversations.deleteName", { title: conversation.title })} aria-label={t("conversations.deleteName", { title: conversation.title })}>
-                    {confirmingId === conversation.id ? t("conversations.confirmDelete") : <Trash2 size={13} />}
+                    {confirmingId === conversation.id ? t("conversations.confirmDelete") : <Trash2 size="sm" />}
                   </button>
                   </span>
                 </div>
@@ -172,7 +180,7 @@ export function ConversationMenu({
           </> : <>
           {conversations.length >= SEARCH_FROM ? (
             <label className="project-switcher-search">
-              <Search size={13} />
+              <Search size="sm" />
               <input ref={searchInput} aria-label={t("conversations.search")} value={query} placeholder={t("conversations.search")} onChange={(event) => setQuery(event.target.value)} />
             </label>
           ) : <div className="conversation-menu-label">{t("conversations.label")}</div>}
@@ -188,10 +196,10 @@ export function ConversationMenu({
                   value={title}
                 />
                 <button type="submit" disabled={!title.trim() || saving} title={t("conversations.saveTitle")} aria-label={t("conversations.saveTitle")}>
-                  {saving ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
+                  {saving ? <Spinner size="sm" /> : <Check size="sm" />}
                 </button>
                 <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} title={t("conversations.cancelRename")} aria-label={t("conversations.cancelRename")}>
-                  <X size={13} />
+                  <X size="sm" />
                 </button>
               </form>
             ) : (
@@ -214,7 +222,7 @@ export function ConversationMenu({
                         : editedAgo(conversation.updatedAt)}
                   </span>
                   <span className="conversation-option-mark" aria-hidden="true">
-                    {conversation.id === currentConversationId ? <Check size={14} /> : null}
+                    {conversation.id === currentConversationId ? <Check size="sm" /> : null}
                   </span>
                 </button>
                 <span className="conversation-row-actions">
@@ -225,7 +233,7 @@ export function ConversationMenu({
                   title={t("conversations.rename")}
                   aria-label={t("conversations.renameName", { title: conversation.title })}
                 >
-                  <FilePenLine size={13} />
+                  <Pencil size="sm" />
                 </button>
                 {onArchive ? <button
                   className="conversation-rename-button"
@@ -235,7 +243,7 @@ export function ConversationMenu({
                   title={t("conversations.archive")}
                   aria-label={t("conversations.archiveName", { title: conversation.title })}
                 >
-                  {busyId === conversation.id ? <LoaderCircle className="spin" size={13} /> : <Archive size={13} />}
+                  {busyId === conversation.id ? <Spinner size="sm" /> : <Archive size="sm" />}
                 </button> : null}
                 </span>
               </div>
@@ -244,13 +252,13 @@ export function ConversationMenu({
           </div>
           {archive ? (
             <button type="button" className="conversation-archive-link" disabled={busyId === "archive"} onClick={() => void showArchived()}>
-              {busyId === "archive" ? <LoaderCircle className="spin" size={13} /> : <Archive size={13} />}
+              {busyId === "archive" ? <Spinner size="sm" /> : <Archive size="sm" />}
               <span>{t("conversations.showArchived")}</span>
             </button>
           ) : null}
           {onShowInstructions && currentConversationId ? (
             <button type="button" className="conversation-archive-link" onClick={() => { close(); onShowInstructions(); }}>
-              <FileText size={13} />
+              <FileText size="sm" />
               <span>{t("conversations.instructions")}</span>
             </button>
           ) : null}
@@ -258,6 +266,6 @@ export function ConversationMenu({
           {error ? <p className="conversation-menu-error" role="alert">{error}</p> : null}
         </div>
       </Popover>
-    </div>
+    </>
   );
 }

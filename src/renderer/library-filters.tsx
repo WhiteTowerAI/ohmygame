@@ -60,25 +60,31 @@ export function LibraryCollectionFilters({ assets, filters, onChange, defaultInc
   </AssetFilterPopover>;
 }
 
-/** A project's Assets panel source, use and time filters, in the row beside the kind tabs, as on the Library page. */
+/**
+ * A project's Assets panel source, use and time filters, in the row beside the
+ * kind tabs, as on the Library page. Source and use show only when the assets
+ * differ in them, or while one is set, so a filter is never a no-op.
+ */
 export function ProjectAssetFilterRow({ assets, filters, onChange }: {
   assets: readonly BrowsableAsset[];
   filters: ProjectAssetFilters;
   onChange: (filters: ProjectAssetFilters) => void;
 }) {
+  const sources = new Set(assets.map((asset) => asset.origin ?? "workspace")).size > 1 || (filters.origin ?? "all") !== "all";
+  const uses = new Set(assets.map((asset) => asset.purpose ?? "asset")).size > 1 || (filters.purpose ?? "all") !== "all";
   return <>
-    <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
+    {sources ? <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
       { value: "all", label: t("libraryFilters.allSources") },
       { value: "generated", label: t("libraryFilters.generated") },
       { value: "uploaded", label: t("libraryFilters.uploaded") },
       { value: "workspace", label: t("libraryFilters.projectFiles") },
       ...(assets.some((asset) => asset.origin === "builtin") ? [{ value: "builtin" as const, label: t("libraryFilters.builtIn") }] : []),
-    ]} />
-    <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
+    ]} /> : null}
+    {uses ? <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
       { value: "all", label: t("libraryFilters.allUses") },
       { value: "asset", label: t("libraryFilters.assets") },
       { value: "reference", label: t("libraryFilters.references") },
-    ]} />
+    ]} /> : null}
     <AssetPeriodSelect label={t("libraryFilters.modified")} value={filters.period} onChange={(period) => onChange({ ...filters, period })} />
   </>;
 }
@@ -148,10 +154,10 @@ function AssetFilterPopover({ active, onReset, children }: { active: boolean; on
 
   return <>
     <button ref={trigger} className={`library-filter-trigger${active ? " is-active" : ""}`} type="button" title={t("libraryFilters.filter")} aria-label={t("libraryFilters.filter")} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
-      <SlidersHorizontal size={16} />{active ? <span className="library-filter-dot" /> : null}
+      <SlidersHorizontal size="md" />{active ? <span className="library-filter-dot" /> : null}
     </button>
     {open ? createPortal(<div ref={popup} className="library-filter-popover" role="dialog" aria-labelledby={titleId} style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
-      <header><strong id={titleId}>{t("libraryFilters.filters")}</strong><button type="button" title={t("libraryFilters.close")} aria-label={t("libraryFilters.close")} onClick={close}><X size={14} /></button></header>
+      <header><strong id={titleId}>{t("libraryFilters.filters")}</strong><button type="button" title={t("libraryFilters.close")} aria-label={t("libraryFilters.close")} onClick={close}><X size="sm" /></button></header>
       {children}
       {active ? <button className="library-filter-reset" type="button" onClick={onReset}>{t("libraryFilters.reset")}</button> : null}
     </div>, document.body) : null}

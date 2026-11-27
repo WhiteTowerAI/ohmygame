@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240" viewBox="0 0 480 240" preserveAspectRatio="none">
+  <!-- A mask that dissolves a picture in from its left in fine grain, as paint thins out, rather than a smooth fade: a left-to-right ramp plus noise, cut at a threshold. -->
+  <defs>
+    <linearGradient id="ramp">
+      <stop offset="0" stop-color="white" stop-opacity="0" />
+      <stop offset="1" stop-color="white" stop-opacity="1" />
+    </linearGradient>
+    <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
+      <feColorMatrix in="noise" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1 0 0 0 0" result="speckle" />
+      <feComposite in="SourceGraphic" in2="speckle" operator="arithmetic" k2="1" k3="0.6" k4="-0.3" result="sum" />
+      <feComponentTransfer in="sum">
+        <feFuncA type="linear" slope="2.5" intercept="-0.75" />
+      </feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="480" height="240" fill="url(#ramp)" filter="url(#grain)" />
+</svg>

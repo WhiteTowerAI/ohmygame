@@ -33,7 +33,7 @@ export function SidebarPageHeader({ actions, breadcrumb, children, title }: {
         {breadcrumb ? (
           <nav className="sidebar-page-breadcrumb" aria-label={t("ui.breadcrumb")}>
             <button type="button" onClick={breadcrumb.onClick}>{breadcrumb.label}</button>
-            <ChevronRight size={14} aria-hidden="true" />
+            <ChevronRight size="sm" aria-hidden="true" />
             <h1>{title}</h1>
           </nav>
         ) : <h1>{title}</h1>}

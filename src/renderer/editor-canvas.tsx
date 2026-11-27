@@ -63,6 +63,8 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   /** Open the menu as "add" on a double-click on empty canvas in pointer mode. */
   addOnDoubleClick?: boolean;
   pickingReferences?: boolean;
+  /** What an empty canvas says in its middle, such as how to add the first node. */
+  emptyHint?: { title: string; description: string };
   fitViewOnLoad?: boolean;
   onInitialFit?: (viewport: { x: number; y: number; zoom: number }) => void;
 };
@@ -88,6 +90,7 @@ export function EditorCanvas<N extends Node>({
   onNodeDoubleClick,
   fitViewOnLoad = false,
   pickingReferences = false,
+  emptyHint,
   onInitialFit,
   style,
   children,
@@ -185,19 +188,24 @@ export function EditorCanvas<N extends Node>({
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--canvas-grid)" />
+      {emptyHint && !nodes.some((node) => !node.hidden) ? <div className="canvas-flow-empty" role="note">
+        <strong>{emptyHint.title}</strong><span>{emptyHint.description}</span>
+      </div> : null}
+      <CanvasZoomVariable />
       <AlignmentGuides guides={guides} />
-      <ZoomControls />
       <PinchZoomOverScrollingContent />
       {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
       <Panel className="canvas-toolbar" position="bottom-center">
         {addControl}
         {selectionAction}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
-          <MousePointer2 size={18} />
+          <MousePointer2 size="md" />
         </button>
         <button className={mode === "pan" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
-          <Hand size={18} />
+          <Hand size="md" />
         </button>
+        <span className="canvas-toolbar-separator" aria-hidden="true" />
+        <ZoomControls />
         <FitViewButton />
       </Panel>
       <DeleteKeys keys={deleteKeyCode} canvas={wrapper} />
@@ -459,7 +467,7 @@ function FitViewButton() {
     }
     await fitView({ padding: 0.2, duration: 200 });
   }
-  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
+  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size="md" /></button>;
 }
 
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
@@ -509,14 +517,34 @@ function canvasViewportZoom(canvas: HTMLElement | null): number {
   }
 }
 
+/** The zoom, in the bottom toolbar after the tools. */
 function ZoomControls() {
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
   return (
-    <div className="react-flow__panel bottom left canvas-zoom">
-      <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </div>
+    <>
+      <button type="button" data-tooltip={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size="md" /></button>
+      <button className="canvas-zoom-value" type="button" data-tooltip={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+      <button type="button" data-tooltip={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size="md" /></button>
+    </>
   );
+}
+
+/** Below this zoom, node labels would crowd and cover each other, so only the selected ones show. */
+const ZOOMED_OUT = 0.3;
+
+/**
+ * Node labels, frame lines, corners, selection and handles stay the same size
+ * on screen at every zoom; only what a node shows scales. The canvas tells its
+ * CSS the zoom once, as `--canvas-zoom`, so nodes don't render for it.
+ */
+function CanvasZoomVariable() {
+  const domNode = useStore((state) => state.domNode);
+  const zoom = useStore((state) => state.transform[2]);
+  useLayoutEffect(() => {
+    domNode?.style.setProperty("--canvas-zoom", String(zoom));
+    // A data attribute, as React owns the class names and rewrites them when panning starts.
+    domNode?.toggleAttribute("data-zoomed-out", zoom < ZOOMED_OUT);
+  }, [domNode, zoom]);
+  return null;
 }

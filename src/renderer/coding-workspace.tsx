@@ -10,7 +10,6 @@ import {
   Code2,
   ExternalLink,
   FileCode2,
-  FileConfig,
   FileDocument,
   FilePlain,
   FileStyle,
@@ -21,9 +20,9 @@ import {
   Music2,
   FolderPlus,
   Image as ImageIcon,
-  LaptopMinimalistic,
+  TriangleAlert,
   Layers3,
-  LoaderCircle,
+  Spinner,
   Monitor,
   Pencil,
   Plus,
@@ -73,7 +72,7 @@ import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
 import { useWorkspaceFiles } from "./use-workspace-files.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
-import { GameRecordButton } from "./game-recording.js";
+import { GameRecordStatus, recordMenuItem, useGameRecording } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { gamePanelAddable, panelTitle } from "./workspace-layout.js";
 import { useReadyRuntimeGeneration, useRuntimeConnection } from "./runtime-connection.js";
@@ -81,8 +80,10 @@ import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
+import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, Loading, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
+import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
@@ -350,13 +351,12 @@ export function CodingWorkspace({
   }
 
   function refreshPreview(): void {
-    if (preview?.status === "ready") {
-      if (player.open) void player.reload();
-      else if (nativePreview) setReload((value) => value + 1);
-      else { setPreviewPath(actualPreviewPath); setReload((value) => value + 1); }
-    } else if (preview?.status === "error" || preview?.status === "stopped") {
-      onRestart();
+    if (player.open) {
+      void player.reload();
+      return;
     }
+    if (!nativePreview) setPreviewPath(actualPreviewPath);
+    setReload((value) => value + 1);
   }
 
   function playGame(): void {
@@ -394,16 +394,18 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
-  const playButton = supportsPreview ? <Button
+  // Only the icon in the title bar, which Windows shares with its window buttons; the label names it.
+  const playButton = supportsPreview ? <IconButton
     size="sm"
-    variant="ghost"
-    className={`preview-play-button${player.open ? " is-active" : ""}`}
-    icon={player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
-    data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
+    active={player.open}
+    label={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
-  >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
-  const recordButton = supportsPreview && project ? <GameRecordButton projectId={project.id} gameRunning={player.open || preview?.status === "ready"} /> : null;
+  >{player.pending ? <Spinner size="sm" /> : <Play size="sm" />}</IconButton> : null;
+  // Recording starts from the game's ··· menu; only one under way shows beside Play.
+  const recording = useGameRecording(supportsPreview ? project?.id : undefined);
+  const recordItem = recordMenuItem(recording, player.open || preview?.status === "ready");
+  const recordButton = <GameRecordStatus recording={recording} />;
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setCodeFileRequest({ path, id: ++codeRequestId.current });
@@ -418,8 +420,6 @@ export function CodingWorkspace({
           paths={knownPaths}
           status={preview?.status}
           previewUrl={currentPreviewUrl}
-          refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
-          refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
           devices={previewDevices}
           filters={previewFilters}
@@ -434,6 +434,7 @@ export function CodingWorkspace({
           pickDisabled={!project || preview?.status !== "ready" || player.open}
           tuningOpen={tuningOpen}
           onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
+          recordItem={recordItem}
           logsOpen={logsOpen}
           onLogs={() => setLogsOpen((open) => !open)}
           onNavigate={navigatePreview}
@@ -469,14 +470,14 @@ export function CodingWorkspace({
     } : undefined,
     design: project ? {
       toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><DesignDocumentPanel
+      body: <Suspense fallback={<Loading />}><DesignDocumentPanel
         project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
         onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
       /></Suspense>,
     } : undefined,
     canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
-      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      body: <Suspense fallback={<Loading />}><CanvasWorkspace
         project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     } : undefined,
@@ -527,7 +528,7 @@ export function CodingWorkspace({
     const nodes = panels.nodes[view];
     // Each panel fails by itself, where it is, and leaves the others showing.
     return <Fragment key={view}>
-      {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
+      {content.toolbar ? createPortal(<PanelTools from={nodes.toolbar}><div className="viewer-publish">{content.toolbar}</div></PanelTools>, nodes.toolbar) : null}
       {createPortal(<ErrorBoundary label={panelTitle(view === "preview" ? "game" : view)} resetKey={project?.id}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
     </Fragment>;
   });
@@ -557,8 +558,6 @@ function PreviewControls({
   paths,
   status,
   previewUrl,
-  refreshDisabled,
-  refreshLabel,
   viewport,
   devices,
   filters,
@@ -573,6 +572,7 @@ function PreviewControls({
   pickDisabled,
   tuningOpen,
   onToggleTuning,
+  recordItem,
   logsOpen,
   onLogs,
   onNavigate,
@@ -586,8 +586,6 @@ function PreviewControls({
   paths: string[];
   status?: ProjectState["preview"]["status"];
   previewUrl?: string;
-  refreshDisabled: boolean;
-  refreshLabel: string;
   viewport: PreviewViewport;
   devices: readonly ProjectPreviewDevice[];
   filters: readonly ProjectPreviewFilter[];
@@ -603,6 +601,8 @@ function PreviewControls({
   tuningOpen: boolean;
   /** Absent when this game can't be tuned. */
   onToggleTuning?: () => void;
+  /** Starts a recording; absent when the game can't be recorded now. */
+  recordItem?: MenuItem;
   logsOpen: boolean;
   onLogs: () => void;
   onNavigate: (path: string) => void;
@@ -613,28 +613,35 @@ function PreviewControls({
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
   const gameMore = usePluginSlot("game.more");
-  // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} filters={filters} filter={filter} onFilterChange={onFilterChange} inputMaps={inputMaps} inputMap={inputMap} onInputMapChange={onInputMapChange} />
-      <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
-        active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
-      {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
+      <PanelTool id="pick" menu={[{ label: t("workspace.pickElement"), icon: <MousePointer2 size="sm" />, checked: picking, disabled: pickDisabled && !picking, onSelect: onTogglePicking }]}>
+        <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
+          active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size="sm" /></IconButton>
+      </PanelTool>
       {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
       {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
-        <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
-          aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
-          title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
-          icon={<Gamepad2 size={14} />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
+        <PanelTool id="playtest" priority={2} menu={[{ label: t("workspace.agentPlaytest"), icon: <Gamepad2 size="sm" />, checked: agentPlaytestWatch.visible,
+          disabled: agentPlaytestWatchPending, onSelect: onToggleAgentPlaytestWatch }]}>
+          <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
+            aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
+            title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
+            icon={<Gamepad2 size="sm" />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
+        </PanelTool>
       ) : null}
-      <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
-      <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
-        ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
-        { label: t("projectSettings.restartPreview"), icon: <Server size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size={14} />, onSelect: onLogs },
+      <PanelToolsMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size="sm" /></IconButton>} items={[
+        ...(onToggleTuning ? [{ label: t("gameTuning.title"), icon: <SlidersHorizontal size="sm" />, checked: tuningOpen, onSelect: onToggleTuning }] : []),
+        ...(recordItem ? [recordItem] : []),
+        ...(onToggleTuning || recordItem ? ["separator" as const] : []),
+        { label: t("workspace.reloadPreview"), icon: <RefreshCw size="sm" />, disabled: status !== "ready", onSelect: onRefresh },
+        ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size="sm" />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
+        { label: t("projectSettings.restartPreview"), icon: <Server size="sm" />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        { label: logsOpen ? t("workspace.closeLogs") : t("workspace.logs"), icon: <Terminal size="sm" />, onSelect: onLogs },
+        "separator",
+        ...viewportMenu({ value: viewport, devices, onChange: onViewportChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }),
         // The project's plugins' entries for the game, after the app's.
-        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void gameMore.run(command) }))] : []),
+        ...(gameMore.commands.length ? ["separator" as const, ...gameMore.commands.map((command) => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => void gameMore.run(command) }))] : []),
       ]} />
     </div>
   );
@@ -723,7 +730,7 @@ function PreviewLocation({
         title={path}
       >
         <span className="preview-location-path">{path}</span>
-        <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
+        <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size="sm" />
       </button>
       {open ? (
         <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>
@@ -734,7 +741,7 @@ function PreviewLocation({
               if (normalizedQuery) navigate(normalizedQuery);
             }}
           >
-            <Search size={16} />
+            <Search size="md" />
             <input
               ref={search}
               aria-label={t("workspace.findPage")}
@@ -758,7 +765,7 @@ function PreviewLocation({
                 key={option}
                 onClick={() => navigate(option)}
               >
-                <span>{option === path ? <Check size={14} /> : null}</span>
+                <span>{option === path ? <Check size="sm" /> : null}</span>
                 <strong>{option}</strong>
               </button>
             ))}
@@ -769,130 +776,35 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: {
+interface ViewportChoices {
   value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void;
   filters: readonly ProjectPreviewFilter[]; filter?: string; onFilterChange: (filter: string | undefined) => void;
   inputMaps: readonly ProjectInputMap[]; inputMap?: string; onInputMapChange: (map: string | undefined) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menuId = useId();
+}
 
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-      trigger.current?.focus();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div className="viewport-menu" ref={root}>
-      <button
-        ref={trigger}
-        className="viewport-trigger"
-        type="button"
-        aria-controls={menuId}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label={t("workspace.viewportLabel")}
-        title={viewportLabel(value, devices)}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <ViewportIcon viewport={value} devices={devices} />
-        <ChevronDown size={11} />
-      </button>
-      {open ? (
-        <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {/* The built-in sizes, then the plugins' devices. */}
-          {[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => (
-            <button
-              className="viewport-option"
-              type="button"
-              role="menuitemradio"
-              aria-checked={viewport === value}
-              key={viewport}
-              onClick={() => {
-                onChange(viewport);
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            >
-              <ViewportIcon viewport={viewport} devices={devices} />
-              <span>{viewportLabel(viewport, devices)}</span>
-              {viewport === value ? <Check size={13} /> : null}
-            </button>
-          ))}
-          {/* The plugins' colour filters, for what the person sees only. */}
-          {filters.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.filterLabel")}>
-            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.filterLabel")}</span>
-            {[undefined, ...filters].map((item) => (
-              <button
-                className="viewport-option"
-                type="button"
-                role="menuitemradio"
-                aria-checked={item?.id === filter}
-                key={item?.id ?? "none"}
-                title={item?.source}
-                onClick={() => {
-                  onFilterChange(item?.id);
-                  setOpen(false);
-                  trigger.current?.focus();
-                }}
-              >
-                <Palette size={14} />
-                <span>{item?.title ?? t("workspace.noFilter")}</span>
-                {item?.id === filter ? <Check size={13} /> : null}
-              </button>
-            ))}
-          </div> : null}
-          {/* The plugins' gamepad maps, which press keys in the person's game. */}
-          {inputMaps.length ? <div className="viewport-menu-group" role="group" aria-label={t("workspace.gamepadLabel")}>
-            <span className="viewport-menu-heading" aria-hidden="true">{t("workspace.gamepadLabel")}</span>
-            {[undefined, ...inputMaps].map((item) => (
-              <button
-                className="viewport-option"
-                type="button"
-                role="menuitemradio"
-                aria-checked={item?.id === inputMap}
-                key={item?.id ?? "none"}
-                onClick={() => {
-                  onInputMapChange(item?.id);
-                  setOpen(false);
-                  trigger.current?.focus();
-                }}
-              >
-                <Gamepad2 size={14} />
-                <span>{item?.title ?? t("workspace.noGamepad")}</span>
-                {item?.id === inputMap ? <Check size={13} /> : null}
-              </button>
-            ))}
-          </div> : null}
-        </div>
-      ) : null}
-    </div>
-  );
+function viewportMenu({ value, devices, onChange, filters, filter, onFilterChange, inputMaps, inputMap, onInputMapChange }: ViewportChoices): MenuEntry[] {
+  return [
+    { heading: t("workspace.viewportLabel") },
+    ...[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => ({
+      label: viewportLabel(viewport, devices), icon: <ViewportIcon viewport={viewport} devices={devices} />,
+      radio: true, checked: viewport === value, onSelect: () => onChange(viewport),
+    })),
+    ...(filters.length ? [{ heading: t("workspace.filterLabel") }, ...[undefined, ...filters].map((item) => ({
+      label: item?.title ?? t("workspace.noFilter"), icon: <Palette size="sm" />, radio: true, checked: item?.id === filter, onSelect: () => onFilterChange(item?.id),
+    }))] : []),
+    ...(inputMaps.length ? [{ heading: t("workspace.gamepadLabel") }, ...[undefined, ...inputMaps].map((item) => ({
+      label: item?.title ?? t("workspace.noGamepad"), icon: <Gamepad2 size="sm" />, radio: true, checked: item?.id === inputMap, onSelect: () => onInputMapChange(item?.id),
+    }))] : []),
+  ];
 }
 
 function ViewportIcon({ viewport, devices }: { viewport: PreviewViewport; devices: readonly ProjectPreviewDevice[] }) {
   const device = devices.find((item) => item.id === viewport);
-  if (device) return <Smartphone size={14} style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
-  if (viewport === "tablet") return <Tablet size={14} />;
-  if (viewport === "mobile") return <Smartphone size={14} />;
-  if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
-  return <Monitor size={14} />;
+  if (device) return <Smartphone size="sm" style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
+  if (viewport === "tablet") return <Tablet size="sm" />;
+  if (viewport === "mobile") return <Smartphone size="sm" />;
+  if (viewport === "mobile-landscape") return <Smartphone size="sm" style={{ transform: "rotate(90deg)" }} />;
+  return <Monitor size="sm" />;
 }
 
 function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): string {
@@ -1040,32 +952,34 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       </div> : null}
       {suspended ? <div className="preview-player-state">
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
-        <div className="preview-empty-state">
-          <div className="preview-empty-mark" aria-hidden="true">{pending ? <LoaderCircle className="spin" size={20} /> : <Play size={20} />}</div>
-          <p className="preview-empty-title">{pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}</p>
-          <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
-          {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
-        </div>
+        <Empty fill icon={pending ? <Spinner size="md" /> : <Play size="md" />}
+          title={pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}
+          description={t("workspace.closeWindowHint")}
+          action={playerOpen && onPlay ? <Button disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</Button> : undefined} />
       </div> : !showFrame && project?.type === "general" && preview?.issue === "no-web-project" && preview.status === "waiting" ? <div className="preview-status-panel">
         <GameStartEmpty noWebProject onOpenSettings={onSettings} />
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
         {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project && !projectEngaged(project) ? <p>{t("workspace.fromElsewhere")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
+        {/* One row of ways out, the plugins' own (such as running it in its engine) among them; the logs and settings are quieter, below. */}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
-          <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</button>
-          {onSettings ? <button type="button" onClick={onSettings}>{t("projectSettings.title")}</button> : null}
-          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
-          {preview?.error && onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</button> : null}
+          <Button variant="primary" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</Button>
+          {preview?.error && onAskAgent ? <Button onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</Button> : null}
+          {preview.status === "error" ? <GameStartActions /> : null}
+        </div> : preview?.status === "error" ? <div className="preview-recovery-actions"><GameStartActions /></div> : null}
+        {(preview?.status === "error" || preview?.status === "stopped") && (onLogs || onSettings) ? <div className="preview-recovery-links">
+          {onLogs ? <Button variant="ghost" size="sm" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
+          {onSettings ? <Button variant="ghost" size="sm" onClick={onSettings}>{t("projectSettings.title")}</Button> : null}
         </div> : null}
-        {preview?.status === "error" ? <GameStartActions /> : null}
+        {preview?.status === "error" && preview.error ? <PreviewErrorDetails error={preview.error} /> : null}
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
         <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
         <Disclosure summary={t("common.errorDetails")}><pre>{diagnostic.message}</pre></Disclosure>
         <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
-          <button type="button" onClick={async () => {
+          <Button size="sm" onClick={async () => {
             const attempt = ++copyAttempt.current;
             setFailedCopyDiagnostic(undefined);
             try {
@@ -1073,11 +987,11 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
             } catch {
               if (attempt === copyAttempt.current) setFailedCopyDiagnostic(diagnostic);
             }
-          }}>{t("workspace.copyError")}</button>
+          }}>{t("workspace.copyError")}</Button>
           {failedCopyDiagnostic === diagnostic ? <span role="status">{t("common.copyFailed")}</span> : null}
-          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
-          {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</button> : null}
-          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</button> : null}
+          {onLogs ? <Button size="sm" onClick={onLogs}>{t("workspace.viewLogs")}</Button> : null}
+          {onAskAgent ? <Button size="sm" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</Button> : null}
+          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <Button size="sm" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</Button> : null}
         </div>
       </div> : null}
       {error ? <div className="preview-player-error" role="alert">{error}</div> : null}
@@ -1265,18 +1179,25 @@ export function WorkspaceFileBrowser({
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
-  const fileHeader = openFile && !showChanges ? <>
-    <span className="file-content-path" title={openFile.path}>
-      {openFile.path.split("/").map((part, index, parts) => index === parts.length - 1
+  const shownFile = openFile && !showChanges ? openFile : undefined;
+  const fileTools = shownFile ? <>
+    {fileActions}
+    {onOpenExternal ? <FileOpenActions path={shownFile.path} onOpen={onOpenExternal} /> : null}
+  </> : null;
+  const fileHeader = shownFile ? <>
+    <span className="file-content-path" title={shownFile.path}>
+      {shownFile.path.split("/").map((part, index, parts) => index === parts.length - 1
         ? <span key={index} className="file-content-name">{part}</span>
         : <span key={index}>{part}<span className="file-content-separator">/</span></span>)}
-      {openFile.truncated ? ` ${t("workspace.truncated")}` : ""}
+      {shownFile.truncated ? ` ${t("workspace.truncated")}` : ""}
     </span>
-    {fileActions}
-    {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
+    {fileTools}
   </> : null;
+  // In a panel's tab strip the file tree already marks the open file, so the
+  // strip holds only its actions, and says when the file is cut short.
   const toolbar = toolbarTarget ? createPortal(<>
-    {fileHeader ?? <span className="file-content-path" />}
+    <span className="file-content-note">{shownFile?.truncated ? t("workspace.truncated") : null}</span>
+    {fileTools}
   </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath && files.length === 0) return <WorkspaceState error={error} />;
@@ -1293,13 +1214,13 @@ export function WorkspaceFileBrowser({
           </nav> : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
           <button type="button" className="icon-button" disabled={git.loading} onClick={git.refresh}
             title={t("workspace.gitRefresh")} aria-label={t("workspace.gitRefresh")}>
-            <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
+            <RefreshCw size="xs" className={git.loading ? "spin" : undefined} />
           </button>
         </div> : null}
         {onRefresh && error ? <p className="file-action-error" role="alert">{error}</p> : null}
         <div className="file-explorer-filter">
         <label className="file-filter">
-          <Search size={13} aria-hidden="true" />
+          <Search size="sm" aria-hidden="true" />
           <input
             type="search"
             value={searchTerm}
@@ -1308,7 +1229,7 @@ export function WorkspaceFileBrowser({
             aria-label={t("workspace.filterFilesLabel")}
           />
         </label>
-        {onRefresh ? <IconButton size="sm" label={t("workspace.refreshFiles")} onClick={onRefresh} disabled={loading}><RefreshCw size={12} className={loading ? "spin" : undefined} /></IconButton> : null}
+        {onRefresh ? <IconButton size="sm" label={t("workspace.refreshFiles")} onClick={onRefresh} disabled={loading}><RefreshCw size="xs" className={loading ? "spin" : undefined} /></IconButton> : null}
         </div>
         {actionError ? <p className="file-action-error" role="alert">{actionError}</p> : null}
         {showChanges ? <GitChangesList data={git.data} loading={git.loading} error={git.error} search={searchTerm}
@@ -1372,7 +1293,7 @@ export function WorkspaceFileBrowser({
         onPointerCancel={finishExplorerResize}
         onLostPointerCapture={finishExplorerResize}
       />
-      <div className="file-content">
+      <div className="file-content" aria-label={shownFile?.path}>
         {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
           // A refresh keeps the open file on screen, also when it fails: the next one tries again.
           : openFile ? (
@@ -1386,11 +1307,11 @@ export function WorkspaceFileBrowser({
               : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={imageRevision} file={openFile} onOpenFile={onSelect} />
               : <HighlightedCode path={openFile.path} content={openFile.content ?? ""} />}
           </>
-        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
+        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="md" />} label={t("workspace.selectFile")} />}
       </div>
     </div>
     {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
-    {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? t("workspace.renameEntry", { name: fileName(entryDialog.path) }) : entryDialog.kind === "file" ? t("workspace.newFile") : t("workspace.newFolder")} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} returnFocus={null} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
+    {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? t("workspace.renameEntry", { name: fileName(entryDialog.path) }) : entryDialog.kind === "file" ? t("workspace.newFile") : t("workspace.newFolder")} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
       const entry = entryDialog;
       setEntryDialog(undefined);
       if (!projectId || !name.trim()) return;
@@ -1440,7 +1361,8 @@ function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTar
         ? selectedPath
         : requestedPath && result.some((file) => file.path === requestedPath)
         ? requestedPath
-        : result.find((file) => !file.directory)?.path;
+        // A hidden file, such as a tool's marker, isn't what to show first.
+        : (result.find((file) => !file.directory && !fileName(file.path).startsWith(".")) ?? result.find((file) => !file.directory))?.path;
       setSelectedPath(nextPath);
       if (!nextPath) {
         setSelectedFile(undefined);
@@ -1534,10 +1456,10 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
   return (
     <div className="file-open-actions" ref={actions}>
       <button type="button" disabled={opener.opening} onClick={() => void opener.choose("default")} title={t("workspace.openDefault")} aria-label={t("workspace.openDefaultLabel")}>
-        <ExternalLink size={13} />
+        <ExternalLink size="sm" />
       </button>
       <button className="file-open-menu-button" type="button" onClick={() => setOpen((value) => !value)} title={t("workspace.chooseOpen")} aria-label={t("workspace.chooseOpenLabel")} aria-expanded={open} aria-haspopup="menu">
-        <ChevronDown size={12} />
+        <ChevronDown size="xs" />
       </button>
       {open ? (
         <div className="file-open-menu" role="menu">
@@ -1611,19 +1533,19 @@ function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
         items[next]?.focus();
       }}
     >
-      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size={14} /><span>{t("workspace.newFile")}</span></button>
-      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size={14} /><span>{t("workspace.newFolder")}</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size="sm" /><span>{t("workspace.newFile")}</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size="sm" /><span>{t("workspace.newFolder")}</span></button>
       {menu.path ? <>
         <hr />
-        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size={14} /><span>{t("common.rename")}</span></button>
-        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size={14} /><span>{t("workspace.copyPath")}</span></button>
-        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size={14} /><span>{t("workspace.saveToLibrary")}</span></button> : null}
+        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
+        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size="sm" /><span>{t("workspace.copyPath")}</span></button>
+        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size="sm" /><span>{t("workspace.saveToLibrary")}</span></button> : null}
       </> : null}
       {options.length ? <hr /> : null}
       {options.map(({ mode, label, icon: Icon }) => (
         <button type="button" role="menuitem" disabled={opener.opening} key={mode} onClick={() => void opener.choose(mode)}><Icon size={14} /><span>{label}</span></button>
       ))}
-      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size={14} /><span>{t("common.delete")}</span></button></> : null}
+      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size="sm" /><span>{t("common.delete")}</span></button></> : null}
       {opener.error ? <p className="file-open-error" role="alert">{opener.error}</p> : null}
     </div>,
     document.body,
@@ -1684,8 +1606,8 @@ function WorkspaceMediaPreview({ projectId, file, revision, imageRevision }: {
   return (
     <div className="workspace-media-preview">
       {!preview.url ? (preview.error
-        ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span>
-        : <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />{t("workspace.loadingPreview")}</span>) : null}
+        ? <span className="workspace-media-state workspace-media-error" role="alert"><X size="md" />{preview.error}</span>
+        : <span className="workspace-media-state"><Spinner size="md" />{t("workspace.loadingPreview")}</span>) : null}
       {preview.url ? <AssetMedia type={file.mediaType} url={preview.url} label={fileName(file.path)} /> : null}
     </div>
   );
@@ -1772,7 +1694,7 @@ function fileIcon(name: string): { icon: IconComponent; tone: string } {
   if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "gd", "cs", "py"].includes(extension)) return { icon: FileCode2, tone: "code" };
   if (["css", "scss"].includes(extension)) return { icon: FileStyle, tone: "video" };
   if (["html", "htm"].includes(extension)) return { icon: Globe2, tone: "data" };
-  if (["json", "toml", "yaml", "yml"].includes(extension)) return { icon: FileConfig, tone: "audio" };
+  if (["json", "toml", "yaml", "yml"].includes(extension)) return { icon: FileCode2, tone: "audio" };
   if (["md", "txt"].includes(extension)) return { icon: FileDocument, tone: "document" };
   if (["png", "jpg", "jpeg", "webp", "svg", "gif"].includes(extension)) return { icon: ImageIcon, tone: "image" };
   if (["mp3", "ogg", "wav"].includes(extension)) return { icon: Music2, tone: "audio" };
@@ -1796,12 +1718,12 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
           node.toggle();
         }}
       >
-        <ChevronRight size={13} aria-hidden="true" />
+        <ChevronRight size="sm" aria-hidden="true" />
       </button> : <span className="file-tree-spacer" />}
       {folder ? (
         node.isOpen
-          ? <FolderOpen className="file-tree-folder-icon" size={14} aria-hidden="true" />
-          : <Folder className="file-tree-folder-icon" size={14} aria-hidden="true" />
+          ? <FolderOpen className="file-tree-folder-icon" size="sm" aria-hidden="true" />
+          : <Folder className="file-tree-folder-icon" size="sm" aria-hidden="true" />
       ) : (() => {
         const { icon: Icon, tone } = fileIcon(node.data.name);
         return <Icon className={`file-tree-file-icon tone-${tone}`} size={14} aria-hidden="true" />;
@@ -1860,22 +1782,27 @@ export function AssetsView({
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || assets.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
+  if (!projectId || assets.length === 0) return <WorkspaceState art={<GameIcon name="palette" tone="neutral" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />;
+  // Only the kinds the project has get a tab, and one kind needs none; a
+  // tile names its kind and source only where those differ between assets.
+  const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
+  const showKind = mediaFilter === "all" && kinds.length > 1;
+  const showOrigin = new Set(assets.map((asset) => asset.origin ?? "workspace")).size > 1;
   return (
     <div className="assets-view">
-      <div className="assets-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
       <div className="library-filter-row assets-filter-row">
-        <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
-          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
-          ...ASSET_KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
-        ]} />
+        {kinds.length > 1 || mediaFilter !== "all" ? <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
+          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" />, count: narrowed.length },
+          ...kinds.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
+        ]} /> : null}
         <span className="library-filter-spacer" />
+        <div className="assets-search"><SearchInput size="sm" value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
         <ProjectAssetFilterRow assets={assets} filters={filters} onChange={setFilters} />
         {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
         <AssetSortSelect value={sort} onChange={setSort} />
       </div>
       {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
-        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
+        <ProjectAssetTile key={asset.path} asset={asset} sort={sort} showKind={showKind} showOrigin={showOrigin} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
       ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
@@ -1888,30 +1815,48 @@ export function AssetsView({
 
 const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
 
-/** A project asset as a Library tile: its kind and where it came from below the preview. */
-function ProjectAssetTile({ asset, sort, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; selected: boolean; onOpen: () => void }) {
+/**
+ * A project asset as a Library tile: the value it is sorted by below the
+ * preview, then its kind and where it came from when the list mixes them. A
+ * reference always says so.
+ */
+function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; showKind: boolean; showOrigin: boolean; selected: boolean; onOpen: () => void }) {
   const [tile, visible] = useNearViewport<HTMLButtonElement>();
   const extension = fileExtension(asset.path).slice(1).toUpperCase();
-  const detail = assetSortDetail(asset, sort);
+  const meta = [
+    assetSortDetail(asset, sort),
+    showKind ? mediaTypeLabel(asset.mediaType) : undefined,
+    asset.referenceOnly ? t("assets.reference") : showOrigin ? libraryAssetOriginLabel(asset.origin) : undefined,
+  ].filter(Boolean).join(" · ");
   return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
-    meta={`${detail ? `${detail} · ` : ""}${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
+    meta={meta || undefined}
     preview={asset.mediaType === "audio"
       ? <span className="library-file-mark"><CategoryMark category="audio" size={22} />{extension ? <small>{extension}</small> : null}</span>
       : <AssetThumbnail asset={asset} visible={visible} />} />;
 }
 
-function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {
+/** A panel's loading, failed, or nothing-here state; `art` is a game icon for a panel that has nothing yet. */
+function WorkspaceState({ title, label, description, error, loading, icon, art, detailsApart }: { title?: string; label?: string; description?: string; error?: string; loading?: boolean; icon?: ReactNode; art?: ReactNode; detailsApart?: boolean }) {
   // A long message, such as a build's output, shows its first line; the rest is in the details.
   const text = error ?? label ?? "";
-  const [first, ...rest] = text.split("\n");
-  const details = rest.join("\n").trim();
-  return (
-    <div className={`workspace-state${error ? " error-state" : ""}`} role={error ? "alert" : undefined}>
-      {loading ? <LoaderCircle className="spin" size={20} /> : error ? <X size={20} /> : icon}
-      <span>{details ? first : text}</span>
-      {details ? <Disclosure summary={t("common.errorDetails")}><pre>{details}</pre></Disclosure> : null}
-    </div>
-  );
+  const [first, details] = splitMessage(text);
+  // With a title of its own, such as a failed preview's, the message reads under it instead of as it.
+  return <Empty fill tone={error ? "error" : undefined} art={art}
+    icon={loading ? <Spinner size="md" /> : error ? <TriangleAlert size="md" /> : icon}
+    title={title ?? (details ? first : text)}
+    description={title ? first : description}
+    details={detailsApart ? undefined : details} />;
+}
+
+function PreviewErrorDetails({ error }: { error: string }) {
+  const details = splitMessage(error)[1];
+  return details ? <ErrorDetails text={details} /> : null;
+}
+
+/** A long message, such as a build's output: its first line, and the rest for its details. */
+function splitMessage(text: string): [string, string | undefined] {
+  const [first = "", ...rest] = text.split("\n");
+  return [first, rest.join("\n").trim() || undefined];
 }
 
 /**
@@ -1937,26 +1882,24 @@ function GameStartEmpty({ noWebProject = false, onOpenSettings }: { noWebProject
     setFailed(undefined);
     void start.allow(id).catch((cause: unknown) => setFailed(cause instanceof Error ? cause.message : String(cause))).finally(() => setAllowing(undefined));
   };
-  return <Empty icon={engine ? <Play size={20} /> : <Globe2 size={20} />}
+  return <Empty icon={engine ? <Play size="lg" /> : <Globe2 size="lg" />}
     title={engine ? t("workspace.playInEngine") : noWebProject ? t("workspace.noWebProject") : t("workspace.webPreviewOff")}
     description={<>
       {waiting.length ? t("workspace.allowEngineHint", { name: waiting[0]!.displayName }) : engine ? t("workspace.playInEngineHint") : noWebProject ? t("workspace.noWebProjectHint") : t("workspace.webPreviewOffHint")}
       {failed ? <span className="game-start-error" role="alert">{failed}</span> : null}
     </>}
-    action={<div className="game-start-actions">
+    action={<>
       {start.commands.map((command, index) => <Button key={command.id} variant={index === 0 ? "primary" : "secondary"} onClick={() => void start.run(command)}>{command.title}</Button>)}
       {waiting.map((plugin, index) => <Button key={plugin.id} variant={index === 0 ? "primary" : "secondary"} disabled={allowing !== undefined}
         onClick={() => allow(plugin.id)}>{t("workspace.allowPlugin", { name: plugin.displayName })}</Button>)}
       {onOpenSettings ? <Button variant={engine ? "ghost" : "secondary"} onClick={onOpenSettings}>{t("workspace.openProjectSettings")}</Button> : null}
-    </div>} />;
+    </>} />;
 }
 
 /** A failed build's ways out from the project's plugins, such as installing what the build needs or running it in its engine. */
 function GameStartActions() {
   const start = usePluginSlot("game.start");
-  return start.commands.length ? <div className="preview-recovery-actions">
-    {start.commands.map((command) => <button key={command.id} type="button" onClick={() => void start.run(command)}>{command.title}</button>)}
-  </div> : null;
+  return <>{start.commands.map((command) => <Button key={command.id} onClick={() => void start.run(command)}>{command.title}</Button>)}</>;
 }
 
 function PreviewState({ status, error, phase, startedAt }: { status?: ProjectState["preview"]["status"]; error?: string; phase?: ProjectState["preview"]["phase"]; startedAt?: string }) {
@@ -1967,8 +1910,9 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
     update(); const timer = setInterval(update, 1_000); return () => clearInterval(timer);
   }, [status, startedAt]);
   switch (status) {
-    case "error": return <WorkspaceState error={error ?? t("workspace.processStopped")} />;
-    case "starting": return <div className="preview-starting" role="status"><LoaderCircle className="spin" size={14} /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
+    // Its details go under the panel's actions.
+    case "error": return <WorkspaceState title={t("workspace.previewFailed")} error={error ?? t("workspace.processStopped")} detailsApart />;
+    case "starting": return <div className="preview-starting" role="status"><Spinner size="sm" /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;
     case "stopped": case "ready": return null;
@@ -1980,7 +1924,7 @@ function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: ()
   const preview = project?.preview;
   // The desktop game is a native view above the page, so it steps aside for the logs.
   return <aside className="preview-logs" aria-label={t("workspace.logs")} data-native-preview-overlay="">
-    <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size={14} /></button></header>
+    <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size="sm" /></button></header>
     <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}
     <pre>{preview?.logs || preview?.error || t("workspace.noOutput")}</pre>
@@ -2002,15 +1946,7 @@ function previewErrorFile(project: ProjectState | undefined, message: string): s
 }
 
 function PreviewEmptyState() {
-  return (
-    <div className="preview-empty-state">
-      <div className="preview-empty-mark" aria-hidden="true">
-        <LaptopMinimalistic size={20} />
-      </div>
-      <p className="preview-empty-title">{t("workspace.emptyTitle")}</p>
-      <p className="preview-empty-description">{t("workspace.emptyDescription")}</p>
-    </div>
-  );
+  return <Empty fill art={<GameIcon name="controller" tone="neutral" size={40} />} title={t("workspace.emptyTitle")} description={t("workspace.emptyDescription")} />;
 }
 
 function errorMessage(error: unknown): string {

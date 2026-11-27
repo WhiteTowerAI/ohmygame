@@ -51,46 +51,49 @@
   margin: 6px 0 0;
   opacity: 0.75;
 }
-.pane-error-boundary .ui-disclosure {
-  max-width: min(560px, 100%);
-}
 .preview-diagnostic .ui-disclosure {
   margin-top: 8px;
 }
-.pane-error-boundary button,
-.preview-recovery-actions button,
-.unfinished-restore button {
-  border: 1px solid var(--border, #666);
-  border-radius: 6px;
-  padding: 7px 12px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-}
 .pane-error-boundary {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
   min-width: 0;
   min-height: 180px;
-  padding: 32px;
 }
-.pane-error-boundary > div,
+
+/* The whole app failing fills the window, so its message sits in the middle. */
+:is(#root, .desktop-close-content, .desktop-window-content) > .pane-error-boundary {
+  min-height: 100vh;
+}
 .preview-recovery-actions,
 .unfinished-restore-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+.preview-status-panel > .preview-recovery-actions {
+  justify-content: center;
+  margin-top: var(--space-2);
+}
+.preview-status-panel > .preview-recovery-actions:empty {
+  display: none;
+}
+/* The logs and settings, quieter than the ways out above them. */
+.preview-recovery-links {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-1);
+}
+.preview-recovery-links .ui-button {
+  color: var(--color-text-secondary);
+}
 .unfinished-restore {
   margin: 8px 16px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
 }
 .unfinished-restore p {
   margin: 0 0 8px;
@@ -109,15 +112,13 @@
   min-width: 92px;
   color: var(--text-muted);
 }
-.unfinished-restore button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
 /* Fills the stage, which isn't a flex container, so the state sits in its middle;
-   `safe` keeps a long error's start in view when it outgrows the stage. */
+   `safe` keeps a long error's start in view when it outgrows the stage. Its
+   background is a panel's, as every empty panel's is, not the stage's. */
 .preview-status-panel {
   position: absolute;
   inset: 0;
+  background: var(--color-surface);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -126,17 +127,19 @@
   padding: 16px;
   overflow: auto;
 }
-.preview-status-panel .workspace-state {
+/* A state shares the panel with the reasons and actions below it. */
+.preview-status-panel > .ui-empty.is-fill {
+  align-self: center;
+  min-height: 0;
+  overflow: visible;
+}
+.preview-status-panel > .ui-empty.is-fill:not(:only-child) {
   flex: initial;
-  height: auto;
-  padding: 24px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-width: 600px;
 }
 .preview-status-panel > p {
-  font-size: 13px;
-  opacity: 0.7;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
 }
 .preview-diagnostic {
   position: absolute;
@@ -150,8 +153,8 @@
   background: var(--surface, #252525);
   color: var(--text, #eee);
   border: 1px solid var(--danger);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   box-shadow: 0 4px 20px #0003;
 }
 
@@ -167,7 +170,7 @@
   background: var(--surface);
   color: var(--text);
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .preview-logs header {
   display: flex;
@@ -192,7 +195,7 @@
 }
 .preview-config-hint {
   margin: 6px 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--text-secondary, #999);
   overflow-wrap: anywhere;
@@ -202,30 +205,6 @@
   position: relative;
 }
 
-@container workspace-header (max-width: 380px) {
-  .preview-controls > .viewport-menu {
-    display: none;
-  }
-}
-.preview-status-panel .workspace-state .ui-disclosure,
-.preview-status-panel .workspace-state details {
-  align-self: stretch;
-  text-align: start;
-}
-.preview-status-panel .workspace-state pre {
-  max-height: 240px;
-  overflow: auto;
-  margin: 8px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.game-start-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
 .game-start-error {
   display: block;
   margin-top: 6px;

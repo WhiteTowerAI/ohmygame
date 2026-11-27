@@ -348,7 +348,7 @@ it("downloads the current title after renaming a node and falls back when cleare
   ]) {
     await clickNodeAction("image-0", t("assetCanvas.nodeDetails"));
     const input = document.querySelector<HTMLInputElement>(
-      ".design-modal input",
+      "#canvas-node-details-form input",
     )!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(

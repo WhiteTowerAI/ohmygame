@@ -6,12 +6,12 @@ import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../sh
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { exportStorePlugin, readPluginScreenshotImage, readPluginUninstall, readPluginUsage, readStorePluginConfiguration, restartStorePlugin, saveStorePluginConfiguration, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
-import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots } from "./plugin-catalog.js";
+import { appliesToLabels, categoryLabel, isOfficialPlugin, PluginKeywords, pluginPublisherName, PluginScreenshots, repositoryLabel } from "./plugin-catalog.js";
 import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { CircleHelp, ExternalLink, FolderOpen, LoaderCircle, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FolderOpen, Spinner, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -255,8 +255,8 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
     </button>
     {hasUpdate ? <Button size="sm" variant="ghost" disabled={updating || updateDisabled} aria-busy={updating || undefined}
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
-      icon={updating ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
-      onClick={onUpdate} /> : null}
+      icon={updating ? <Spinner size="sm" /> : <RefreshCw size="sm" />}
+      onClick={onUpdate}>{t("pluginStore.update")}</Button> : null}
   </li>;
 }
 
@@ -357,6 +357,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
     setUsage(undefined);
   });
   const adds = pluginAddRows(plugin.adds);
+  const updateAction = update && onUpdate ? { label: t("pluginStore.updateTo", { version: update.version }), run: () => onUpdate(update) }
+    : fromSource && onUpdateSource ? {
+      label: fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" }),
+      run: () => onUpdateSource(fromSource),
+    } : undefined;
 
   return <div className="plugin-page">
     <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={
@@ -366,9 +371,11 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         plugin.origin?.type === "development" && "development",
       ]} />
     }>
-      {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
-        <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
-          onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
+      {/* Its main action at the top, as Get is on a plugin not yet installed: an update when there is one, else trying it. */}
+      {updateAction || (canTry && firstExample) ? <div className="plugin-head-actions" ref={tryIt.anchor}>
+        {updateAction ? <Button variant="primary" icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={updateAction.run}>{updateAction.label}</Button> : null}
+        {canTry && firstExample ? <Button variant={updateAction ? "secondary" : "primary"} icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+          onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button> : null}
         {tryIt.popover}
       </div> : null}
     </PluginHead>
@@ -432,10 +439,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           {plugin.categories?.length ? <><dt>{t("pluginCatalog.categoriesLabel")}</dt><dd>{plugin.categories.map(categoryLabel).join(" · ")}</dd></> : null}
           {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           {plugin.appliesTo?.length ? <><dt>{t("pluginCatalog.worksWith")}</dt><dd>{appliesToLabels(plugin.appliesTo).join(" · ")}</dd></> : null}
-          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer">GitHub · {plugin.origin.repository}<ExternalLink size={11} /></a></dd></> : null}
+          {plugin.origin?.type === "github" ? <><dt>{t("plugins.repository")}</dt><dd><a href={`https://github.com/${plugin.origin.repository}`} target="_blank" rel="noreferrer" title={`github.com/${plugin.origin.repository}`}>{repositoryLabel(plugin.origin.repository)}<ExternalLink size="xs" /></a></dd></> : null}
           {plugin.origin?.type === "development" ? <><dt>{t("pluginStore.developmentFolder")}</dt><dd className="plugins-mono" title={t("pluginStore.developmentHint")}>{plugin.origin.folder}</dd></> : null}
-          {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size={11} /></a> : plugin.origin.package}</dd></> : null}
-          {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size={11} /></a></dd></> : null}
+          {plugin.origin?.type === "npm" ? <><dt>{t("pluginStore.npmPackage")}</dt><dd>{plugin.origin.registry === "npmjs" ? <a href={`https://www.npmjs.com/package/${plugin.origin.package}/v/${plugin.origin.version}`} target="_blank" rel="noreferrer">{plugin.origin.package}<ExternalLink size="xs" /></a> : plugin.origin.package}</dd></> : null}
+          {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size="xs" /></a></dd></> : null}
           <dt>{versions.length > 1 ? t("pluginStore.versions") : t("plugins.version")}</dt>
           <dd>
             <ul className="plugin-store-versions">
@@ -449,14 +456,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
             </ul>
           </dd>
         </dl>
-        {update && onUpdate ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
-        </div> : null}
-        {fromSource && onUpdateSource ? <div className="plugin-side-actions">
-          <Button icon={<RefreshCw size={14} />} disabled={!!busy || installDisabled} onClick={() => onUpdateSource(fromSource)}>
-            {fromSource.version ? t("pluginStore.updateTo", { version: fromSource.version }) : t("pluginStore.updateToCommit", { commit: fromSource.commit?.slice(0, 7) ?? "" })}
-          </Button>
-        </div> : null}
         {unused.length ? <div className="plugin-side-actions">
           <Button disabled={!!busy} onClick={removeUnused}>{t("pluginStore.removeUnused", { count: unused.length })}</Button>
         </div> : null}
@@ -472,9 +471,9 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
         </div>
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
-          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
-          {personal ? <Button icon={<Upload size={14} />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
-          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
+          {personal ? <Button icon={<WandSparkles size="sm" />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {personal ? <Button icon={<Upload size="sm" />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
+          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size="sm" />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
       </aside>
     </div>
@@ -647,14 +646,14 @@ export function StorePluginSettings({ plugin, fields = plugin.settings, revision
             />
           )}
           {field.description ? <PluginSettingDescription id={describedBy!} description={field.description} /> : null}
-          {field.type === "secret" && configured ? <button className="plugin-detail-secondary" type="button" onClick={() => set(null)}>
+          {field.type === "secret" && configured ? <Button onClick={() => set(null)}>
             {values[field.name] === null ? t("pluginControls.willClear") : t("pluginControls.clearSaved")}
-          </button> : null}
+          </Button> : null}
         </div>;
       })}
-      <button className="plugin-detail-primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
+      <Button variant="primary" type="submit" disabled={busy || !fields.some((field) => field.name in values)}>
         {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
-      </button>
+      </Button>
     </form> : !error ? <p>{t("pluginControls.loadingConfiguration")}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
@@ -699,7 +698,7 @@ function PluginJsonSetting({ id, describedBy, label, value, onChange }: {
         }
       })();
     }} />
-    <button type="button" className="plugin-detail-secondary" aria-label={t("pluginControls.importJsonFor", { field: label })} onClick={() => file.current?.click()}>{t("pluginControls.importJson")}</button>
+    <Button aria-label={t("pluginControls.importJsonFor", { field: label })} onClick={() => file.current?.click()}>{t("pluginControls.importJson")}</Button>
     {error ? <p role="alert">{error}</p> : null}
   </div>;
 }
@@ -710,10 +709,10 @@ function PluginSettingDescription({ id, description }: { id: string; description
   return <>
     <small id={id}>{hint}</small>
     {paragraphs.length ? <details className="plugin-setting-help">
-      <summary><CircleHelp size={13} aria-hidden="true" />{t("pluginControls.fieldHelp")}</summary>
+      <summary><CircleHelp size="sm" aria-hidden="true" />{t("pluginControls.fieldHelp")}</summary>
       <div>{paragraphs.join("\n\n").split(/(https:\/\/[^\s<>"']+)/).map((part, index) =>
         part.startsWith("https://") && URL.canParse(part)
-          ? <a key={index} href={part} target="_blank" rel="noreferrer" title={part}>{new URL(part).hostname}<ExternalLink size={11} aria-hidden="true" /></a>
+          ? <a key={index} href={part} target="_blank" rel="noreferrer" title={part}>{new URL(part).hostname}<ExternalLink size="xs" aria-hidden="true" /></a>
           : part,
       )}</div>
     </details> : null}
@@ -724,6 +723,7 @@ function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
+/** `owner/repo` that a narrow column wraps after the slash rather than mid-word, as the market dialog shows it. */
 /** Copies a plugin made in the Plugin Builder out as a package its author can publish. */
 export function PluginExportDialog({ plugin, onClose }: { plugin: StorePlugin; onClose: () => void }): ReactNode {
   const [publisher, setPublisher] = useState("");

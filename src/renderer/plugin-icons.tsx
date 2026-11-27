@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import type { PluginIcon as PluginIconValue } from "../shared/plugins.js";
+import { GameIcon } from "./game-icon.js";
 import { Package } from "./icons.js";
 import { readPluginIconImage } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
@@ -34,7 +35,7 @@ export function PluginGlyph({
   size: number;
   setupId?: string;
   previewAsset?: boolean;
-  /** Without an icon, show this name's first letter instead of the package glyph. */
+  /** Without an icon, show this name's first letter instead of the puzzle piece. */
   name?: string;
 }): ReactNode {
   const generation = useReadyRuntimeGeneration();
@@ -91,7 +92,7 @@ export function PluginGlyph({
     );
   // While an icon loads, a lettered tile stays empty rather than flashing its letter.
   if (name && asset && !failed) return null;
-  return name ? <PluginMonogram id={plugin.id} name={name} size={size} /> : <Package size={size} aria-hidden="true" />;
+  return name ? <PluginMonogram id={plugin.id} name={name} size={size} /> : <GameIcon name="puzzle-01" tone="teal" size={size} />;
 }
 
 /** A mentioned plugin's own icon, found among the installed ones. */

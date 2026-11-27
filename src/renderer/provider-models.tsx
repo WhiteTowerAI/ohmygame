@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings, type ModelRef } from "../shared/contracts.js";
 import { addCustomProviderModel, getCloudQuotas, getProviderModels, refreshProviderModels, listModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
-import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
+import { Check, ChevronDown, ExternalLink, Spinner, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Button, Disclosure } from "./ui/index.js";
 import { hyper3DCredits } from "../shared/cloud-models.js";
@@ -150,18 +150,18 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     <div className="provider-models-heading">
       <h4>{t("models.title")} <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {settings.canRefreshCatalog ? <button className="settings-secondary-button" type="button" disabled={busy || settings.refreshingCatalog || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)}><RefreshCw size={13} className={busy || settings.refreshingCatalog ? "spin" : undefined} /><span>{t("models.refresh")}</span></button> : null}
-        {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></button> : null}
-        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
-          <Plus size={13} /><span>{t("models.add")}</span>
-        </button> : null}
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? t("models.doneEditing") : t("models.editModels")} aria-pressed={onEditModels ? undefined : editing}>
-          {editing ? <Check size={13} /> : <Pencil size={13} />}<span>{editing ? t("common.done") : t("common.edit")}</span>
-        </button>
+        {settings.canRefreshCatalog ? <Button disabled={busy || settings.refreshingCatalog || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)}><RefreshCw size="sm" className={busy || settings.refreshingCatalog ? "spin" : undefined} /><span>{t("models.refresh")}</span></Button> : null}
+        {settings.model3DProtocol ? <Button disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size="sm" className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></Button> : null}
+        {(editing || !settings.models.length) && settings.canAddCustomModel ? <Button disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
+          <Plus size="sm" /><span>{t("models.add")}</span>
+        </Button> : null}
+        <Button disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? t("models.doneEditing") : t("models.editModels")} aria-pressed={onEditModels ? undefined : editing}>
+          {editing ? <Check size="sm" /> : <Pencil size="sm" />}<span>{editing ? t("common.done") : t("common.edit")}</span>
+        </Button>
       </div> : null}
     </div>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    {settings?.catalogNotice ? <Disclosure className="settings-detail-hint provider-catalog-info" summary={t("models.catalogInfo")}><p>{settings.catalogNotice}</p>{settings.catalogDocsUrl ? <a href={settings.catalogDocsUrl} target="_blank" rel="noreferrer">{t("models.officialVersions")} <ExternalLink size={11} /></a> : null}</Disclosure> : null}
+    {settings?.catalogNotice ? <Disclosure className="settings-detail-hint provider-catalog-info" summary={t("models.catalogInfo")}><p>{settings.catalogNotice}</p>{settings.catalogDocsUrl ? <a href={settings.catalogDocsUrl} target="_blank" rel="noreferrer">{t("models.officialVersions")} <ExternalLink size="xs" /></a> : null}</Disclosure> : null}
     {adding && settings?.model3DProtocol ? <ProviderModel3DForm key={`${providerId}-new`} protocol={settings.model3DProtocol} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onSave={async (model) => {
       if (await update(() => addCustomProviderModel(providerId, model))) { setAdding(false); setQuery(""); setFilter("all"); }
     }} /> : adding && settings ? <CustomModelForm key={providerId} settings={settings} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onAdd={async (model) => {
@@ -172,7 +172,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     }} onReset={() => void update(() => resetProviderModel3D(editingModel.provider, editingModel.id), editingModel.provider).then((saved) => { if (saved) setEditingModel(undefined); })} /> : null}
     {settings ? <>
       <div className="provider-models-controls">
-        <label className="settings-provider-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} /></label>
+        <label className="settings-provider-search"><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} /></label>
         {editing ? <SegmentedControl className="settings-provider-filters" label={t("models.filter.label")} options={MODEL_FILTER_OPTIONS} value={filter} onChange={setFilter} /> : null}
       </div>
       {editing ? <div className="provider-models-list-actions">
@@ -193,19 +193,19 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
             </label>
             {model.capabilities ? <span className="custom-model-usage-badges">{model.capabilities.length ? model.capabilities.map((usage) => <small key={usage}>{t(`capability.${usage}`)}</small>) : <small>{t("models.unassigned")}</small>}</span> : model.custom ? <small className="provider-model-custom">{t("models.filter.custom")}</small> : null}
             {sourceLabels?.[model.provider] || model.source ? <small className="provider-model-custom">{sourceLabels?.[model.provider] ?? (model.source === "preset" ? t("models.source.official") : model.source === "cloud" ? t("models.source.cloud") : t("models.filter.custom"))}</small> : null}
-            {editing && model.model3d ? <button className="icon-button" type="button" disabled={busy || adding} aria-label={t("common.editName", { name: model.name })} title={t("common.editName", { name: model.name })} aria-expanded={selected(editingModel)} onClick={() => { setEditingModel((ref) => selected(ref) ? undefined : model); setError(undefined); setDeleting(undefined); }}><Pencil size={14} /></button> : null}
+            {editing && model.model3d ? <button className="icon-button" type="button" disabled={busy || adding} aria-label={t("common.editName", { name: model.name })} title={t("common.editName", { name: model.name })} aria-expanded={selected(editingModel)} onClick={() => { setEditingModel((ref) => selected(ref) ? undefined : model); setError(undefined); setDeleting(undefined); }}><Pencil size="sm" /></button> : null}
             {editing && model.custom ? selected(deleting) ? <div className="provider-model-delete-confirm">
-              <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>{t("common.delete")}</button>
-              <button type="button" className="icon-button" title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} disabled={busy} onClick={() => setDeleting(undefined)}><X size={13} /></button>
-            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model)}><Trash2 size={14} /></button> : null}
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>{t("common.delete")}</Button>
+              <button type="button" className="icon-button" title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} disabled={busy} onClick={() => setDeleting(undefined)}><X size="sm" /></button>
+            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model)}><Trash2 size="sm" /></button> : null}
           </div>;
         })}
         {!models.length ? <p className="settings-empty">{!settings.models.length ? t("models.empty.none") : !editing && !shown ? t("models.empty.noneShown") : t("models.empty.noMatch")}</p> : null}
       </div>
       {hiddenModels.length ? <button className="provider-models-hidden-toggle" type="button" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((open) => !open)}>
-        {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size={12} aria-hidden="true" />
+        {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size="xs" aria-hidden="true" />
       </button> : null}
-    </> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+    </> : !error ? <div className="settings-loading"><Spinner size="md" />{t("providers.loadingModels")}</div> : null}
   </section>;
 }
 
@@ -235,10 +235,10 @@ function CustomModelForm({ settings, busy, onAdd, onCancel }: { settings: Provid
       </div>
     </div> : null}
     <div className="provider-model-form-footer">
-      <button className="provider-model-advanced-toggle" type="button" aria-expanded={advanced} aria-controls={advanced ? `${fieldId}-advanced` : undefined} disabled={busy} onClick={() => setAdvanced((value) => !value)}><ChevronDown size={12} /><span>{t("common.advanced")}</span></button>
+      <button className="provider-model-advanced-toggle" type="button" aria-expanded={advanced} aria-controls={advanced ? `${fieldId}-advanced` : undefined} disabled={busy} onClick={() => setAdvanced((value) => !value)}><ChevronDown size="xs" /><span>{t("common.advanced")}</span></button>
       <div className="provider-model-form-actions">
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onCancel}>{t("common.cancel")}</button>
-        <button className="settings-primary-button" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}<span>{t("common.add")}</span></button>
+        <Button disabled={busy} onClick={onCancel}>{t("common.cancel")}</Button>
+        <Button variant="primary" type="submit" disabled={busy || !model.id.trim()}>{busy ? <Spinner size="sm" /> : <Plus size="sm" />}<span>{t("common.add")}</span></Button>
       </div>
     </div>
   </form>;

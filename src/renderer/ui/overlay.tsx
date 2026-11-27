@@ -205,9 +205,13 @@ export function Tooltip({
         onPointerLeave: hide,
         onFocus: show,
         onBlur: hide,
+        // A click that does something hides the tip; on a mark that only
+        // explains, such as a help icon, it shows it.
         onClick: (event: React.MouseEvent) => {
+          const onClick = children.props.onClick as ((event: React.MouseEvent) => void) | undefined;
+          if (!onClick && !children.props.href) return show();
           hide();
-          (children.props.onClick as ((event: React.MouseEvent) => void) | undefined)?.(event);
+          onClick?.(event);
         },
         "aria-describedby": open ? id : undefined,
       })}
@@ -241,6 +245,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** Makes it a checkbox item; a check shows while it is on. */
   checked?: boolean;
+  /** With `checked`, one choice of several, like a segmented control's. */
+  radio?: boolean;
   onSelect?: () => void;
 }
 export type MenuEntry = MenuItem | "separator" | { heading: string };
@@ -287,7 +293,7 @@ function MenuList({
           <button
             key={index}
             type="button"
-            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            role={item.checked === undefined ? "menuitem" : item.radio ? "menuitemradio" : "menuitemcheckbox"}
             aria-checked={item.checked}
             disabled={item.disabled}
             className={`ui-menu-item${item.danger ? " is-danger" : ""}${item.description ? " has-description" : ""}`}
@@ -313,7 +319,7 @@ function MenuList({
               <kbd className="ui-menu-shortcut">{item.shortcut}</kbd>
             ) : null}
             {item.checked ? (
-              <Check size={14} className="ui-menu-check" aria-hidden="true" />
+              <Check size="sm" className="ui-menu-check" aria-hidden="true" />
             ) : null}
           </button>
         ),
@@ -502,6 +508,8 @@ export function Dialog({
   description,
   footer,
   size = "md",
+  media,
+  className,
   children,
 }: {
   open: boolean;
@@ -510,6 +518,9 @@ export function Dialog({
   description?: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
+  /** Art across the top, above the title, such as a new game type's picture. */
+  media?: ReactNode;
+  className?: string;
   children?: ReactNode;
 }) {
   const panel = useModal(open, onClose);
@@ -524,11 +535,12 @@ export function Dialog({
     >
       <div
         ref={panel}
-        className={`ui-dialog ui-dialog-${size}`}
+        className={`ui-dialog ui-dialog-${size}${className ? ` ${className}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
       >
+        {media ? <div className="ui-dialog-media" aria-hidden="true">{media}</div> : null}
         <div className="ui-dialog-head">
           <div>
             <h2 id={id} className="ui-dialog-title">
@@ -544,7 +556,7 @@ export function Dialog({
             className="ui-dialog-close"
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </IconButton>
         </div>
         {children ? <div className="ui-dialog-body">{children}</div> : null}
@@ -621,7 +633,7 @@ export function CommandMenu({
     >
       <div ref={panel} className="ui-command" role="dialog" aria-modal="true" aria-label={t("commandMenu.label")}>
         <div className="ui-command-input">
-          <Search size={16} aria-hidden="true" />
+          <Search size="md" aria-hidden="true" />
           <input
             value={query}
             placeholder={placeholder ?? t("commandMenu.placeholder")}
@@ -720,7 +732,7 @@ export function Sheet({
             className="ui-dialog-close"
             onClick={onClose}
           >
-            <X size={16} />
+            <X size="md" />
           </IconButton>
         </div>
         <div className="ui-sheet-body">{children}</div>

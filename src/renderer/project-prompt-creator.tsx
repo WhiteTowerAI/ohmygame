@@ -1,20 +1,20 @@
-import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
+import { Lightbulb, Spinner, ArrowUp } from "./icons.js";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { isAppProjectType } from "./project-types.js";
+import type { BuiltinProjectType, AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
-import { getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
+import { generateGameIdea, getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { composerDrafts, homeDraftScope, type SavedComposerDraft } from "./composer-drafts.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import type { FirstMessage } from "./project-create-dialog.js";
-import { isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
-import { Button, DropdownMenu, Select } from "./ui/index.js";
+import { newProjectKind } from "./project-type-choices.js";
+import { Button } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
@@ -22,35 +22,49 @@ import { t } from "./i18n.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
-const DEFAULT_TYPE = "web-game";
-const TYPE_KEY = "ohmygame.home.projectType";
 type Plugin = ConversationCapabilities["plugins"][number];
 
-// Game ideas per type. The plugins' own prompts are written for an open
-// project ("the current game"), so Home keeps its own.
+// The random idea button asks the model for one idea of the type; offline, or
+// with no model it can use, it picks one of these. The plugins' own prompts are
+// written for an open project ("the current game"), so Home keeps its own.
 const WEB_IDEAS = ["home.ideas.web.dungeon", "home.ideas.web.merge", "home.ideas.web.racing"] as const;
-const STUDIO_IDEAS = ["home.ideas.studio.platformer", "home.ideas.studio.towerDefense", "home.ideas.studio.cards"] as const;
 const GODOT_IDEAS = ["home.ideas.godot.thirdPerson", "home.ideas.godot.shooter", "home.ideas.godot.physics"] as const;
-const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.general.story"] as const;
-type IdeaKey = (typeof WEB_IDEAS | typeof STUDIO_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS)[number];
-const TYPE_IDEAS: Record<string, readonly IdeaKey[]> = {
+const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.studio.towerDefense", "home.ideas.studio.cards"] as const;
+const ASSET_IDEAS = ["home.ideas.assets.knight", "home.ideas.assets.forest", "home.ideas.assets.effects"] as const;
+type IdeaKey = (typeof WEB_IDEAS | typeof GODOT_IDEAS | typeof GENERAL_IDEAS | typeof ASSET_IDEAS)[number];
+const TYPE_IDEAS: Record<BuiltinProjectType, readonly IdeaKey[]> = {
+  general: GENERAL_IDEAS,
   "web-game": WEB_IDEAS,
-  general: STUDIO_IDEAS,
   "godot-game": GODOT_IDEAS,
-  "ohmygame/godot:godot-game": GODOT_IDEAS,
+  "asset-canvas": ASSET_IDEAS,
 };
+
+/** The kind of idea that suits a type: an app type's own, Godot's for the Godot plugin, otherwise a general game. */
+function ideaType(type: string): BuiltinProjectType {
+  if (type === "ohmygame/godot:godot-game") return "godot-game";
+  return isAppProjectType(type) ? type : "general";
+}
+
+/** One of the type's own ideas, other than the one showing. */
+function presetIdea(type: string, current: string): string {
+  const ideas = TYPE_IDEAS[ideaType(type)].map((key) => t(key)).filter((idea) => idea !== current.trim());
+  return ideas[Math.floor(Math.random() * ideas.length)] ?? t(TYPE_IDEAS.general[0]);
+}
 
 /**
  * Home's prompt box. Sending hands the prompt to the new-project dialog as the
  * first message; the project is created there, and the dialog clears the draft.
  */
-export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, onSubmit }: {
+export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, type, typePending = false, autoFocus = false, onConnectModel, onSubmit }: {
   /** Each start page keeps its own unsent prompt while the user visits projects. */
   draftKey: string;
   placeholder: string;
   disabled?: boolean;
-  /** The page's other ways to start, in a row under the box with Ideas. */
-  starts?: ReactNode;
+  type: string;
+  typePending?: boolean;
+  autoFocus?: boolean;
+  /** With no model to send to, the box says so and offers this instead of sending. */
+  onConnectModel?: () => void;
   /** `clearDraft` empties the prompt box once the project has been created. */
   onSubmit: (message: FirstMessage, clearDraft: () => void) => void;
 }) {
@@ -67,13 +81,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const setPlanning = draftSetter("planning");
   const setAttachments = draftSetter("attachments");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
-  const [savedType, setSavedType] = useState(loadType);
-  const { types: loadedPluginTypes, failed: pluginTypesFailed, retry: retryPluginTypes } = usePluginProjectTypes();
-  const pluginTypes = loadedPluginTypes ?? [];
-  // A plugin's type stays chosen only while its plugin is installed and enabled;
-  // until plugins and their types load, sending waits rather than sending another type.
-  const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
-  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
@@ -88,6 +95,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const promptRef = useRef<PromptInput>(null);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
+  const needsModel = !!onConnectModel && modelCatalog.status === "ready" && modelCatalog.models.length === 0;
   // Only plugins that work in the chosen type can be mentioned.
   const kind = newProjectKind(type);
   const offered = useMemo(() => ({
@@ -114,7 +122,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     void waitForRuntime()
       .then(() => getHomeComposerCapabilities())
       .then((result) => { if (!disposed) setCapabilities(result); })
-      // Without the list, a remembered plugin type stays pending rather than look disabled.
       .catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
     return () => { disposed = true; };
   }, []);
@@ -130,17 +137,39 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
-  const ideas = TYPE_IDEAS[type] ?? GENERAL_IDEAS;
-  const skillNames = useMemo(() => capabilities.skills.map((skill) => skill.name), [capabilities.skills]);
+  const [ideaLoading, setIdeaLoading] = useState(false);
+  const ideaRequest = useRef(0);
+  useEffect(() => {
+    setIdeaLoading(false);
+    return () => { ideaRequest.current += 1; };
+  }, [type]);
 
-  function chooseType(value: string): void {
-    if (value === MORE_TYPES) {
-      openMoreProjectTypes();
-      return;
+  /** Fills the box with a fresh idea: the model's, or one of the type's own when there is no model or it fails. */
+  async function randomIdea(): Promise<void> {
+    const request = ++ideaRequest.current;
+    const current = prompt;
+    setError(undefined);
+    setIdeaLoading(true);
+    let idea: string | undefined;
+    if (modelCatalog.models.length) {
+      try { idea = await generateGameIdea({ type: ideaType(type), model: selectedModel, avoid: current.trim() || undefined }); }
+      catch { /* The type's own ideas stand in. */ }
     }
-    setSavedType(value);
-    try { localStorage.setItem(TYPE_KEY, value); } catch { /* The type is remembered only when storage works. */ }
+    if (request !== ideaRequest.current) return;
+    setIdeaLoading(false);
+    if (draftSession.getSnapshot().prompt !== current) return;
+    const next = idea ?? presetIdea(type, current);
+    changePrompt(next, []);
+    setMentionCursor(next.length);
+    focusAt(next.length);
   }
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => promptRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
+  const skillNames = useMemo(() => capabilities.skills.map((skill) => skill.name), [capabilities.skills]);
 
   /** The mentioned plugins that suit the type but aren't on in every project: creating the project turns them on. */
   function pluginsToTurnOn(text: string): Plugin[] {
@@ -153,7 +182,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       togglePlanning();
       return;
     }
-    if ((!prompt.trim() && attachments.length === 0) || creating || typePending) return;
+    if ((!prompt.trim() && attachments.length === 0) || creating || typePending || needsModel) return;
     const submittedPrompt = prompt.trim();
     const turnOn = pluginsToTurnOn(submittedPrompt);
     const submittedDraft = draft;
@@ -235,19 +264,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery): void {
-    const insert = () => {
-      const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
-      if (mention.type === "plugin") {
-        const selected = toPluginMention(mention.value);
-        changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
-      } else {
-        changePrompt(inserted.value);
-      }
-      setMentionCursor(inserted.cursor);
-      focusAt(inserted.cursor);
-    };
-    // One that isn't on in every project is turned on in the new project, which allows it.
-    insert();
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
+    if (mention.type === "plugin") {
+      const selected = toPluginMention(mention.value);
+      changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
+    } else {
+      changePrompt(inserted.value);
+    }
+    setMentionCursor(inserted.cursor);
+    focusAt(inserted.cursor);
   }
 
   function focusAt(cursor: number): void {
@@ -279,23 +304,34 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             <button
               className="icon-button send-button"
               type="submit"
-              disabled={(!prompt.trim() && attachments.length === 0) || creating || typePending}
+              disabled={(!prompt.trim() && attachments.length === 0) || creating || typePending || needsModel}
               title={t("creator.create")}
               aria-label={t("creator.create")}
             >
-              {creating ? <LoaderCircle className="spin" size={15} /> : <SendArrow size={15} />}
+              {creating ? <Spinner size="sm" /> : <ArrowUp size="sm" />}
             </button>
           </>
         )}
-        content={<AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />}
+        content={<>
+          {needsModel ? <div className="creator-connect-model" role="status">
+            <span>{t("newGame.connectModel")}</span>
+            <Button size="sm" variant="primary" onClick={onConnectModel}>{t("newGame.connectModelAction")}</Button>
+          </div> : null}
+          <AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />
+        </>}
         disabled={creating}
         leading={(
           <>
             {contextMenu.button}
-            <span className="home-project-type">
-              <Select<string> size="sm" label={t("home.projectType")} value={type} onChange={chooseType}
-                options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes)} />
-            </span>
+            <button
+              className="icon-button composer-attach-button creator-idea-button"
+              type="button"
+              disabled={creating || ideaLoading}
+              aria-busy={ideaLoading || undefined}
+              aria-label={t("home.randomIdea")}
+              title={t("home.randomIdea")}
+              onClick={() => void randomIdea()}
+            >{ideaLoading ? <Spinner size="md" /> : <Lightbulb size="md" />}</button>
             {planning ? <PlanModeIndicator disabled={creating} onExit={() => togglePlanning()} /> : null}
           </>
         )}
@@ -318,29 +354,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         onDropError={(cause) => setError(cause.message)}
       />
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
-      {pluginTypesFailed ? (
-        <p className="home-notice" role="alert">
-          {t("createDialog.pluginsFailed")}{" "}
-          <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>
-        </p>
-      ) : null}
-      {/* Ideas are one button beside the other ways to start, rather than a row
-          of ideas that changed width with the type and moved the page. */}
-      <div className="home-starts">
-        {starts}
-        <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
-          changePrompt(t(key));
-          focusAt(t(key).length);
-        } }))} trigger={(props) => (
-          <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size={14} />} disabled={creating}>{t("home.ideasButton")}</Button>
-        )} />
-      </div>
     </>
   );
-}
-
-function loadType(): string {
-  try { return localStorage.getItem(TYPE_KEY) ?? DEFAULT_TYPE; } catch { return DEFAULT_TYPE; }
 }
 
 function errorMessage(cause: unknown): string {

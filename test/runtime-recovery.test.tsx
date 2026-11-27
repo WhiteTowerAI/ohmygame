@@ -172,7 +172,7 @@ describe("renderer service recovery", () => {
         : url.includes("capabilities") ? { plugins: [], skills: [] } : []);
     }));
     await initializeRuntimeConnection();
-    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onCreate={() => {}} onOpen={() => {}} /></AuthProvider>));
+    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onOpen={() => {}} /></AuthProvider>));
     expect(requests.filter((route) => route === "/projects")).toHaveLength(1);
   });
 
@@ -254,8 +254,12 @@ describe("renderer service recovery", () => {
         </AuthProvider>,
       ),
     );
-    const input = promptField(container);
-    await typePrompt("My unsent game idea", container);
+    // The idea is typed in the new game dialog, opened from a type card.
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".new-game-card")!.click(),
+    );
+    const input = promptField(document.body);
+    await typePrompt("My unsent game idea", document.body);
     await act(async () =>
       updateRuntimeConnection({
         status: "recovering",
@@ -264,8 +268,8 @@ describe("renderer service recovery", () => {
       }),
     );
     await act(async () => updateRuntimeConnection(ready(2)));
-    expect(promptField(container)).toBe(input);
-    expect(promptText(container)).toBe("My unsent game idea");
+    expect(promptField(document.body)).toBe(input);
+    expect(promptText(document.body)).toBe("My unsent game idea");
   });
 
   it("uses new credentials and rejects mutations while offline without replaying them", async () => {
@@ -515,22 +519,24 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
-    // The page picker leads the toolbar; reload sits with the actions on the right.
-    const controls = [...container.querySelector(".preview-controls")!.children];
-    expect(controls[0]!.className).toBe("preview-location");
-    expect(controls.findIndex((child) => child.getAttribute("aria-label") === "Reload preview")).toBe(controls.length - 2);
+    const controls = container.querySelector(".preview-controls")!;
+    expect(controls.firstElementChild?.className).toBe("preview-location");
+    expect(controls.querySelector('[aria-label="Reload preview"]')).toBeNull();
+    const more = controls.querySelector<HTMLButtonElement>('[aria-label="More"]')!;
+    const menuItem = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.trim() === name)!;
+    await act(async () => more.click());
+    expect(menuItem("Restart preview service")).toBeDefined();
+    expect(menuItem("Preview logs")).toBeDefined();
     // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
-    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
-    // The game's More menu also opens the preview's logs.
-    expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())).toEqual(["Open in browser", "Restart preview service", "Preview logs"]);
-    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
+    await act(async () => menuItem("Open in browser").click());
     const page = new URL(String(open.mock.calls[0][0]));
     expect(`${page.pathname}?level=${page.searchParams.get("level")}${page.hash}`).toBe("/scene-2?level=2#boss");
     expect(page.searchParams.get("__ohmygame_view")).toBe("external");
     expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
     expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
     expect(openExternal).not.toHaveBeenCalled();
-    await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
+    await act(async () => more.click());
+    await act(async () => menuItem("Reload preview").click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);
     expect(reloaded.pathname).toBe("/scene-2");
@@ -701,9 +707,14 @@ describe("game panel without a web build", () => {
     expect(container.textContent).not.toContain("No web game in this folder");
     expect(container.textContent).toContain("package.json dev script that starts");
     await act(async () => root.render(view({ status: "error", error: "Godot's web export templates aren't installed.\nexport: line 1\nexport: line 2" })));
-    expect(container.querySelector('[role="alert"] > span')?.textContent).toBe("Godot's web export templates aren't installed.");
-    expect(container.querySelector('[role="alert"] details')?.textContent).toContain("export: line 2");
-    expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toContain("Run in Engine");
+    // A failed preview says so in a short title; the message reads under it, the build's output in the details.
+    expect(container.querySelector('[role="alert"] .ui-empty-title')?.textContent).toBe("The preview didn't start");
+    expect(container.querySelector('[role="alert"] .ui-empty-description')?.textContent).toBe("Godot's web export templates aren't installed.");
+    // The build's output is folded last, under the actions, so opening it moves nothing above.
+    expect(container.querySelector(".preview-status-panel > details:last-child")?.textContent).toContain("export: line 2");
+    // The engine's command joins Retry in one row; the logs and settings sit below as links.
+    expect([...container.querySelectorAll(".preview-recovery-actions button")].map((button) => button.textContent)).toEqual(["Retry preview", "Run in Engine"]);
+    expect([...container.querySelectorAll(".preview-recovery-links button")].map((button) => button.textContent)).toEqual(["Project settings"]);
     // An engine's plugin the folder turned on, waiting to be allowed, is offered first; allowing it is what adds its commands.
     const allow = vi.fn(async () => { throw new Error("Wait for the agent to finish first"); });
     const waiting = { commands: [], when: { values: {}, plugins: new Set<string>() }, run, waiting: [{ id: "acme/unreal", displayName: "Unreal Engine" }], allow };

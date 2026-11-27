@@ -34,7 +34,7 @@ export function CommandText({
           )
         }
       >
-        {copied ? <Check size={13} /> : <Copy size={13} />}
+        {copied ? <Check size="sm" /> : <Copy size="sm" />}
       </IconButton>
     </span>
   );

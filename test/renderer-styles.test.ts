@@ -3,6 +3,8 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The check is a dependency-free script without type declarations.
 import { compareCounts, countStyleValues } from "../scripts/check-style-values.mjs";
+// @ts-expect-error The check is a dependency-free script without type declarations.
+import { compareIconSizes, countIconSizes } from "../scripts/check-icon-sizes.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 
@@ -53,6 +55,24 @@ describe("style values check", () => {
         { file: "new.css", kind: "radius", before: 0, now: 1 },
       ],
       shrunk: [{ file: "a.css", kind: "color", before: 1, now: 0 }],
+    });
+  });
+});
+
+describe("icon sizes check", () => {
+  it("counts icons from icons.ts given a numeric size, and nothing else", () => {
+    expect(countIconSizes(`
+      import { Check, Image as ImageIcon, type IconComponent } from "./icons.js";
+      import { Button } from "./ui/index.js";
+      <Check size={14} /> <Check size="sm" /> <ImageIcon className="x" size={wide ? 20 : 16} />
+      <ImageIcon size={size} /> <Button size={12} /> <CheckRead size={12} />
+    `)).toBe(2);
+  });
+
+  it("fails only where a file's count grows", () => {
+    expect(compareIconSizes({ "a.tsx": 2, "b.tsx": 1 }, { "a.tsx": 3, "c.tsx": 1 })).toEqual({
+      grown: [{ file: "a.tsx", before: 2, now: 3 }, { file: "c.tsx", before: 0, now: 1 }],
+      shrunk: 1,
     });
   });
 });

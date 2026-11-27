@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle, Search, Upload, X } from "./icons.js";
+import { Spinner, Search, Upload, X } from "./icons.js";
 import type { LibraryAssetProject, LibraryUploadMediaType } from "../shared/contracts.js";
 import { filterLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryCollectionFilters } from "./library-filters.js";
@@ -8,7 +8,7 @@ import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
-import { Tabs } from "./ui/index.js";
+import { Button, IconButton, Tabs } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 /** The Library picker the canvases share, and the Library upload behind it. */
@@ -65,14 +65,14 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
       <section className={libraryTab ? "canvas-video-picker has-scopes" : "canvas-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="canvas-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="canvas-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
-          <button type="button" aria-label={t("libraryPicker.closePicker")} onClick={onClose}><X size={16} /></button>
+          {onUpload ? <Button size="sm" className="canvas-video-picker-upload" disabled={uploading} icon={uploading ? <Spinner size="sm" /> : <Upload size="sm" />} onClick={onUpload}>{t("assetCanvas.upload")}</Button> : null}
+          <IconButton size="sm" label={t("libraryPicker.closePicker")} onClick={onClose}><X size="md" /></IconButton>
         </header>
         {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("libraryPicker.scopes")} value={scope} onChange={setScope} tabs={[
           { value: "library", label: t("libraryPicker.libraryTab") },
           { value: "project", label: t("libraryPicker.projectTab") },
         ]} /></div> : null}
-        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("libraryPicker.searchLibrary")} /></label>
+        <div className="library-picker-toolbar"><label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("libraryPicker.searchLibrary")} /></label>
           {inLibrary ? null : <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />}
         </div>
         <div className="canvas-video-picker-list">
@@ -81,7 +81,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
         </div>
         {multiple ? <footer className="library-picker-footer">
           <span>{t("libraryPicker.pickedCount", { count: picked.length, max: multiple.max })}</span>
-          <button type="button" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</button>
+          <Button variant="primary" disabled={picked.length < multiple.min} onClick={() => multiple.onSubmit(picked)}>{multiple.action(picked.length)}</Button>
         </footer> : null}
       </section>
     </div>,

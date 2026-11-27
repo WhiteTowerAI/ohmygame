@@ -1,9 +1,9 @@
-import { LoaderCircle, X } from "./icons.js";
+import { Spinner, X } from "./icons.js";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { t } from "./i18n.js";
-import { Button, Field, Input, Separator } from "./ui/index.js";
+import { Button, Field, IconButton, Input, Separator } from "./ui/index.js";
 
 export type SignInProvider = "google" | "github";
 
@@ -119,14 +119,14 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
 
   const emailDisabled = !configured || Boolean(pendingProvider) || emailBusy;
   return createPortal(
-    <div className="project-settings-backdrop" onMouseDown={(event) => {
+    <div className="ui-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && canClose) onClose();
     }}>
-      <section ref={dialog} className="project-settings-dialog sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
-        <header>
-          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId}>{t("signIn.title")}</h2></div>
-          <button type="button" onClick={onClose} disabled={!canClose} aria-label={t("signIn.close")}><X size={16} /></button>
-        </header>
+      <section ref={dialog} className="ui-dialog ui-dialog-sm sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
+        <div className="ui-dialog-head">
+          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId} className="ui-dialog-title">{t("signIn.title")}</h2></div>
+          <IconButton size="sm" label={t("signIn.close")} className="ui-dialog-close" onClick={onClose} disabled={!canClose}><X size="md" /></IconButton>
+        </div>
         <div className="sign-in-body">
           <p id={descriptionId} className="sign-in-description">{t("signIn.description")}</p>
           <div className="sign-in-actions">
@@ -141,7 +141,7 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
                 <Field label={t("signIn.code")}>
                   {(field) => <Input {...field} ref={codeInput} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" minLength={6} maxLength={10} required disabled={emailDisabled} />}
                 </Field>
-                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || code.length < 6} aria-busy={emailBusy} icon={emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : undefined}>
+                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || code.length < 6} aria-busy={emailBusy} icon={emailBusy ? <Spinner size="md" aria-hidden="true" /> : undefined}>
                   {t("signIn.verifyCode")}
                 </Button>
                 <div className="sign-in-email-links">
@@ -156,13 +156,13 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
                 <Field label={t("signIn.email")}>
                   {(field) => <Input {...field} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" spellCheck={false} required disabled={emailDisabled} />}
                 </Field>
-                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || !email.trim()} aria-busy={emailBusy} icon={emailBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : undefined}>
+                <Button variant="primary" type="submit" className="sign-in-submit" disabled={emailDisabled || !email.trim()} aria-busy={emailBusy} icon={emailBusy ? <Spinner size="md" aria-hidden="true" /> : undefined}>
                   {t("signIn.sendCode")}
                 </Button>
               </>
             )}
           </form>
-          {displayedError ? <p className="project-settings-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
+          {displayedError ? <p className="sign-in-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
         </div>
       </section>
     </div>, document.body,
@@ -179,7 +179,7 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const name = provider === "google" ? "Google" : "GitHub";
   return (
     <Button variant="secondary" className="sign-in-provider" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
-      {pending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
+      {pending ? <Spinner size="md" aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
       <span>{t("signIn.continueWith", { provider: name })}</span>
     </Button>
   );

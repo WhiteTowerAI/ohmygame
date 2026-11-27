@@ -202,18 +202,7 @@
 }
 
 .ui-spinner {
-  display: inline-block;
   flex: none;
-  border: 2px solid var(--color-border-strong);
-  border-top-color: var(--color-text);
-  border-radius: 50%;
-  animation: ui-spin 700ms linear infinite;
-}
-
-@keyframes ui-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .ui-skeleton {
@@ -238,37 +227,133 @@
 }
 
 /* empty and alert */
+/* One empty state everywhere: tile, title, a line, then actions in a row. */
 .ui-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   padding: var(--space-6) var(--space-4);
   text-align: center;
 }
 
+.ui-empty.is-fill {
+  flex: 1;
+  align-self: stretch;
+  justify-content: safe center;
+  min-height: 100%;
+  overflow: auto;
+}
+
+/* A game icon's tile is drawn 40px too, as callers pass its size. */
+.ui-empty-icon,
+.ui-empty > .game-icon {
+  margin-bottom: var(--space-2);
+}
+
 .ui-empty-icon {
   display: grid;
-  place-items: center;
   width: 40px;
   height: 40px;
-  margin-bottom: var(--space-1);
+  flex: none;
+  place-items: center;
   border-radius: var(--radius-lg);
   background: var(--color-hover);
   color: var(--color-text-secondary);
 }
 
-.ui-empty strong {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+.ui-empty.is-error .ui-empty-icon {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
 }
 
-.ui-empty p {
-  max-width: 320px;
-  margin: 0 0 var(--space-2);
+.ui-empty-title {
+  max-width: 360px;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.ui-empty-description {
+  max-width: 360px;
   color: var(--color-text-secondary);
   font-size: var(--text-md);
-  line-height: 1.55;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ui-empty-description > p {
+  margin: 0;
+}
+
+/* Details stay centred under the line. */
+.ui-empty-description > :is(.ui-disclosure, details) {
+  max-width: min(560px, 100%);
+  margin-top: var(--space-1);
+  text-align: start;
+}
+
+.ui-empty-description > .ui-disclosure > .ui-disclosure-summary {
+  margin-inline: auto;
+}
+
+/* A panel loading fills it like an empty state, fading in after a moment. */
+.ui-loading {
+  display: flex;
+  flex: 1;
+  min-height: 100%;
+  animation: ui-loading-in var(--duration-base) 300ms both;
+}
+
+@keyframes ui-loading-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* An error's details come last; opened, the text hangs below them, so
+   nothing above moves. */
+.ui-empty-details {
+  position: relative;
+  align-self: stretch;
+  margin-top: var(--space-1);
+}
+
+.ui-empty-details > .ui-disclosure-summary {
+  margin-inline: auto;
+}
+
+.ui-disclosure.is-inline.ui-empty-details[open] > .ui-disclosure-summary {
+  margin-bottom: 0;
+}
+
+.ui-disclosure.is-inline.ui-empty-details > pre {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: min(560px, 100%);
+  margin-top: var(--space-2);
+  transform: translateX(-50%);
+  text-align: start;
+}
+
+.ui-empty-description pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ui-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .ui-alert {

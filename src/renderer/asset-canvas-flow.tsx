@@ -218,7 +218,7 @@ export interface MediaReferenceView {
 export function MediaViewButton() {
   return (
     <button className="canvas-media-view-button nodrag" type="button" title={t("assetCanvas.viewAction")} aria-label={t("assetCanvas.viewAction")} onDoubleClick={(event) => event.stopPropagation()}>
-      <Maximize size={14} />
+      <Maximize size="sm" />
     </button>
   );
 }

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
+import { saveBeforeLeaving } from "./app-navigation.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
-import { Folder, LoaderCircle } from "./icons.js";
+import { Folder, Spinner } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
+import { newProjectKind, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
@@ -70,7 +71,7 @@ export function ProjectCreateDialog({
   onCreated,
   onOpenProject,
 }: {
-  initialType?: ProjectType;
+  initialType?: string;
   initialWorkspacePath?: string;
   firstMessage?: FirstMessage;
   /**
@@ -206,6 +207,8 @@ export function ProjectCreateDialog({
         ...(template ? { template: template.id } : {}),
         ...(workspacePath ? { workspacePath } : {}),
       };
+      await saveBeforeLeaving();
+      if (!mounted.current) return;
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
@@ -249,14 +252,7 @@ export function ProjectCreateDialog({
 
   function typeSelect(id?: string) {
     return <Select<string> id={id} label={t("createDialog.type")} value={type}
-      onChange={(value) => {
-        if (value === MORE_TYPES) {
-          onClose();
-          openMoreProjectTypes();
-          return;
-        }
-        setChosenType(value);
-      }}
+      onChange={setChosenType}
       options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />;
   }
 
@@ -267,7 +263,7 @@ export function ProjectCreateDialog({
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
         <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
+        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <Spinner size="sm" /> : undefined} onClick={() => void submit()}>
           {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
         </Button>
       </>}>
@@ -315,7 +311,7 @@ export function ProjectCreateDialog({
           {(props) => (
             // One box with the folder and its buttons, as tall as the fields above; a folder is only chosen with the button.
             <div className="new-project-location">
-              <Folder size={14} className="new-project-location-icon" aria-hidden="true" />
+              <Folder size="sm" className="new-project-location-icon" aria-hidden="true" />
               <output {...props} className={`new-project-location-path${locationPath ? " is-path" : ""}`} title={locationTitle}>
                 <bdi>{locationPath ?? t("settings.general.projectLocationDefault")}</bdi>
               </output>

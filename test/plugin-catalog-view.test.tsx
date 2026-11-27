@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketPlugin, PluginMarketListing, PluginMarketSettings, StorePlugin } from "../src/shared/plugins.js";
@@ -97,6 +97,14 @@ afterEach(async () => {
   container.remove();
   vi.unstubAllGlobals();
 });
+
+/** The page as the app routes it: opening a plugin or a tab changes what it's given. */
+function Routed({ pluginId, tab }: { pluginId?: string; tab?: "installed" | "discover" | "mine" }) {
+  const [route, setRoute] = useState<{ pluginId?: string; tab?: "installed" | "discover" | "mine" }>({ pluginId, tab });
+  return <PluginsSettings {...(route.pluginId ? { pluginId: route.pluginId } : {})} {...(route.tab ? { tab: route.tab } : {})}
+    onPluginChange={(id, next) => setRoute({ ...(id ? { pluginId: id } : {}), ...(next ? { tab: next } : {}) })}
+    onTabChange={(next) => setRoute({ tab: next })} onTryPlugin={async () => {}} />;
+}
 
 /** The page on a tab, Installed unless said; Discover is the page's own first. */
 async function renderCatalog(pluginId?: string, tab: "installed" | "discover" | "mine" = "installed") {
@@ -273,13 +281,8 @@ describe("plugin catalog browsing", () => {
     const section = (title: string) => container.querySelector(`section[aria-label="${title}"]`)!;
 
     const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
-    const inDialog = async (label: string) => {
-      const button = [...dialog()!.querySelectorAll("button")].find((item) => item.textContent === label)!;
-      expect(button, label).toBeTruthy();
-      await act(async () => button.click());
-    };
 
-    it("opens on Discover, marking what's official and installed, and opens a plugin over the list", async () => {
+    it("opens on Discover, marking only what's installed, and opens a plugin on its own page", async () => {
       store.push(fromMarket("owned"));
       market = { status: "ready", blocked: [], plugins: [
         listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, repository: "https://github.com/acme/popular" }), listed("owned"),
@@ -293,53 +296,60 @@ describe("plugin catalog browsing", () => {
       expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
       expect(cards(section("All plugins"))).toEqual(["Market picked", "Market popular", "Market owned", "Market official", "Market avatar"]);
       const card = (name: string) => [...section("All plugins").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
-      // A card is one button: it is added from its dialog.
+      // A card is one button: it is added from its page.
       expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
       expect(card("Market owned").querySelector(".ui-badge")?.textContent).toBe("Installed");
       // The publisher comes first on the last line, before the version.
       expect(card("Market popular").querySelector(".plugin-card-foot")?.firstElementChild?.textContent).toBe("@acme");
       expect(card("Market popular").querySelector(".plugin-card-numbers")?.textContent).toContain("v1.0.0");
-      // Official is the one mark; a verified source is in the plugin's information instead.
-      expect(card("Market official").querySelector('[aria-label="Official"]')).toBeTruthy();
-      expect(card("Market popular").querySelector('[aria-label="Official"]')).toBeNull();
+      // Installed is a card's one mark: Official, Beta and a verified source are on the plugin's page.
+      expect(card("Market official").querySelector('[aria-label="Official"]')).toBeNull();
       expect(card("Market popular").querySelector('[aria-label="Source verified"]')).toBeNull();
       // Without an icon, a card shows the plugin's first letter, in the same colour each time.
       const letter = card("Market popular").querySelector<HTMLElement>(".plugin-monogram")!;
       expect(letter.textContent).toBe("M");
       expect(letter.style.getPropertyValue("--monogram-hue")).toMatch(/^var\(--hue-[a-z]+\)$/);
       expect(card("Market official").querySelector(".plugin-card-author")?.textContent).toBe("@ohmygame");
-      // With one, its own icon, read from the package file mirror; a publisher's avatar is only in the dialog.
+      // With one, its own icon, read from the package file mirror; a publisher's avatar is only on its page.
       await vi.waitFor(() => expect(card("Market avatar").querySelector(".plugin-tile img")).toBeTruthy());
       expect(card("Market official").querySelector(".plugin-tile img")).toBeNull();
       expect(card("Market official").querySelector(".plugin-monogram")?.textContent).toBe("M");
-      await act(async () => card("Market avatar").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
-      await vi.waitFor(() => expect(dialog()?.querySelector(".plugin-publisher img")).toBeTruthy());
-      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
-      // A card opens the plugin in a dialog, without leaving Discover.
+      // A card opens the plugin's page, installed or not.
       await act(async () => card("Market popular").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
-      expect(opened).toEqual([]);
-      expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Market popular");
-      expect(dialog()?.textContent).toContain("Source verified");
-      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
-      expect(dialog()).toBeNull();
-      // An installed one offers its own page.
       await act(async () => card("Market owned").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
-      await inDialog("Manage");
-      expect(opened).toEqual(["acme/owned"]);
+      expect(opened).toEqual(["acme/popular", "acme/owned"]);
       expect(dialog()).toBeNull();
       await search("popular");
       expect(cards()).toEqual(["Market popular"]);
       expect(section("All plugins").querySelector("h2")?.textContent).toBe("All plugins1");
     });
 
-    it("finds a plugin by its keywords and what it adds, and searches for a keyword from its dialog", async () => {
+    it("gives a plugin that isn't installed the installed one's page, with its marks, and comes back to the list", async () => {
+      market = { status: "ready", blocked: [], plugins: [
+        listed("popular", { sourceVerified: true, stars: 1200, avatar: "42" }),
+        listed("official", { id: "ohmygame/official", beta: true, repository: "https://github.com/WhiteTowerAI/ohmygame-plugins" }),
+      ] };
+      await act(async () => root.render(<Routed tab="discover" />));
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market official"))!.click());
+      expect(container.querySelector(".plugin-head h1")?.textContent).toContain("Market official");
+      expect(container.querySelector('.plugin-head [aria-label="Official"]')).toBeTruthy();
+      expect(container.querySelector(".plugin-head")?.textContent).toContain("Beta");
+      expect(container.querySelector(".plugins-grid")).toBeNull();
+      await click("Plugins");
+      expect(cards()).toEqual(["Market popular", "Market official"]);
+      await act(async () => container.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      await vi.waitFor(() => expect(container.querySelector(".plugin-side .plugin-publisher img")).toBeTruthy());
+      expect(container.querySelector(".plugin-side")?.textContent).toContain("Source verified");
+    });
+
+    it("finds a plugin by its keywords and what it adds, and searches for a keyword from its page", async () => {
       market = { status: "ready", blocked: [], plugins: [
         listed("agents", { categories: ["agent"], names: ["Gemini CLI"] }),
         listed("flow", { categories: ["provider"], keywords: ["aggregator", "LLM"] }),
         listed("router", { categories: ["provider"], keywords: ["aggregator"] }),
         listed("pixels", { categories: ["art"] }),
       ] };
-      await renderCatalog(undefined, "discover");
+      await act(async () => root.render(<Routed tab="discover" />));
       await search("gemini");
       expect(cards()).toEqual(["Market agents"]);
       await search("llm");
@@ -348,13 +358,13 @@ describe("plugin catalog browsing", () => {
       // Opened from one category, a keyword searches them all.
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Art"))!.click());
       await act(async () => container.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
-      expect(dialog()?.querySelector(".plugin-keywords")).toBeNull();
-      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
+      expect(container.querySelector(".plugin-keywords")).toBeNull();
+      await click("Plugins");
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")].find((item) => item.textContent?.startsWith("Model providers"))!.click());
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market flow"))!.click());
-      expect([...dialog()!.querySelectorAll(".plugin-keyword")].map((item) => item.textContent)).toEqual(["aggregator", "LLM"]);
-      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".plugin-keyword")!.click());
-      expect(dialog()).toBeNull();
+      expect([...container.querySelectorAll(".plugin-keyword")].map((item) => item.textContent)).toEqual(["aggregator", "LLM"]);
+      await act(async () => container.querySelector<HTMLButtonElement>(".plugin-keyword")!.click());
+      expect(container.querySelector(".plugin-head")).toBeNull();
       expect(container.querySelector<HTMLInputElement>('[aria-label="Search plugins"]')?.value).toBe("aggregator");
       expect(cards()).toEqual(["Market flow", "Market router"]);
     });
@@ -381,27 +391,25 @@ describe("plugin catalog browsing", () => {
       expect(cards()).toHaveLength(3);
     });
 
-    it("reviews a listed plugin from Get in its dialog, which a link opens too", async () => {
+    it("reviews a listed plugin from Get on its page, which a link opens too", async () => {
       market = { status: "ready", blocked: [], plugins: [listed("picked", { longDescription: "Picks things.", categories: ["art"], appliesTo: ["web-game"], asks: ["native"], adds: { skills: 2, panels: 1 },
         publishedAt: "2026-11-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z", size: 1_572_864 })] };
       await renderCatalog("acme/picked", "discover");
-      await vi.waitFor(() => expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toBe("Market picked"));
-      // Over the list it belongs to.
-      expect(cards(section("All plugins"))).toEqual(["Market picked"]);
-      const side = dialog()!.querySelector('[aria-label="Information"]')!;
-      expect(dialog()!.querySelector(".plugin-publisher")?.textContent).toBe("@acme");
+      await vi.waitFor(() => expect(container.querySelector(".plugin-head h1")?.textContent).toBe("Market picked"));
+      const side = container.querySelector('[aria-label="Information"]')!;
+      expect(side.querySelector(".plugin-publisher")?.textContent).toBe("@acme");
       expect(side.textContent).toContain("Art");
       expect(side.textContent).toContain("Web Game");
       expect(side.textContent).toContain("First published");
       // Its numbers are in one row: version, size and when it was updated.
-      const stats = dialog()!.querySelector(".plugin-dialog-stats")!.textContent;
+      const stats = container.querySelector(".plugin-stats")!.textContent;
       expect(stats).toContain("Version1.0.0");
       expect(stats).toContain("Size1.5 MB");
       expect(stats).toContain("Updated");
-      expect(dialog()!.textContent).toContain("Picks things.");
-      expect(dialog()!.textContent).toContain("Run its own code on this computer");
-      expect(dialog()!.querySelector(".plugin-store-adds")?.textContent).toContain("Panel1");
-      await inDialog("Get");
+      expect(container.textContent).toContain("Picks things.");
+      expect(container.textContent).toContain("Run its own code on this computer");
+      expect(container.querySelector(".plugin-store-adds")?.textContent).toContain("Panel1");
+      await click("Get");
       expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
       expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toMatch(/^Add /);
     });
@@ -418,9 +426,9 @@ describe("plugin catalog browsing", () => {
       market = { status: "ready", blocked: [], plugins: [
         listed("hit", { featured: true, id: "ohmygame/hit", repository: "https://github.com/WhiteTowerAI/ohmygame-plugins" }),
         ...[1, 2, 3, 4, 5, 6].map((n) => listed(`top-${n}`, { categories: ["art"], sourceVerified: n < 3 })),
-        listed("new-1", { categories: ["audio"], createdAt: daysAgo(5), publishedAt: daysAgo(5) }),
-        listed("new-2", { categories: ["audio"], createdAt: daysAgo(10), publishedAt: daysAgo(10) }),
-        listed("old", { createdAt: daysAgo(400), publishedAt: daysAgo(1) }),
+        listed("new-1", { categories: ["art"], createdAt: daysAgo(5), publishedAt: daysAgo(5) }),
+        listed("new-2", { categories: ["art"], createdAt: daysAgo(10), publishedAt: daysAgo(10) }),
+        listed("old", { categories: ["art"], createdAt: daysAgo(400), publishedAt: daysAgo(1) }),
         ...[1, 2, 3].map((n) => listed(`more-${n}`, { categories: ["theme"] })),
       ] };
       await renderCatalog(undefined, "discover");
@@ -428,18 +436,19 @@ describe("plugin catalog browsing", () => {
       expect([...container.querySelectorAll(".plugins-section h2")].map((title) => title.textContent))
         .toEqual(["Featured", "Recommended", "New", "Recently updated"]);
       expect(cards(section("Featured"))).toEqual(["Market hit"]);
-      expect(cards(section("Recommended"))).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Market top-${n}`));
+      // Recommended takes the best of each category first, so it shows what kinds there are.
+      expect(cards(section("Recommended"))).toEqual(["Market top-1", "Market more-1", ...[2, 3, 4, 5].map((n) => `Market top-${n}`)]);
       expect(cards(section("New"))).toEqual(["Market new-1", "Market new-2"]);
       expect(cards(section("Recently updated"))).toEqual(["Market old"]);
       // The side list counts each category, and leaves out those nothing is in.
       const counts = [...container.querySelectorAll(".plugins-rail-item")].map((item) => item.textContent);
-      expect(counts).toEqual(["Overview", "All plugins13", "Art6", "Audio2", "Appearance3", "Other2", "Official", "Source verified"]);
+      expect(counts).toEqual(["Overview", "All plugins13", "Art9", "Appearance3", "Other1", "Official", "Source verified"]);
       await click("View all 13 plugins");
       expect(cards()).toHaveLength(13);
       await rail("Art");
-      expect(section("Art").querySelector("h2")?.textContent).toBe("Art6");
+      expect(section("Art").querySelector("h2")?.textContent).toBe("Art9");
       await pick("Sort", "Name");
-      expect(cards()).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Market top-${n}`));
+      expect(cards()).toEqual(["Market new-1", "Market new-2", "Market old", ...[1, 2, 3, 4, 5, 6].map((n) => `Market top-${n}`)]);
       // Filters narrow the list and the counts beside it.
       await rail("Source verified");
       expect(cards()).toEqual(["Market top-1", "Market top-2"]);
@@ -452,12 +461,13 @@ describe("plugin catalog browsing", () => {
     });
 
     it("shows a long list a page at a time", async () => {
-      market = { status: "ready", blocked: [], plugins: Array.from({ length: 30 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
+      market = { status: "ready", blocked: [], plugins: Array.from({ length: 60 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
       await renderCatalog(undefined, "discover");
       await rail("Art");
-      expect(cards()).toHaveLength(24);
-      await click("Show more (6 left)");
-      expect(cards()).toHaveLength(30);
+      expect(cards()).toHaveLength(48);
+      // The next page mounts as the end scrolls into view, or from its button.
+      await click("Show more");
+      expect(cards()).toHaveLength(60);
       expect(container.textContent).not.toContain("Show more");
     });
 

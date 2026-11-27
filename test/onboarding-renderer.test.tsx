@@ -587,7 +587,7 @@ describe("first-run screens", () => {
         <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
       ),
     );
-    await act(async () => button("Describe a gameTell the AI what to make on Home.").click());
+    await act(async () => button("Describe a gamePick a type and tell the AI what to make.").click());
     expect(finish).toHaveBeenCalledWith("completed", "prompt");
   });
 
@@ -947,7 +947,7 @@ describe("first-run screens", () => {
       container.querySelector('section[aria-label="Custom provider"]'),
     ).not.toBeNull();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.querySelector(".project-settings-backdrop")).toBeNull();
+    expect(document.querySelector(".ui-backdrop")).toBeNull();
     expect(document.activeElement).toBe(
       container.querySelector('input[placeholder="My provider"]'),
     );
@@ -999,7 +999,7 @@ describe("first-run screens", () => {
         <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
       ),
     );
-    await act(async () => button("Describe a gameTell the AI what to make on Home.").click());
+    await act(async () => button("Describe a gamePick a type and tell the AI what to make.").click());
     expect(finish).toHaveBeenCalledWith("completed", "prompt");
   });
 

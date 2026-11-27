@@ -5,7 +5,7 @@ import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
-import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, Running, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
+import { Type, Maximize, Film, Music2, Box, Image as ImageIcon, Folder, Package, Running, X, Search, Spinner, Check, Plus, Pause, Play, VolumeX, Volume2, Stop, ArrowUp, Upload, SlidersHorizontal, ChevronDown } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { localizedTemplateText } from "./template-text.js";
 import { TemplateExampleImage } from "./template-example-cache.js";
@@ -14,6 +14,7 @@ import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
+import { chipMark } from "./model-selector.js";
 import { canvasNodeParamValue, pluginParamIssue } from "../shared/canvas-plugin-nodes.js";
 import type { PluginParamView } from "../shared/plugins.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
@@ -33,6 +34,7 @@ import type { DroppedFolder } from "./canvas-file-import.js";
 import { formatBytes } from "./format-bytes.js";
 import { listModel3DAnimations } from "./api.js";
 import { createPortal } from "react-dom";
+import { Button, Dialog } from "./ui/index.js";
 import { LibraryAssetPicker } from "./library-asset-picker.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { settingsHash } from "./routes.js";
@@ -69,7 +71,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="canvas-text-output">
         {/* The larger editor opens from the header, shown on hover like the details button, so the text keeps the whole body. */}
-        <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size={12} /></button> : undefined} />
+        <CanvasNodeLabel icon={Type} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" trailing={data.resizeRuntime?.open ? <button className="canvas-node-details canvas-node-expand nodrag" type="button" title={t("canvasNode.expandText")} aria-label={t("canvasNode.expandText")} onClick={data.resizeRuntime.open}><Maximize size="xs" /></button> : undefined} />
         <CanvasTextarea
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
@@ -113,7 +115,7 @@ function BackgroundRemovalNode({ data, selected }: Pick<NodeProps<AssetCanvasFlo
     <div className="canvas-media-controls">
       <CanvasChipSelect label={t("assetCanvas.imageModel")} wide value={selectedModel ? modelRefKey(selectedModel) : undefined}
         placeholder={data.model ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noBackgroundRemovalModel")}
-        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName }))}
+        options={models.map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName, mark: chipMark(model) }))}
         notes={providerNotes(runtime?.providers)} action={MANAGE_PROVIDERS} disabled={runtime?.busy}
         onChange={(key) => { const model = models.find((candidate) => modelRefKey(candidate) === key); if (model && runtime) runtime.onChange({ ...data, imageRuntime: undefined, model: modelRef(model) }); }} />
       <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
@@ -184,8 +186,8 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
         event.target.value = "";
         if (file) runtime?.onUploadSourceImage(file);
       }} />
-      <button type="button" disabled={runtime?.uploading} onClick={() => sourceInput.current?.click()}><Upload size={14} />{t("assetCanvasTemplates.uploadReference")}</button>
-      <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size={14} />{t("assetCanvasTemplates.libraryReference")}</button>
+      <button type="button" disabled={runtime?.uploading} onClick={() => sourceInput.current?.click()}><Upload size="sm" />{t("assetCanvasTemplates.uploadReference")}</button>
+      <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size="sm" />{t("assetCanvasTemplates.libraryReference")}</button>
     </div>
     {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
     {libraryOpen ? <LibraryAssetPicker title={t("assetCanvasTemplates.libraryReference")} assets={runtime?.libraryImages ?? []} onClose={() => setLibraryOpen(false)} onSelect={(asset) => { runtime?.onSetSourceAsset(asset); setLibraryOpen(false); }} /> : null}
@@ -226,7 +228,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.model ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noImageModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName, mark: chipMark(model) }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -330,7 +332,7 @@ export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           wide
           value={selectedModel ? modelKey(selectedModel) : undefined}
           placeholder={runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noVideoModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: mediaModelName(model), group: model.providerName, mark: chipMark(model) }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -461,7 +463,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noCompatibleAudioModel")}
-          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName }))}
+          options={models.map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), description: audioModelDescription(model), group: model.providerName, mark: chipMark(model) }))}
           notes={audioProviderNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -469,7 +471,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         />
         </div>
         {selectedModel ? <CanvasAudioQuickControls value={data} model={selectedModel} listsVoices={providerStatus?.listsVoices} disabled={runtime?.busy} onChange={change} /> : null}
-        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : null}
+        {maximumDuration !== undefined ? <label className="canvas-chip audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><select aria-label={t("audioStudio.targetDuration")} value={data.durationSeconds ?? ""} disabled={runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t("assetCanvas.automatic")}</option>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}</select><ChevronDown size="xs" aria-hidden="true" /></label> : null}
         {caps?.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental === true}
@@ -483,7 +485,7 @@ export function AudioNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
           onChange={(loop) => change({ loop })}
         /> : null}
         {selectedModel ? <div className="audio-advanced-menu">
-          <button className="canvas-chip audio-advanced-trigger" type="button" title={t("audioStudio.options")} aria-label={t("audioStudio.options")} aria-expanded={advancedOpen} disabled={runtime?.busy} onClick={() => setAdvancedOpen((open) => !open)}><SlidersHorizontal size={14} /></button>
+          <button className="canvas-chip audio-advanced-trigger" type="button" title={t("audioStudio.options")} aria-label={t("audioStudio.options")} aria-expanded={advancedOpen} disabled={runtime?.busy} onClick={() => setAdvancedOpen((open) => !open)}><SlidersHorizontal size="sm" /></button>
         </div> : null}
         <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
@@ -536,7 +538,7 @@ export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNo
           wide
           value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={processing ? t("assetCanvas.selectConnection") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.no3dModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, ...(model.id === MODEL3D_CONNECTION_ID ? {} : { group: model.providerName, mark: chipMark(model) }) }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -615,20 +617,17 @@ export function FolderImportDialog({ folders, onAnswer }: { folders: DroppedFold
   const files = folders.reduce((count, folder) => count + folder.files.length, 0);
   const size = formatBytes(folders.reduce((bytes, folder) => bytes + folder.bytes, 0));
   return (
-    <div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) onAnswer(undefined); }}>
-      <section className="design-modal" role="alertdialog" aria-modal="true" aria-labelledby="canvas-folder-import-title" onKeyDown={(event) => { if (event.key === "Escape") onAnswer(undefined); }}>
-        <header><h2 id="canvas-folder-import-title">{t("assetCanvas.folderImportTitle", { count: folders.length })}</h2></header>
-        <p>{folders.length === 1
-          ? tNodes(files === 1 ? "assetCanvas.folderImportOneFile" : "assetCanvas.folderImportFiles", { name: <strong>{folders[0]!.name}</strong>, count: files, size })
-          : t("assetCanvas.folderImportMany", { folders: folders.length, count: files, size })}</p>
-        <p>{t("assetCanvas.folderImportHint")}</p>
-        <footer>
-          <button type="button" onClick={() => onAnswer(undefined)}>{t("common.cancel")}</button>
-          <button type="button" onClick={() => onAnswer("files")}>{t("assetCanvas.importFilesSeparately")}</button>
-          <button type="button" autoFocus onClick={() => onAnswer("folder")}>{t("assetCanvas.importFolder", { count: folders.length })}</button>
-        </footer>
-      </section>
-    </div>
+    <Dialog open size="sm" className="nokey" title={t("assetCanvas.folderImportTitle", { count: folders.length })} onClose={() => onAnswer(undefined)}
+      description={folders.length === 1
+        ? tNodes(files === 1 ? "assetCanvas.folderImportOneFile" : "assetCanvas.folderImportFiles", { name: <strong>{folders[0]!.name}</strong>, count: files, size })
+        : t("assetCanvas.folderImportMany", { folders: folders.length, count: files, size })}
+      footer={<>
+        <Button onClick={() => onAnswer(undefined)}>{t("common.cancel")}</Button>
+        <Button onClick={() => onAnswer("files")}>{t("assetCanvas.importFilesSeparately")}</Button>
+        <Button variant="primary" data-modal-initial-focus onClick={() => onAnswer("folder")}>{t("assetCanvas.importFolder", { count: folders.length })}</Button>
+      </>}>
+      <p className="canvas-dialog-note">{t("assetCanvas.folderImportHint")}</p>
+    </Dialog>
   );
 }
 
@@ -647,7 +646,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="canvas-media-controls is-wrapping">
-        <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.id === MODEL3D_CONNECTION_ID ? undefined : model.providerName }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
+        <CanvasChipSelect label={t("assetCanvas.animationProvider")} value={selectedModel ? modelRefKey(selectedModel) : undefined} placeholder={t("assetCanvas.selectAnimationProvider")} options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, ...(model.id === MODEL3D_CONNECTION_ID ? {} : { group: model.providerName, mark: chipMark(model) }) }))} disabled={runtime?.busy} action={MANAGE_PROVIDERS} onChange={(value) => {
           const model = runtime?.models.find((model) => modelRefKey(model) === value);
           if (model) update({ animationModel: modelRef(model), actionIds: [], model3DOptions: undefined });
         }} />
@@ -657,7 +656,7 @@ export function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlow
           <CanvasChipToggle label={t("assetCanvas.inPlace")} pressed={data.model3DOptions?.animateInPlace ?? false} disabled={runtime?.busy} onChange={(animateInPlace) => update({ model3DOptions: { ...data.model3DOptions, animateInPlace } })} />
         </> : null}
         <button className="canvas-chip" type="button" disabled={runtime?.busy} onClick={() => setPickerOpen(true)}>
-          <Running size={12} /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
+          <Running size="xs" /><span>{t("assetCanvas.moveCount", { count: actionIds.length })}</span>
         </button>
         {selectedModel?.protocol !== "tripo" ? <CanvasChipSelect
           label={t("assetCanvas.characterHeight")}
@@ -737,8 +736,8 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
     // Keys typed here (search, Backspace) must not reach React Flow's delete shortcut.
     <div className="canvas-video-picker-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="canvas-video-picker canvas-animation-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-animation-picker-title" tabIndex={-1}>
-        <header><h2 id="canvas-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size={16} /></button></header>
-        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.searchMoves")} /></label>
+        <header><h2 id="canvas-animation-picker-title">{t("assetCanvas.chooseMoves")}</h2><button type="button" aria-label={t("assetCanvas.closePicker")} onClick={onClose}><X size="md" /></button></header>
+        <label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assetCanvas.searchMoves")} /></label>
         <div className="canvas-animation-picker-filters">
           {status === "ready" && actions.length > 0 && !hasPreviews ? <p className="canvas-animation-picker-note">{t("assetCanvas.noPreviews", { provider: model?.providerName ?? t("assetCanvas.thisProvider") })}</p> : null}
           {categories.length > 1 || category ? <div className="canvas-animation-picker-categories" role="group" aria-label={t("assetCanvas.moveCategories")}>
@@ -750,7 +749,7 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
         </div>
         <div className={`canvas-animation-picker-grid${!hasPreviews ? " is-list" : ""}`}>
           {!model ? <p>{tNodes("assetCanvas.setupProvider", { link: <button type="button" onClick={MANAGE_PROVIDERS.onSelect}>{t("modelSelector.manage")}</button> })}</p>
-            : status === "loading" ? <p><LoaderCircle className="spin" size={16} /> {t("assetCanvas.loadingMoves")}</p>
+            : status === "loading" ? <p><Spinner size="md" /> {t("assetCanvas.loadingMoves")}</p>
             : status === "error" ? <p>{t("assetCanvas.movesFailed")} <button type="button" onClick={() => setReload((value) => value + 1)}>{t("common.tryAgain")}</button></p>
             : visible.length === 0 ? <p>{t("assetCanvas.noMovesMatch")}</p>
             : visible.map((action) => {
@@ -759,10 +758,10 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
                 <button type="button" key={action.id} className={!action.previewUrl ? "canvas-animation-picker-text-move" : undefined} aria-pressed={chosen} disabled={!chosen && full} onClick={() => toggle(action.id)} title={`${action.name} · ${splitCamelCase(action.subCategory)}`}>
                   {action.previewUrl ? <span className="canvas-animation-picker-preview">
                     <img src={action.previewUrl} alt="" loading="lazy" />
-                    {chosen ? <span className="canvas-animation-picker-check"><Check size={12} /></span> : null}
+                    {chosen ? <span className="canvas-animation-picker-check"><Check size="xs" /></span> : null}
                   </span> : null}
                   <strong>{action.name}</strong>
-                  {!action.previewUrl ? <span className="canvas-animation-picker-selection" aria-hidden="true">{chosen ? <Check size={12} /> : null}</span> : null}
+                  {!action.previewUrl ? <span className="canvas-animation-picker-selection" aria-hidden="true">{chosen ? <Check size="xs" /> : null}</span> : null}
                 </button>
               );
             })}
@@ -772,7 +771,7 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
           <div className="canvas-animation-picker-selected" aria-label={t("assetCanvas.selectedMoves")}>
             {selectedIds.length === 0 ? <span>{t("assetCanvas.noMovesSelected")}</span> : selectedIds.map((id) => (
               <button className="canvas-chip" type="button" key={id} title={t("assetCanvas.removeMove")} onClick={() => toggle(id)}>
-                <span>{byId.get(id)?.name ?? t("assetCanvas.moveId", { id })}</span><X size={11} />
+                <span>{byId.get(id)?.name ?? t("assetCanvas.moveId", { id })}</span><X size="xs" />
               </button>
             ))}
           </div>
@@ -844,7 +843,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
             disabled={runtime?.busy}
             onClick={() => runtime.onAddLibraryReference ? setLibraryOpen(true) : input.current?.click()}
           >
-            {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
+            {runtime?.uploading ? <Spinner size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
             {nextSlot ? <span>{nextSlot}</span> : null}
           </button>
           <input
@@ -880,8 +879,8 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
     <div className="canvas-media-reference canvas-text-reference" title={text || t("assetCanvas.emptyText")}>
-      <Type size={19} />
-      <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
+      <Type size="lg" />
+      <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size="xs" /></button>
     </div>
   );
 }
@@ -932,7 +931,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         ) : null}
         {runtime?.generating ? (
           <div className="canvas-media-empty canvas-media-generation" role="status">
-            <LoaderCircle className="spin" size={20} />
+            <Spinner size="lg" />
             <strong>{kind === "animation" ? t("assetCanvas.rigging") : t(`assetCanvas.media.${kind}.generating`)}</strong>
             {!audio ? <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span> : null}
           </div>
@@ -1121,14 +1120,14 @@ function InlineVideoControls({ label, playing, currentMs, totalMs, muted, disabl
   const current = Math.max(0, Math.min(currentMs, duration));
   const progress = duration ? current / duration * 100 : 0;
   return <div className="canvas-inline-video-controls nodrag nowheel" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
-    <button type="button" title={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} aria-label={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} disabled={disabled} onClick={onToggle}>{playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}</button>
+    <button type="button" title={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} aria-label={playing ? t("assetCanvas.pause", { label }) : t("assetCanvas.play", { label })} disabled={disabled} onClick={onToggle}>{playing ? <Pause size="sm" fill="currentColor" /> : <Play size="sm" fill="currentColor" />}</button>
     <time>{formatPreviewTime(current)}</time>
     <div className="canvas-inline-video-scrubber">
       {markers.length ? <div className="canvas-inline-video-markers" aria-hidden="true">{markers.map((marker) => <i key={marker.id} className={marker.blocking ? "is-blocking" : ""} style={{ left: `${duration ? Math.max(0, Math.min(100, marker.timeMs / duration * 100)) : 0}%` }} />)}</div> : null}
       <input aria-label={`${label} position`} type="range" min={0} max={duration} step={40} value={current} disabled={disabled} style={{ "--video-progress": `${progress}%` } as CSSProperties} onChange={(event) => onSeek(Number(event.target.value))} />
     </div>
     <time>{formatPreviewTime(duration)}</time>
-    <button type="button" title={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} aria-label={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} disabled={disabled} onClick={onToggleMuted}>{muted ? <VolumeX size={15} /> : <Volume2 size={15} />}</button>
+    <button type="button" title={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} aria-label={muted ? t("assetCanvas.unmute", { label }) : t("assetCanvas.mute", { label })} disabled={disabled} onClick={onToggleMuted}>{muted ? <VolumeX size="sm" /> : <Volume2 size="sm" />}</button>
   </div>;
 }
 
@@ -1192,7 +1191,7 @@ function polycountOptions(presets: readonly number[], current: number): Array<{ 
 function CanvasChipToggle({ label, pressed, disabled, onChange }: { label: string; pressed: boolean; disabled?: boolean; onChange: (pressed: boolean) => void }) {
   return (
     <button className="canvas-chip is-toggle" type="button" aria-pressed={pressed} disabled={disabled} onClick={() => onChange(!pressed)}>
-      {pressed ? <Check size={12} /> : null}<span>{label}</span>
+      {pressed ? <Check size="xs" /> : null}<span>{label}</span>
     </button>
   );
 }
@@ -1206,11 +1205,11 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled, onGenerate }: {
 }) {
   const label = assetId ? t(`assetCanvas.media.${kind}.again`) : t(`assetCanvas.media.${kind}.generate`);
   if (runtime?.onCancel && runtime.generating) {
-    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Square size={13} /></button>;
+    return <button type="button" title={t("assetCanvas.cancelGeneration")} aria-label={t("assetCanvas.cancelGeneration")} onClick={runtime.onCancel}><Stop size="sm" /></button>;
   }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => onGenerate ? onGenerate() : runtime?.onGenerate()}>
-      {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
+      {runtime?.generating ? <Spinner size="md" /> : <ArrowUp size="md" />}
     </button>
   );
 }

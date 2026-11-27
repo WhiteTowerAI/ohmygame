@@ -133,7 +133,6 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space-3);
-  padding: 0 var(--space-1);
 }
 
 .settings-group > header > div:first-child {
@@ -238,6 +237,87 @@
 
 .settings-row-chevron {
   color: var(--color-text-tertiary);
+}
+
+/* A one-line setting with a picker, such as a default model. */
+.settings-row.is-compact {
+  min-height: 44px;
+  padding-block: var(--space-2);
+}
+
+/* A long model name shortens rather than leave the card. */
+.settings-row.is-compact .settings-row-control {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.settings-row.is-compact .settings-row-control > span {
+  display: flex;
+  min-width: 0;
+}
+
+.settings-row.is-compact .ui-select {
+  max-width: 100%;
+}
+
+/* The kinds no connection makes yet, on one quiet line under the defaults. */
+.settings-defaults-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* What can still be added: its own search and filters, then the groups. */
+.settings-catalogue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-catalogue-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.settings-catalogue-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-catalogue-head h2 {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-catalogue-head p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.settings-catalogue-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.settings-catalogue-filters > .ui-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+/* Groups inside the catalogue are labels, not sections of the page. */
+.settings-catalogue .settings-group h2 {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
 }
 
 .settings-pad {
@@ -996,50 +1076,6 @@
   box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
 }
 
-/* Buttons the shared parts still draw themselves, matched to ui Button. */
-.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  height: 30px;
-  padding: 0 var(--space-3);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-hover);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.settings-body :is(.settings-secondary-button, .settings-add-button):hover:not(:disabled) {
-  background: var(--color-selected);
-}
-
-.settings-body .settings-primary-button {
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-}
-
-.settings-body .settings-primary-button:hover:not(:disabled) {
-  opacity: 0.88;
-}
-
-/* Destructive actions read as danger text on the quiet fill, as in ui menus. */
-.settings-body .settings-danger-button,
-.settings-body .ui-button.settings-danger-button {
-  background: var(--color-hover);
-  color: var(--color-danger);
-}
-
-.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button):disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .settings-body .settings-provider-setting-edit {
   color: var(--color-text-secondary);
 }
@@ -1105,6 +1141,15 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+.settings-provider-more:hover,
+.settings-provider-more:focus-visible {
+  color: var(--color-text);
+}
+
+.settings-provider-more svg {
+  transition: transform var(--duration-fast);
 }
 
 .settings-provider-more[aria-expanded="true"] svg {
@@ -1233,22 +1278,6 @@
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: var(--text-sm);
-}
-
-.custom-provider-form-body .settings-secondary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-hover);
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
 }
 
 /* A checkbox sits before its label, unlike the fields above it. */
@@ -1451,7 +1480,7 @@
 }
 .connection-editor textarea {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .connection-error {
   margin: 0;

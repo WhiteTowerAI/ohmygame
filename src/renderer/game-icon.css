@@ -1,0 +1,44 @@
+/* A game icon in a tile tinted with its hue; the icon is half the tile. */
+.game-icon {
+  --game-icon-hue: var(--color-text-secondary);
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 28%;
+  background: color-mix(in srgb, var(--game-icon-hue) 16%, transparent);
+  color: var(--game-icon-hue);
+}
+
+.game-icon > span {
+  /* Small tiles keep the icon legible. */
+  width: max(50%, 12px);
+  height: max(50%, 12px);
+  background: currentColor;
+  mask: center / contain no-repeat;
+}
+
+.game-icon.is-blue {
+  --game-icon-hue: var(--hue-doc);
+}
+.game-icon.is-orange {
+  --game-icon-hue: var(--hue-image);
+}
+.game-icon.is-pink {
+  --game-icon-hue: var(--hue-video);
+}
+.game-icon.is-green {
+  --game-icon-hue: var(--hue-audio);
+}
+.game-icon.is-purple {
+  --game-icon-hue: var(--hue-model);
+}
+.game-icon.is-teal {
+  --game-icon-hue: var(--hue-code);
+}
+.game-icon.is-gold {
+  --game-icon-hue: var(--hue-data);
+}
+/* Neutral matches the grey tile of plain empty states. */
+.game-icon.is-neutral {
+  background: var(--color-hover);
+}

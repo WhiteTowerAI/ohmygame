@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { gameTuningValue, type GameTuningItem, type GameTuningScalar, type GameTuningState } from "../shared/game-tuning.js";
 import { getGameTuning, saveGameTuning, setGameTuningDraft, undoProjectPluginChange } from "./api.js";
 import { t } from "./i18n.js";
-import { RotateCcw, X } from "./icons.js";
+import { RotateCcw, SlidersHorizontal, X } from "./icons.js";
 import { Alert, Button, Empty, IconButton, Slider, Switch } from "./ui/index.js";
 
 const FILE_FORMAT = `{ "schemaVersion": 1, "values": [{ "id": "player.jumpHeight", "label": "<short name in the language this person uses>", "value": 420, "min": 100, "max": 800, "step": 10 }] }`;
@@ -124,13 +124,13 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
   return <aside className="game-tuning-panel" aria-label={t("gameTuning.title")}>
     <header className="game-tuning-header">
       <strong>{t("gameTuning.title")}</strong>
-      <IconButton size="sm" label={t("gameTuning.close")} onClick={onClose}><X size={14} /></IconButton>
+      <IconButton size="sm" label={t("gameTuning.close")} onClick={onClose}><X size="sm" /></IconButton>
     </header>
     {error ? <Alert tone="danger" title={error} /> : null}
     {state?.error ? <Alert tone="danger" title={t("gameTuning.invalidTitle", { file: state.file ?? "tuning.json" })}
       action={onAskAgent ? <Button size="sm" onClick={() => onAskAgent(fixPrompt(state.file ?? "tuning.json", state.error!))}>{t("gameTuning.fix")}</Button> : undefined}>{state.error}</Alert> : null}
-    {state && !state.error && !items.length ? <Empty title={t("gameTuning.emptyTitle")} description={t("gameTuning.empty")}
-      action={onAskAgent ? <Button size="sm" variant="primary" onClick={() => onAskAgent(SET_UP_PROMPT)}>{t("gameTuning.setUp")}</Button> : undefined} /> : null}
+    {state && !state.error && !items.length ? <Empty fill icon={<SlidersHorizontal size="md" />} title={t("gameTuning.emptyTitle")} description={t("gameTuning.empty")}
+      action={onAskAgent ? <Button variant="primary" onClick={() => onAskAgent(SET_UP_PROMPT)}>{t("gameTuning.setUp")}</Button> : undefined} /> : null}
     {items.length ? <>
       <p className="game-tuning-intro">{t("gameTuning.intro")}</p>
       {!previewReady ? <p className="game-tuning-status">{t("gameTuning.notRunning")}</p>
@@ -142,7 +142,7 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
           return <div className={`game-tuning-value${current !== item.value ? " is-changed" : ""}`} key={item.id}>
             <div className="game-tuning-label">
               <span title={item.id}>{item.label}</span>
-              {current !== item.value ? <IconButton size="sm" label={t("gameTuning.resetValue", { label: item.label })} onClick={() => change(item.id, null)}><RotateCcw size={12} /></IconButton> : null}
+              {current !== item.value ? <IconButton size="sm" label={t("gameTuning.resetValue", { label: item.label })} onClick={() => change(item.id, null)}><RotateCcw size="xs" /></IconButton> : null}
             </div>
             {"min" in item
               ? <Slider label={item.label} min={item.min} max={item.max} step={item.step ?? (item.max - item.min) / 100} value={current as number} onChange={(next) => change(item.id, next)} format={(number) => String(Number(number.toFixed(4)))} />

@@ -32,7 +32,7 @@ import {
   Import,
   Sparkles,
   Plug,
-  LoaderCircle,
+  Spinner,
   Plus,
   Search,
   Server,
@@ -51,6 +51,7 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { OnboardingAgents } from "./onboarding-agents.js";
 import { BrandLogo } from "./brand-logo.js";
 import { t } from "./i18n.js";
+import { Button, IconButton } from "./ui/index.js";
 import "./onboarding.css";
 
 type Connection = { provider: ProviderSummary; method: ModelAuthMethod };
@@ -363,7 +364,7 @@ export function Onboarding({
             </div>
             {loadingProviders ? (
               <p className="onboarding-status" role="status">
-                <LoaderCircle className="spin" size={16} />
+                <Spinner size="md" />
                 {t("onboarding.loadingProviders")}
               </p>
             ) : (
@@ -449,9 +450,9 @@ export function Onboarding({
             <p className="onboarding-error" role="alert">
               {error ?? loadError ?? providerError}
             </p>
-            <button
+            <Button
+              variant="ghost"
               className="onboarding-text-button"
-              type="button"
               disabled={busy}
               onClick={() => {
                 setError(undefined);
@@ -463,46 +464,46 @@ export function Onboarding({
               }}
             >
               {t("common.retry")}
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
       {!adding && (step === "welcome" || !connection) ? (
         <footer key={`footer-${step}`} className="onboarding-footer">
           {step === "welcome" ? (
-            <button
+            <Button
+              variant="primary"
               className="onboarding-primary-button"
-              type="button"
               disabled={busy}
               onClick={() => navigate("connect")}
             >
               {t("onboarding.getStarted")}
-            </button>
+            </Button>
           ) : step === "connect" ? (
             <>
-              <button
+              <Button
+                variant="primary"
                 className="onboarding-primary-button"
-                type="button"
                 disabled={busy || !agentModel}
                 onClick={() => navigate("start")}
               >
                 {t("onboarding.next")}
-              </button>
+              </Button>
               {!model ? (
-                <button
+                <Button
+                  variant="ghost"
                   className="onboarding-text-button onboarding-skip-button"
-                  type="button"
                   disabled={busy}
                   onClick={() => void run(() => onStepChange("start"))}
                 >
                   {t("onboarding.skipStep")}
-                </button>
+                </Button>
               ) : null}
             </>
           ) : (
-            <button
+            <Button
+              variant="ghost"
               className="onboarding-text-button onboarding-skip-button"
-              type="button"
               disabled={busy}
               onClick={() =>
                 void run(() =>
@@ -511,7 +512,7 @@ export function Onboarding({
               }
             >
               {t("onboarding.later")}
-            </button>
+            </Button>
           )}
         </footer>
       ) : null}
@@ -578,7 +579,7 @@ function ProviderMark({ id }: { id: string }) {
       <img src={icon.src} alt="" />
     </span>
   ) : (
-    <Server size={18} aria-hidden="true" />
+    <Server size="md" aria-hidden="true" />
   );
 }
 
@@ -668,15 +669,9 @@ function ProviderPicker({
         </span>
         <div>
           {connected ? (
-            <button
-              type="button"
-              className="onboarding-text-button onboarding-icon-button"
-              aria-label={
-                provider.enabled === false
-                  ? t("common.enable")
-                  : t("providers.status.connected")
-              }
-              title={
+            <IconButton
+              className="onboarding-icon-button"
+              label={
                 provider.enabled === false
                   ? t("common.enable")
                   : t("providers.status.connected")
@@ -685,51 +680,39 @@ function ProviderPicker({
               onClick={() => onChoose(provider, "api_key")}
             >
               {provider.enabled === false ? (
-                <Plug size={16} aria-hidden="true" />
+                <Plug size="md" aria-hidden="true" />
               ) : (
                 <Check
-                  size={16}
+                  size="md"
                   className="onboarding-connected"
                   aria-hidden="true"
                 />
               )}
-            </button>
+            </IconButton>
           ) : provider.custom ? (
-            <button
-              className="onboarding-text-button onboarding-icon-button"
-              type="button"
-              aria-label={t("onboarding.configure")}
-              title={t("onboarding.configure")}
+            <IconButton
+              className="onboarding-icon-button"
+              label={t("onboarding.configure")}
               disabled={busy}
               onClick={() => onChoose(provider, "api_key")}
             >
-              <Settings size={16} aria-hidden="true" />
-            </button>
+              <Settings size="md" aria-hidden="true" />
+            </IconButton>
           ) : (
+            // Named, not bare icons: someone new can't tell a sign-in arrow from a key.
             provider.methods.map((method) => (
-              <button
-                className="onboarding-text-button onboarding-icon-button"
-                type="button"
+              <Button
                 key={method.type}
-                aria-label={
-                  method.type === "oauth"
-                    ? t("common.signIn")
-                    : t("providers.apiKey")
-                }
-                title={
-                  method.type === "oauth"
-                    ? t("common.signIn")
-                    : t("providers.apiKey")
-                }
+                size="sm"
+                variant="ghost"
+                icon={method.type === "oauth" ? <LogIn size="sm" /> : <Key size="sm" />}
                 disabled={busy}
                 onClick={() => onChoose(provider, method.type)}
               >
-                {method.type === "oauth" ? (
-                  <LogIn size={16} aria-hidden="true" />
-                ) : (
-                  <Key size={16} aria-hidden="true" />
-                )}
-              </button>
+                {method.type === "oauth"
+                  ? t("common.signIn")
+                  : t("providers.apiKey")}
+              </Button>
             ))
           )}
         </div>
@@ -740,7 +723,7 @@ function ProviderPicker({
     <div className="onboarding-picker">
       <div className="onboarding-search-row">
         <label className="onboarding-search">
-          <Search size={16} aria-hidden="true" />
+          <Search size="md" aria-hidden="true" />
           <input
             type="search"
             aria-label={t("providers.search")}
@@ -749,28 +732,26 @@ function ProviderPicker({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <button
-          className="onboarding-text-button onboarding-add-provider"
-          type="button"
-          aria-label={t("onboarding.addCustomProvider")}
-          title={t("onboarding.addCustomProvider")}
+        <IconButton
+          className="onboarding-add-provider"
+          label={t("onboarding.addCustomProvider")}
           disabled={busy}
           onClick={onAdd}
         >
-          <Plus size={16} aria-hidden="true" />
-        </button>
+          <Plus size="md" aria-hidden="true" />
+        </IconButton>
       </div>
       <div className="onboarding-provider-list">
         {(hasMore ? featured : visible).map(row)}
         {hasMore && !moreOpen ? (
-          <button
+          <Button
+            variant="ghost"
             className="onboarding-text-button onboarding-more-providers"
-            type="button"
             onClick={() => setMoreOpen(true)}
           >
             {t("providers.group.more")} <small>({more.length})</small>
-            <ChevronDown size={14} aria-hidden="true" />
-          </button>
+            <ChevronDown size="sm" aria-hidden="true" />
+          </Button>
         ) : null}
         {hasMore && moreOpen ? more.map(row) : null}
         {!visible.length ? (
@@ -807,13 +788,13 @@ export function OnboardingLoadError({
       <p className="onboarding-error" role="alert">
         {error}
       </p>
-      <button
+      <Button
+        variant="ghost"
         className="onboarding-text-button"
-        type="button"
         onClick={onRetry}
       >
         {t("common.retry")}
-      </button>
+      </Button>
     </main>
   );
 }

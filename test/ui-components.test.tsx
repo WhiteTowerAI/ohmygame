@@ -8,6 +8,8 @@ import {
   CommandMenu,
   Dialog,
   Disclosure,
+  Empty,
+  Loading,
   DropdownMenu,
   Popover,
   SegmentedControl,
@@ -483,4 +485,35 @@ it("shows a disclosure's content once it opens, and only then when it is lazy", 
   expect(changes).toEqual([true]);
   expect(section!.open).toBe(true);
   expect(section!.textContent).toContain("fields");
+});
+
+it("draws every empty state the same way: one tile, a title, a line, actions in a row", async () => {
+  await act(async () => root.render(<>
+    <Empty icon={<svg />} title="Loading" />
+    <Empty art={<span className="game-icon" />} title="No media yet" description="Make some" action={<><Button>One</Button><Button>Two</Button></>} fill />
+    <Empty tone="error" icon={<svg />} title="Could not load" action={<Button>Retry</Button>} details="stack" />
+  </>));
+  const [plain, art, error] = [...container.querySelectorAll(".ui-empty")];
+  expect(plain!.querySelector(".ui-empty-icon > svg")).not.toBeNull();
+  expect(plain!.getAttribute("role")).toBeNull();
+  // A game icon brings its own tile, so it isn't put in the neutral one.
+  expect(art!.querySelector(".ui-empty-icon")).toBeNull();
+  expect(art!.firstElementChild?.className).toBe("game-icon");
+  expect(art!.className).toBe("ui-empty is-fill");
+  expect(art!.querySelector(".ui-empty-description")?.textContent).toBe("Make some");
+  expect([...art!.querySelectorAll(".ui-empty-actions > button")].map((button) => button.textContent)).toEqual(["One", "Two"]);
+  expect(error!.getAttribute("role")).toBe("alert");
+  expect(error!.className).toBe("ui-empty is-error");
+  // An error's text is folded last, under the actions, so opening it moves nothing above.
+  expect(error!.lastElementChild?.matches("details.ui-empty-details")).toBe(true);
+  expect(error!.lastElementChild?.querySelector("summary")?.textContent).toBe("Error details");
+});
+
+it("shows a panel loading as its empty state does, a spinner in the tile and what is loading", async () => {
+  await act(async () => root.render(<><Loading label="Loading canvas" /><Loading /></>));
+  const [named, plain] = [...container.querySelectorAll(".ui-loading")];
+  expect(named!.getAttribute("role")).toBe("status");
+  expect(named!.querySelector(".ui-empty.is-fill .ui-empty-icon .ui-spinner")).not.toBeNull();
+  expect(named!.querySelector(".ui-empty-title")?.textContent).toBe("Loading canvas");
+  expect(plain!.querySelector(".ui-empty-title")?.textContent).toBe("Loading…");
 });

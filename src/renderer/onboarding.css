@@ -37,20 +37,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   outline: none;
   box-shadow: none;
 }
-.onboarding-text-button {
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 400;
-}
-.onboarding-text-button:hover:not(:disabled) {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
 .onboarding-content {
   display: flex;
   flex: 1 0 auto;
@@ -79,7 +65,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   margin: 0;
   font-family: "Jersey 20", Inter, sans-serif;
   font-size: 40px;
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   line-height: 1;
   letter-spacing: 0;
   outline: none;
@@ -116,7 +102,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   gap: 7px;
   margin: 16px 0 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .onboarding-ready strong {
   color: var(--color-text);
@@ -157,7 +143,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-error {
   margin: 0;
   color: var(--color-danger);
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -427,7 +413,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-agent-hint {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 .onboarding-agent-install-actions {
@@ -448,7 +434,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-agent-login {
   margin-top: 8px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .onboarding-agent-login p {
@@ -499,21 +485,10 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-progress > button:hover:not(:disabled)::after {
   background: var(--color-text-secondary);
 }
-.onboarding-primary-button {
-  min-height: 36px;
-  padding: 8px 18px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-  font-size: 13px;
-  font-weight: 500;
-}
-.onboarding-primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-ink) 86%, var(--color-app));
-}
-.onboarding-primary-button:disabled {
-  opacity: 0.35;
+/* The shared primary Button, a step larger as the page's one action. */
+.onboarding .onboarding-primary-button {
+  height: 32px;
+  padding: 0 var(--space-4);
 }
 .onboarding-auth {
   width: min(100%, 360px);
@@ -534,18 +509,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-.onboarding-auth .settings-primary-button {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-.onboarding-auth .settings-secondary-button {
-  background: transparent;
-}
-.onboarding-auth .settings-primary-button:hover:not(:disabled),
-.onboarding-auth .settings-secondary-button:hover:not(:disabled) {
-  background: var(--color-hover);
-  color: var(--color-text);
 }
 .onboarding-picker {
   width: min(100%, 400px);
@@ -580,7 +543,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   background: transparent;
   color: var(--color-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .onboarding-provider-list {
   max-height: 240px;
@@ -600,7 +563,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   align-items: center;
   gap: 10px;
   padding-left: 4px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .onboarding-provider-row > div {
   display: flex;
@@ -617,7 +580,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-height: 36px;
   padding-left: 4px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .onboarding-more-providers small {
   color: var(--color-text-secondary);
@@ -746,7 +709,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   outline: none;
   font-family: inherit;
   font-size: clamp(24px, 6vw, 80px);
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   letter-spacing: normal;
   line-height: 1.12;
   text-align: center;

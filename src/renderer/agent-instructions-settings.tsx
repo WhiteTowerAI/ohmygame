@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { USER_INSTRUCTIONS_MAX_CHARACTERS, type AgentInstructionsView } from "../shared/agent-instructions.js";
 import type { ProjectType } from "../shared/contracts.js";
 import { getAgentInstructions, setAgentInstructions } from "./api.js";
-import { LoaderCircle } from "./icons.js";
+import { Spinner } from "./icons.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote } from "./settings-parts.js";
 import { Button, CodeBlock, Tabs, Textarea } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -55,7 +55,7 @@ export function AgentInstructionsSettings({ onBack }: { onBack: () => void }) {
   return (
     <>
       <SettingsDetailHead title={t("settings.agents.instructions.title")} description={t("settings.agents.instructions.description")} onBack={onBack} backLabel={t("settings.agents.back")} />
-      {!view && !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("common.loading")}</div> : null}
+      {!view && !error ? <div className="settings-loading-row"><Spinner size="md" />{t("common.loading")}</div> : null}
       {error && !view ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
       {view ? <>
         <SettingsGroup title={t("settings.agents.instructions.mine")} description={t("settings.agents.instructions.mineHint")} bare>
@@ -75,7 +75,7 @@ export function AgentInstructionsSettings({ onBack }: { onBack: () => void }) {
               </span>
               {saved && !changed ? <span className="agent-instructions-saved" role="status">{t("settings.agents.instructions.saved")}</span> : null}
               <Button size="sm" variant="primary" disabled={!changed || tooLong || saving || Boolean(view.problem)} onClick={() => void save()}>
-                {saving ? <LoaderCircle className="spin" size={14} /> : null}{t("common.save")}
+                {saving ? <Spinner size="sm" /> : null}{t("common.save")}
               </Button>
             </div>
             {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}

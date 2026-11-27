@@ -1,0 +1,11 @@
+{
+  "src/renderer/agent-timeline.tsx": 1,
+  "src/renderer/asset-canvas-nodes.tsx": 3,
+  "src/renderer/canvas-plugin-node.tsx": 1,
+  "src/renderer/community-game-card.tsx": 1,
+  "src/renderer/library.tsx": 1,
+  "src/renderer/model-selector.tsx": 1,
+  "src/renderer/plugin-publish.tsx": 1,
+  "src/renderer/project-type-choices.tsx": 1,
+  "src/renderer/projects.tsx": 1
+}

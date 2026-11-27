@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PluginDraft, PluginDraftRun } from "../shared/plugin-setup.js";
 import { runPluginDraft } from "./api.js";
 import type { StorePlugin } from "../shared/plugins.js";
-import { Bell, Check, CircleX, LoaderCircle, Play, Plug, Terminal, Wrench } from "./icons.js";
+import { Bell, Check, CircleX, Spinner, Play, Plug, Terminal, Toolbox } from "./icons.js";
 import { t } from "./i18n.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginGlyph } from "./plugin-icons.js";
@@ -130,7 +130,7 @@ function DraftUpdate({ update, onOpenFile }: { update: NonNullable<PluginDraft["
 function TryInProject({ plugin, disabled, onTry }: { plugin: StorePlugin; disabled: boolean; onTry: TryPlugin }) {
   const tryIt = useStorePluginTry(plugin, onTry);
   return <div className="plugin-head-actions" ref={tryIt.anchor}>
-    <Button variant="primary" icon={<Play size={14} />} disabled={disabled} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+    <Button variant="primary" icon={<Play size="sm" />} disabled={disabled} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
       onClick={() => tryIt.open(plugin.examples[0] ?? t("pluginBuilder.tryPrompt", { name: plugin.displayName }))}>{t("pluginBuilder.tryInProject")}</Button>
     {tryIt.popover}
   </div>;
@@ -150,8 +150,8 @@ function DraftCode({ draft, setupId, disabled, operation, onAllow }: {
   const plugin = draft.plugin;
   const native = plugin?.native;
   if (!plugin || !native || draft.errors.length) return null;
-  const targets: Array<RunTarget & { Icon: typeof Wrench }> = [
-    ...native.tools.map(tool => ({ kind: "tool" as const, name: tool.name, title: tool.name, input: tool.input, takesInput: true, Icon: Wrench })),
+  const targets: Array<RunTarget & { Icon: typeof Toolbox }> = [
+    ...native.tools.map(tool => ({ kind: "tool" as const, name: tool.name, title: tool.name, input: tool.input, takesInput: true, Icon: Toolbox })),
     ...native.commands.map(command => ({ kind: "command" as const, name: command.id, title: command.title, input: command.input, takesInput: command.input !== undefined, Icon: Terminal })),
     ...native.hooks.map(hook => ({ kind: "hook" as const, name: hook, title: hook, takesInput: true, Icon: Bell })),
   ];
@@ -161,13 +161,13 @@ function DraftCode({ draft, setupId, disabled, operation, onAllow }: {
       <p className="plugins-note">{t("pluginBuilder.tryCodeHint")}</p>
       {targets.map(({ Icon, ...item }) => <div className="plugin-builder-check" key={`${item.kind}:${item.name}`}>
         <Icon size={16} /><strong>{item.title}</strong><small>{t(`pluginBuilder.runKind.${item.kind}`)}</small>
-        <Button size="sm" icon={<Play size={12} />} disabled={disabled} aria-label={t("pluginBuilder.runNamed", { name: item.title })} onClick={() => setTarget(item)}>{t("pluginBuilder.run")}</Button>
+        <Button size="sm" icon={<Play size="xs" />} disabled={disabled} aria-label={t("pluginBuilder.runNamed", { name: item.title })} onClick={() => setTarget(item)}>{t("pluginBuilder.run")}</Button>
       </div>)}
     </> : <>
       <p className="plugins-note">{t("pluginBuilder.allowRunHint")}</p>
       <PluginCapabilityList capabilities={plugin.asks} />
       <NativeCodeWarning asks={plugin.asks} />
-      <div><Button size="sm" disabled={disabled} icon={operation === "allowing-run" ? <LoaderCircle className="spin" size={12} /> : undefined}
+      <div><Button size="sm" disabled={disabled} icon={operation === "allowing-run" ? <Spinner size="xs" /> : undefined}
         onClick={() => onAllow(native.key)}>{t("pluginBuilder.allowRun")}</Button></div>
     </>}
     {target ? <DraftRunDialog setupId={setupId} target={target} onClose={() => setTarget(undefined)} /> : null}
@@ -194,7 +194,7 @@ function DraftRunDialog({ setupId, target, onClose }: { setupId: string; target:
   return <Dialog open onClose={onClose} title={t("pluginBuilder.runNamed", { name: target.title })} description={t("pluginBuilder.runDescription")}
     footer={<>
       <Button onClick={onClose}>{t("common.close")}</Button>
-      <Button variant="primary" disabled={running} icon={running ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />} onClick={() => void run()}>{t("pluginBuilder.run")}</Button>
+      <Button variant="primary" disabled={running} icon={running ? <Spinner size="sm" /> : <Play size="sm" />} onClick={() => void run()}>{t("pluginBuilder.run")}</Button>
     </>}>
     <div className="plugin-builder-run">
       {target.takesInput ? <Field label={t(target.kind === "hook" ? "pluginBuilder.hookEvent" : "pluginBuilder.input")}>
@@ -229,7 +229,7 @@ function DraftChecks({ draft, disabled, operation, onTest }: {
   return <Disclosure variant="section" className="plugin-builder-checks" open={open ?? check !== "passed"} onOpenChange={setOpen}
     summary={<>{t("pluginBuilder.checks")}<small className={`plugin-builder-check-result is-${check}`}>{draftCheckLabel(check)}</small></>}>
     <div className={`plugin-builder-check ${draft.errors.length ? "has-error" : "is-passed"}`}>
-      {draft.errors.length ? <CircleX size={16} /> : <Check size={16} />}<strong>{t("pluginBuilder.packageStructure")}</strong>
+      {draft.errors.length ? <CircleX size="md" /> : <Check size="md" />}<strong>{t("pluginBuilder.packageStructure")}</strong>
       <small>{draft.errors.length ? t("pluginBuilder.needsChanges") : t("pluginBuilder.passed")}</small>
     </div>
     {draft.errors.map(error => <p className="plugin-builder-error" role="alert" key={error}>{error}</p>)}
@@ -237,10 +237,10 @@ function DraftChecks({ draft, disabled, operation, onTest }: {
       const result = currentResult(draft, server.id);
       return <div key={server.id}>
         <div className="plugin-builder-check">
-          <Plug size={16} /><strong>{server.title}</strong>
+          <Plug size="md" /><strong>{server.title}</strong>
           <small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : draft.checks?.[server.id] ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small>
           <Button size="sm" aria-label={t("pluginBuilder.testServer", { name: server.title })} disabled={disabled || Boolean(draft.errors.length)}
-            icon={operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : undefined} onClick={() => onTest(server.id)}>{t("pluginControls.test")}</Button>
+            icon={operation === `test:${server.id}` ? <Spinner size="xs" /> : undefined} onClick={() => onTest(server.id)}>{t("pluginControls.test")}</Button>
         </div>
         {result?.message && result.status !== "connected" ? <Disclosure summary={t("common.details")}><pre>{result.message}</pre></Disclosure> : null}
       </div>;

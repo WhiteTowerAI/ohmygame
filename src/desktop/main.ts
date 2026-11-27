@@ -34,6 +34,7 @@ import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { GameRecorder, type GameRecordingFile } from "./game-recorder.js";
 import { GAME_RECORDING_MAX_SECONDS, gameRecordingFileName, type GameRecordingSaved, type GameRecordingState } from "../shared/game-recording.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
+import { CommunityGameWindows } from "./community-game-windows.js";
 import { BrowserViews } from "./browser-views.js";
 import { isBrowserMenuLabels, isBrowserUrl, type ProjectBrowser } from "../shared/browser.js";
 import { BackgroundRunning } from "./background-running.js";
@@ -133,6 +134,10 @@ const gameRecorder = new GameRecorder({
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
 }, undefined, gameRecorder);
+const communityGames = new CommunityGameWindows(
+  (gameId, open) => mainWindow?.webContents.send("ohmygame:community-game-window-changed", gameId, open),
+  () => gameSignIn,
+);
 const webGamePlayers = new WebGamePlayerWindows((state) => {
   mainWindow?.webContents.send("ohmygame:web-game-player-state", state);
 }, rendererPage("web-game-host.html"), (projectId) => {
@@ -295,6 +300,7 @@ async function stopServices(): Promise<void> {
   updateChecks?.stop();
   agentNotifications.stop();
   webGamePlayers.close();
+  communityGames.closeAll();
   agentBrowser.close();
   browserViews.dispose();
   agentPlaytests.close();
@@ -746,6 +752,19 @@ async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarg
   return { url: result.url, title: result.title };
 }
 
+// A community game in a window of its own; the renderer names the game and its
+// published address, which the window may show and nothing else.
+handle("ohmygame:community-game-window", async (event, action: unknown, gameId: unknown, playUrl: unknown, title: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame)
+    throw new Error("Invalid game window source");
+  if (!validRouteId(gameId)) throw new Error("Invalid game");
+  if (action === "open") await communityGames.open(gameId, playUrl, title, mainWindow);
+  else if (action === "isOpen") return communityGames.isOpen(gameId);
+  else if (action === "close") communityGames.close(gameId);
+  else throw new Error("Invalid game window action");
+  return true;
+});
+
 handle("ohmygame:notification-preferences", (event, value: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
   const preferences = parseAgentNotificationPreferences(value);
@@ -1079,6 +1098,7 @@ async function openMainWindow(): Promise<void> {
           setKeepAwake(false);
         }
         webGamePlayers.close();
+        communityGames.closeAll();
         browserViews.dispose();
       });
     },

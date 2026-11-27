@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { LoaderCircle, Pause, Play } from "./icons.js";
+import { Spinner, Pause, Play } from "./icons.js";
 import { t } from "./i18n.js";
 
 export type TileAudioState = "loading" | "playing" | "paused";
@@ -109,11 +109,11 @@ export function AudioTile({
           onClick={onToggle}
         >
           {state === "loading" ? (
-            <LoaderCircle className="spin" size={16} />
+            <Spinner size="md" />
           ) : state === "playing" ? (
-            <Pause size={16} />
+            <Pause size="md" />
           ) : (
-            <Play size={16} />
+            <Play size="md" />
           )}
         </button>
       </span>

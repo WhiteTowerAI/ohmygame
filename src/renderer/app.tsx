@@ -24,6 +24,7 @@ import { useNotificationTargets } from "./agent-notifications.js";
 import { rememberLastProject } from "./general-preferences.js";
 import { useRunAlerts } from "./run-alerts.js";
 import { GameRecordingNotices } from "./game-recording.js";
+import { NewGameHost } from "./new-game.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -69,6 +70,10 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   useEffect(() => { if (routeProjectId) rememberLastProject(routeProjectId); }, [routeProjectId]);
   useNotificationTargets((target) => navigateToConversation(target.projectId, target.conversationId));
 
+  // The new game dialog opens over any page: Home's cards, ⌘N, the command menu and the rail's +.
+  return <>{routeElement()}<NewGameHost onCreate={openCreatedProject} onOpen={openProject} /></>;
+
+  function routeElement() {
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
@@ -89,7 +94,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       onTabChange={tab => navigate(pluginsTabHash(tab), { replace: true, state: historyState() })} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout>;
   if (route.page === "home") {
-    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
+    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
@@ -120,6 +125,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       homeLabel={projectBackLabel}
     /></Suspense>
   );
+  }
 
   // Keeps the sidebar in place while a sidebar page's chunk loads.
   function sidebarFallback(active: SidebarActive) {

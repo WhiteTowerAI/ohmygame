@@ -13,6 +13,7 @@ import {
   updateNetworkSettings,
 } from "./api.js";
 import { t } from "./i18n.js";
+import { Spinner } from "./icons.js";
 import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
@@ -100,7 +101,7 @@ export function NetworkSettingsPanel() {
   }
 
   if (!state || !form)
-    return error ? <SettingsNote tone="danger">{error}</SettingsNote> : <div className="settings-loading-row">{t("network.loading")}</div>;
+    return error ? <SettingsNote tone="danger">{error}</SettingsNote> : <div className="settings-loading-row"><Spinner size="md" />{t("network.loading")}</div>;
 
   const manual = form.mode === "manual";
   const dirty =
@@ -204,7 +205,7 @@ export function NetworkSettingsPanel() {
         </div>
       ) : null}
       <SettingsGroup title={t("settings.network.status")}>
-        <SettingsRow title={t("network.test")} description={t("network.testHint")}>
+        <SettingsRow title={t("network.test")}>
           <Button
             disabled={locked || (manual && !form.proxyUrl.trim())}
             onClick={() => void perform("test")}

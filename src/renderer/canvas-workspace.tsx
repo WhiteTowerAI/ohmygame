@@ -2,7 +2,7 @@ import { workspaceVersion } from "./workspace-version.js";
 import { useCanvasTables } from "./use-canvas-tables.js";
 import { CanvasTableConflictNotice, ExpandedCanvasTable, type CanvasTables } from "./canvas-table-node.js";
 import { canvasTablePath } from "../shared/canvas-table.js";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AssetCanvasNode, ProjectState, PromptContext } from "../shared/contracts.js";
 import { canvasBoardPath } from "../shared/canvas-workspace.js";
@@ -14,7 +14,7 @@ import { LibraryAssetPicker } from "./library-asset-picker.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { ChevronLeft, ChevronRight, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ChevronLeft, ChevronRight, Layers3, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -24,6 +24,7 @@ import { ProjectMediaModelSettings } from "./media-model-defaults.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
+import { Button, Dialog, Field, Input, Loading, Select } from "./ui/index.js";
 
 class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
@@ -137,7 +138,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
   const optionsBoard = workspace?.boards.find((board) => board.id === boardOptions?.id);
   const tableConflicts = [...tableStorage.sessions.values()].flatMap((session) => session.conflict ? [session.conflict] : []);
   const floating = <div className="design-board-switcher">
-    <Layers3 size={13} aria-hidden="true" />
+    <Layers3 size="sm" aria-hidden="true" />
     <CanvasChipSelect label={t("canvas.board")} value={activeId} options={(workspace?.boards ?? []).map((board) => ({ value: board.id, label: board.name }))} disabled={busy}
       action={{ label: t("canvas.newBoard"), icon: Plus, onSelect: () => { setName(""); setDialog({ type: "create" }); } }}
       optionAction={{ label: (option) => t("canvas.boardOptions", { name: option.label }), icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
@@ -166,18 +167,24 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
     </div></div>
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : docs.loadError ? <div className="design-loading"><span>{t("canvas.restoreWorkspace")}</span></div> : <Loading label={t("assetCanvas.loading")} />}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
-      <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
-      {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
-      <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size={14} /><span>{t("canvas.deleteBoard")}</span></button>
+      <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
+      {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size="sm" /> : <ChevronRight size="sm" />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
+      <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size="sm" /><span>{t("canvas.deleteBoard")}</span></button>
     </CanvasContextMenu> : null}
     {expandedTable && tableStorage.sessions.get(expandedTable.id) ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label={t("canvas.expandedTable")}>
       <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
-      <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
+      <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTable(undefined)}><X size="md" /></button>
     </div> : null}
-    {dialog ? <DesignModal title={dialog.type === "create" ? t("canvas.newBoard") : dialog.type === "rename" ? t("canvas.renameBoard") : t("canvas.deleteBoard")} onClose={() => { if (!busy) setDialog(undefined); }}>
-      <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
+    {dialog ? <Dialog open size="sm" title={dialog.type === "create" ? t("canvas.newBoard") : dialog.type === "rename" ? t("canvas.renameBoard") : t("canvas.deleteBoard")}
+      description={dialog.type === "delete" ? t("canvas.confirmDeleteBoard", { name: workspace?.boards.find((board) => board.id === dialog.id)?.name }) : undefined}
+      onClose={() => { if (!busy) setDialog(undefined); }}
+      footer={<>
+        <Button disabled={busy} onClick={() => setDialog(undefined)}>{t("common.cancel")}</Button>
+        <Button type="submit" form="canvas-board-form" variant={dialog.type === "delete" ? "danger" : "primary"} disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? t("common.delete") : t("common.save")}</Button>
+      </>}>
+      <form id="canvas-board-form" onSubmit={(event) => { event.preventDefault(); void run(async () => {
         await flush();
         let createdId: string | undefined;
         if (dialog.type === "create") { const next = await createCanvasBoard(project.id, name.trim(), writeVersion); createdId = next.boards.at(-1)!.id; }
@@ -187,25 +194,24 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
         if (createdId) setActiveId(createdId);
         setDialog(undefined);
       }); }}>
-        {dialog.type === "delete" ? <p>{t("canvas.confirmDeleteBoard", { name: workspace?.boards.find((board) => board.id === dialog.id)?.name })}</p> : <label>{t("common.name")}<input autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>}
-        <footer><button type="button" disabled={busy} onClick={() => setDialog(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? t("common.delete") : t("common.save")}</button></footer>
+        {dialog.type === "delete" ? null : <Input aria-label={t("common.name")} placeholder={t("common.name")} autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />}
       </form>
-    </DesignModal> : null}
-    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <DesignModal title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}>
-      <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
+    </Dialog> : null}
+    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <Dialog open size="sm" title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}
+      footer={<>
+        <Button disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</Button>
+        <Button type="submit" form="canvas-insert-form" variant="primary" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</Button>
+      </>}>
+      <form id="canvas-insert-form" className="canvas-dialog-form" onSubmit={(event) => { event.preventDefault(); void run(async () => {
         if (!insertion.documentId) return;
         if (insertion.text !== undefined) { const doc = docsRef.current.workspace?.documents.find((doc) => doc.id === insertion.documentId); if (!doc) throw new Error(t("canvas.documentNotFound")); docsRef.current.update(doc.id, { markdown: `${doc.markdown.trimEnd()}\n\n${insertion.text}\n` }); await docsRef.current.flush(); }
         else if (insertion.assetId) await docsRef.current.insertImage(insertion.documentId, insertion.assetId);
         setInsertion(undefined);
       }); }}>
-        <label>{t("canvas.document")}<select required value={insertion.documentId ?? ""} onChange={(event) => setInsertion({ ...insertion, documentId: event.target.value })}><option value="" disabled>{t("canvas.selectDocument")}</option>{workspace?.documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.title}</option>)}</select></label>
+        <Field label={t("canvas.document")}>{(field) => <Select id={field.id} label={t("canvas.document")} placeholder={t("canvas.selectDocument")} value={insertion.documentId || undefined}
+          options={(workspace?.documents ?? []).map((doc) => ({ value: doc.id, label: doc.title }))} onChange={(documentId) => setInsertion({ ...insertion, documentId })} />}</Field>
         {insertion.text !== undefined ? <pre className="design-insert-text">{insertion.text}</pre> : null}
-        <footer><button type="button" disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</button></footer>
       </form>
-    </DesignModal> : null}
+    </Dialog> : null}
   </section></CanvasAssetProvider>;
-}
-function DesignModal({ title, children, onClose }: { title: string; children: ReactNode; onClose(): void }) {
-  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
-  return createPortal(<div className="design-modal-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={16} /></button></header>{children}</section></div>, document.body);
 }

@@ -12,6 +12,7 @@ import {
   CircleCheck,
   Copy,
   InfoCircle,
+  Spinner as SpinnerIcon,
   TriangleAlert,
 } from "../icons.js";
 import { IconButton } from "./button.js";
@@ -195,14 +196,7 @@ export function Spinner({
   size?: number;
   label?: string;
 }) {
-  return (
-    <span
-      className="ui-spinner"
-      role="status"
-      aria-label={label ?? t("ui.loading")}
-      style={{ width: size, height: size }}
-    />
-  );
+  return <SpinnerIcon className="ui-spinner" size={size} role="status" aria-label={label ?? t("ui.loading")} />;
 }
 
 export function Skeleton({
@@ -223,24 +217,66 @@ export function Skeleton({
   );
 }
 
+/**
+ * What a panel or page shows when it has nothing, is loading, or failed: a
+ * tile, a title, a line, and its actions in a row. `art` is a tile of its
+ * own, a game icon where nothing has been made yet; `icon` is a plain icon
+ * the empty state puts in a neutral tile, for status such as loading.
+ */
 export function Empty({
   icon,
+  art,
   title,
   description,
   action,
+  details,
+  fill = false,
+  tone,
 }: {
   icon?: ReactNode;
+  art?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  /** An error's full text, folded under the actions. */
+  details?: string;
+  /** Takes the room its container gives and sits in the middle of it. */
+  fill?: boolean;
+  tone?: "error";
 }) {
   return (
-    <div className="ui-empty">
-      {icon ? <span className="ui-empty-icon">{icon}</span> : null}
-      <strong>{title}</strong>
-      {description ? <p>{description}</p> : null}
-      {action}
+    <div className={`ui-empty${fill ? " is-fill" : ""}${tone ? ` is-${tone}` : ""}`} role={tone === "error" ? "alert" : undefined}>
+      {art ?? (icon ? <span className="ui-empty-icon" aria-hidden="true">{icon}</span> : null)}
+      <strong className="ui-empty-title">{title}</strong>
+      {description ? <div className="ui-empty-description">{description}</div> : null}
+      {action ? <div className="ui-empty-actions">{action}</div> : null}
+      {details ? <ErrorDetails text={details} /> : null}
     </div>
+  );
+}
+
+/**
+ * A panel loading: the same state as an empty or failed one, a spinner in its
+ * tile and what is loading. It fades in only if loading takes a moment, so a
+ * quick load doesn't flash.
+ */
+export function Loading({ label }: { label?: string }) {
+  return (
+    <div className="ui-loading" role="status">
+      <Empty fill icon={<Spinner />} title={label ?? t("common.loading")} />
+    </div>
+  );
+}
+
+/**
+ * An error's full text, folded, last under a state's actions: opened, the text
+ * hangs below, so nothing above it moves.
+ */
+export function ErrorDetails({ text }: { text: string }) {
+  return (
+    <Disclosure className="ui-empty-details" summary={t("common.errorDetails")}>
+      <pre>{text}</pre>
+    </Disclosure>
   );
 }
 
@@ -365,7 +401,7 @@ export function Breadcrumb({
       {items.map((item, index) => (
         <span key={index} className="ui-breadcrumb-item">
           {index ? (
-            <ChevronRight size={12} className="ui-breadcrumb-separator" />
+            <ChevronRight size="xs" className="ui-breadcrumb-separator" />
           ) : null}
           {item.onClick && index < items.length - 1 ? (
             <button type="button" onClick={item.onClick}>
@@ -407,7 +443,7 @@ export function Collapsible({
         aria-controls={id}
         onClick={() => setOpen(!open)}
       >
-        <ChevronDown size={14} className="ui-collapsible-caret" />
+        <ChevronDown size="sm" className="ui-collapsible-caret" />
         <span className="ui-collapsible-title">{title}</span>
         {meta ? <span className="ui-collapsible-meta">{meta}</span> : null}
       </button>
@@ -460,9 +496,9 @@ export function Disclosure({
       }}
     >
       <summary className="ui-disclosure-summary">
-        {variant === "inline" ? <ChevronRight size={12} className="ui-disclosure-chevron" aria-hidden="true" /> : icon}
+        {variant === "inline" ? <ChevronRight size="xs" className="ui-disclosure-chevron" aria-hidden="true" /> : icon}
         <span className="ui-disclosure-label">{summary}</span>
-        {variant === "section" ? <ChevronDown size={14} className="ui-disclosure-chevron" aria-hidden="true" /> : null}
+        {variant === "section" ? <ChevronDown size="sm" className="ui-disclosure-chevron" aria-hidden="true" /> : null}
       </summary>
       {lazy && !shown ? null : children}
     </details>
@@ -558,7 +594,7 @@ export function CodeBlock({ code, title }: { code: string; title: string }) {
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1400);
           }).catch(() => undefined);
-        }}>{copied ? <Check size={14} /> : <Copy size={14} />}</IconButton>
+        }}>{copied ? <Check size="sm" /> : <Copy size="sm" />}</IconButton>
       </div>
       <pre><code>{code}</code></pre>
     </div>

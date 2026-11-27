@@ -40,10 +40,11 @@ import {
   ExternalLink,
   Eye,
   Globe2,
-  LoaderCircle,
+  Spinner,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   X,
 } from "./icons.js";
 import { Button, Checkbox, Dialog, IconButton, Input, Select } from "./ui/index.js";
@@ -71,6 +72,28 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+type FailureKind = "offline" | "notFound" | "refused" | "timeout" | "insecure" | "other";
+
+/** What kind of failure a page's load error is, from Chromium's error name. */
+export function failureKind(error: string): FailureKind {
+  if (/ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED/.test(error)) return "offline";
+  if (/ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|ERR_NAME_RESOLUTION_FAILED/.test(error)) return "notFound";
+  if (/ERR_CONNECTION_(REFUSED|RESET|CLOSED|FAILED)|ERR_EMPTY_RESPONSE/.test(error)) return "refused";
+  if (/TIMED_OUT/.test(error)) return "timeout";
+  if (/ERR_CERT_|ERR_SSL_/.test(error)) return "insecure";
+  return "other";
+}
+
+/** A tab's site icon, or a globe when it has none or it doesn't load. */
+function TabIcon({ favicon }: { favicon?: string }) {
+  const [failed, setFailed] = useState<string>();
+  return favicon && failed !== favicon ? (
+    <img src={favicon} alt="" width={14} height={14} onError={() => setFailed(favicon)} />
+  ) : (
+    <Globe2 size="sm" />
+  );
 }
 
 /** The sites visited most in this project, most recent first among equals. */
@@ -111,6 +134,7 @@ export function BrowserPanel({
 }) {
   const generation = useReadyRuntimeGeneration();
   const host = useRef<HTMLDivElement>(null);
+  const tabStrip = useRef<HTMLDivElement>(null);
   const address = useRef<HTMLInputElement>(null);
   const [attachment] = useState(() => crypto.randomUUID());
   const [state, setState] = useState<BrowserState>();
@@ -302,6 +326,20 @@ export function BrowserPanel({
     }
   }, [state]);
 
+  // The chosen tab stays in sight when the strip is wider than the panel.
+  useEffect(() => {
+    tabStrip.current
+      ?.querySelector(".browser-tab.is-active")
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [state?.active, state?.tabs.length]);
+
+  // "Browsing data cleared" goes away by itself.
+  useEffect(() => {
+    if (!clearDone) return;
+    const timer = window.setTimeout(() => setClearDone(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [clearDone]);
+
   // The address shows the page's own unless the person is typing one.
   useEffect(() => {
     setDraft(undefined);
@@ -432,67 +470,61 @@ export function BrowserPanel({
       aria-label={t("panels.browser")}
       onKeyDown={keyDown}
     >
-      <div
-        className="browser-tabs"
-        role="tablist"
-        aria-label={t("browser.tabs")}
-      >
-        {state?.tabs.map((tab) => {
-          const title =
-            tab.title || (tab.url ? hostOf(tab.url) : t("browser.newTab"));
-          const selected = tab.id === state.active;
-          return (
-            <div
-              key={tab.id}
-              className={`browser-tab${selected ? " is-active" : ""}`}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                className="browser-tab-select"
-                title={tab.url || title}
-                onClick={() => call(() => bridge.select(projectId, tab.id))}
-                onAuxClick={(event) => {
-                  if (event.button === 1)
-                    call(() => bridge.close(projectId, tab.id));
-                }}
+      <div className="browser-tabbar">
+        <div
+          ref={tabStrip}
+          className="browser-tabs"
+          role="tablist"
+          aria-label={t("browser.tabs")}
+          onWheel={(event) => {
+            // A mouse wheel scrolls the strip sideways, as a trackpad does.
+            if (!event.deltaX && event.deltaY)
+              event.currentTarget.scrollLeft += event.deltaY;
+          }}
+        >
+          {state?.tabs.map((tab) => {
+            const title =
+              tab.title || (tab.url ? hostOf(tab.url) : t("browser.newTab"));
+            const selected = tab.id === state.active;
+            return (
+              <div
+                key={tab.id}
+                className={`browser-tab${selected ? " is-active" : ""}`}
               >
-                {tab.loading ? (
-                  <LoaderCircle className="spin" size={13} />
-                ) : tab.favicon ? (
-                  <img
-                    src={tab.favicon}
-                    alt=""
-                    width={14}
-                    height={14}
-                    onError={(event) => {
-                      event.currentTarget.hidden = true;
-                    }}
-                  />
-                ) : (
-                  <Globe2 size={13} />
-                )}
-                <span>{title}</span>
-              </button>
-              <button
-                type="button"
-                className="browser-tab-close"
-                aria-label={t("browser.closeTab", { title })}
-                title={t("browser.closeTab", { title })}
-                onClick={() => call(() => bridge.close(projectId, tab.id))}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          );
-        })}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className="browser-tab-select"
+                  title={tab.url || title}
+                  onClick={() => call(() => bridge.select(projectId, tab.id))}
+                  onAuxClick={(event) => {
+                    if (event.button === 1)
+                      call(() => bridge.close(projectId, tab.id));
+                  }}
+                >
+                  {tab.loading ? <Spinner size="sm" /> : <TabIcon favicon={tab.favicon} />}
+                  <span>{title}</span>
+                </button>
+                <button
+                  type="button"
+                  className="browser-tab-close"
+                  aria-label={t("browser.closeTab", { title })}
+                  title={t("browser.closeTab", { title })}
+                  onClick={() => call(() => bridge.close(projectId, tab.id))}
+                >
+                  <X size="xs" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
         <IconButton
           size="sm"
           label={t("browser.newTab")}
           onClick={() => void openTab()}
         >
-          <Plus size={14} />
+          <Plus size="sm" />
         </IconButton>
       </div>
       <form className="browser-toolbar" onSubmit={submit}>
@@ -504,7 +536,7 @@ export function BrowserPanel({
             active && call(() => bridge.back(projectId, active.id))
           }
         >
-          <ArrowLeft size={14} />
+          <ArrowLeft size="sm" />
         </IconButton>
         <IconButton
           size="sm"
@@ -514,7 +546,7 @@ export function BrowserPanel({
             active && call(() => bridge.forward(projectId, active.id))
           }
         >
-          <ArrowRight size={14} />
+          <ArrowRight size="sm" />
         </IconButton>
         <IconButton
           size="sm"
@@ -525,25 +557,27 @@ export function BrowserPanel({
             call(() => bridge.reload(projectId, active.id, active.loading))
           }
         >
-          {active?.loading ? <X size={14} /> : <RefreshCw size={14} />}
+          {active?.loading ? <X size="sm" /> : <RefreshCw size="sm" />}
         </IconButton>
-        <input
-          ref={address}
-          className="browser-address"
-          value={draft ?? active?.url ?? ""}
-          placeholder={t("browser.addressPlaceholder")}
-          aria-label={t("browser.address")}
-          spellCheck={false}
-          autoComplete="off"
-          onFocus={(event) => event.currentTarget.select()}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setDraft(undefined);
-              event.currentTarget.blur();
-            }
-          }}
-        />
+        <label className="browser-address">
+          {active?.url ? <Globe2 size="sm" /> : <Search size="sm" />}
+          <input
+            ref={address}
+            value={draft ?? active?.url ?? ""}
+            placeholder={t("browser.addressPlaceholder")}
+            aria-label={t("browser.address")}
+            spellCheck={false}
+            autoComplete="off"
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setDraft(undefined);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </label>
         <IconButton
           size="sm"
           label={t("browser.openExternal")}
@@ -555,8 +589,9 @@ export function BrowserPanel({
                 .catch(() => {});
           }}
         >
-          <ExternalLink size={14} />
+          <ExternalLink size="sm" />
         </IconButton>
+        {active?.loading ? <span className="browser-progress" aria-hidden="true" /> : null}
       </form>
       {error ? (
         <p className="browser-note" role="alert">
@@ -625,21 +660,40 @@ export function BrowserPanel({
         ) : null}
         {active?.error ? (
           <div className="browser-error" role="alert">
-            <Globe2 size={28} />
-            <strong>{t("browser.failed")}</strong>
-            <p>{active.error}</p>
-            <code>{active.url}</code>
-            <Button
-              size="sm"
-              onClick={() => call(() => bridge.reload(projectId, active.id))}
-            >
-              {t("browser.reload")}
-            </Button>
+            <span className="browser-error-mark" aria-hidden="true">
+              <Globe2 size="lg" />
+            </span>
+            <strong>{t(`browser.failure.${failureKind(active.error)}`)}</strong>
+            <p>{active.url ? hostOf(active.url) : null}</p>
+            <code title={active.url}>{active.error}</code>
+            <div className="browser-error-actions">
+              <Button
+                size="sm"
+                icon={<RefreshCw size="sm" />}
+                onClick={() => call(() => bridge.reload(projectId, active.id))}
+              >
+                {t("browser.tryAgain")}
+              </Button>
+              {active.url ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<ExternalLink size="sm" />}
+                  onClick={() =>
+                    void window.ohMyGameDesktop
+                      ?.openExternal?.(active.url)
+                      .catch(() => {})
+                  }
+                >
+                  {t("browser.openExternal")}
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {!state && !error ? (
           <div className="browser-loading">
-            <LoaderCircle className="spin" size={18} />
+            <Spinner size="md" />
           </div>
         ) : null}
       </div>
@@ -741,7 +795,7 @@ function NewTabPage({
                 }}
               >
                 <span className="browser-shortcut-mark" aria-hidden="true">
-                  {restoring ? <Eye size={16} /> : shortcut.title.slice(0, 1).toUpperCase()}
+                  {restoring ? <Eye size="md" /> : shortcut.title.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="browser-shortcut-title">{shortcut.title}</span>
               </button>
@@ -759,7 +813,7 @@ function NewTabPage({
                     onSettings({ ...settings, hiddenPluginShortcuts: [...hiddenKeys, key] });
                   }}
                 >
-                  <X size={11} />
+                  <X size="xs" />
                 </IconButton>
               ) : null}
             </li>
@@ -807,7 +861,7 @@ function NewTabPage({
               t("browser.doneEditing")
             ) : (
               <>
-                <Pencil size={13} />
+                <Pencil size="sm" />
                 {t("browser.editShortcuts")}
               </>
             )}
@@ -837,7 +891,7 @@ function NewTabPage({
                       disabled={index === 0}
                       onClick={() => moveShortcut(index, -1)}
                     >
-                      <ArrowLeft size={13} />
+                      <ArrowLeft size="sm" />
                     </IconButton>
                     <IconButton
                       size="sm"
@@ -846,7 +900,7 @@ function NewTabPage({
                       disabled={index === settings.shortcuts.length - 1}
                       onClick={() => moveShortcut(index, 1)}
                     >
-                      <ArrowRight size={13} />
+                      <ArrowRight size="sm" />
                     </IconButton>
                   </div>
                   <button
@@ -865,7 +919,7 @@ function NewTabPage({
                       })
                     }
                   >
-                    <X size={11} />
+                    <X size="xs" />
                   </button>
                 </>
               ) : null}
@@ -881,7 +935,7 @@ function NewTabPage({
                 onClick={() => setAdding({ title: "", url: "" })}
               >
                 <span className="browser-shortcut-mark" aria-hidden="true">
-                  <Plus size={14} />
+                  <Plus size="sm" />
                 </span>
                 <span className="browser-shortcut-title">
                   {t("browser.addShortcut")}
@@ -963,7 +1017,7 @@ function NewTabPage({
                   label={t("browser.removeVisit", { title: visit.title || hostOf(visit.url) })}
                   onClick={() => onForgetVisit(visit)}
                 >
-                  <X size={13} />
+                  <X size="sm" />
                 </IconButton>
               </li>
             ))}

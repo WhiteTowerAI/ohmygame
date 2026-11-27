@@ -72,6 +72,11 @@
   font-size: var(--text-sm);
 }
 
+.plugins-error-state {
+  display: flex;
+  min-height: min(420px, 60vh);
+}
+
 .plugins-state {
   display: flex;
   align-items: center;
@@ -116,42 +121,8 @@
   justify-content: center;
 }
 
-/* a market plugin, opened over Discover (plugin-catalog.tsx) */
-.plugin-dialog-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.plugin-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.plugin-dialog-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
-.plugin-dialog-summary {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.plugin-dialog-summary p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-md);
-  line-height: 1.55;
-}
-
 /* a market plugin's numbers, in one row as an app store shows them */
-.plugin-dialog-stats {
+.plugin-stats {
   display: flex;
   margin: 0;
   padding: var(--space-3) 0;
@@ -160,7 +131,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.plugin-dialog-stats > div {
+.plugin-stats > div {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
@@ -170,26 +141,22 @@
   padding: 0 var(--space-3);
 }
 
-.plugin-dialog-stats > div + div {
+.plugin-stats > div + div {
   border-left: 1px solid var(--color-border);
 }
 
-.plugin-dialog-stats dt {
+.plugin-stats dt {
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }
 
-.plugin-dialog-stats dd {
+.plugin-stats dd {
   margin: 0;
   color: var(--color-text);
   font-size: var(--text-md);
   font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.plugin-dialog .plugin-shot img {
-  height: 180px;
 }
 
 /* screenshots: one row that scrolls sideways, each opening larger */
@@ -379,7 +346,7 @@
   height: 100%;
   background: color-mix(in srgb, var(--monogram-hue) 22%, transparent);
   color: var(--monogram-hue);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1;
 }
 
@@ -712,7 +679,7 @@
 .plugin-add-review h3 {
   margin-bottom: var(--space-1);
   font-size: inherit;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .plugin-add-review dl {
@@ -929,6 +896,8 @@
 .installed-plugin-document {
   max-height: var(--installed-pane-height);
   padding: 2px var(--space-2) var(--space-2) 2px;
+  /* The scrollbar's room hangs past the page edge, so the details end where the header does. */
+  margin-right: calc(var(--space-2) * -1);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -998,8 +967,11 @@
 
 .plugin-head-actions {
   position: relative;
+  display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-self: flex-start;
+  gap: var(--space-2);
 }
 
 .plugin-head-actions .plugin-try-popover {
@@ -1215,6 +1187,16 @@
   text-decoration: underline;
 }
 
+/* A repository wraps at its slash like text, so its link flows inline. */
+.plugin-side .plugin-props a {
+  display: inline;
+}
+
+.plugin-side .plugin-props a > svg {
+  margin-inline-start: var(--space-1);
+  vertical-align: middle;
+}
+
 .plugin-keywords {
   display: flex;
   flex-wrap: wrap;
@@ -1386,42 +1368,6 @@
   background: var(--color-surface-raised);
 }
 
-:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary) {
-  height: 30px;
-  padding: 0 var(--space-3);
-  border: 0;
-  border-radius: var(--radius-md);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  transition:
-    background var(--duration-fast),
-    opacity var(--duration-fast);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-primary {
-  background: var(--color-ink);
-  color: var(--color-on-ink);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-primary:hover:not(:disabled) {
-  background: var(--color-ink);
-  opacity: 0.88;
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-secondary {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-:root[data-appearance] .plugins-page .plugin-detail-secondary:hover:not(:disabled) {
-  background: var(--color-selected);
-  color: var(--color-text);
-}
-
-:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary):disabled {
-  opacity: 0.4;
-}
-
 @media (max-width: 960px) {
   .plugin-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1447,11 +1393,6 @@
     flex: 1;
     width: auto;
   }
-}
-
-.plugin-dialog-summary .plugin-publisher {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
 }
 
 /* A plugin's model providers, as Settings lists them, and the dialog each opens. */

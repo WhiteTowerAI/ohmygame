@@ -12,6 +12,7 @@ const flow = vi.hoisted(() => ({
   deleted: [] as string[],
   fitView: vi.fn<() => Promise<boolean>>(),
   getViewport: vi.fn(() => ({ x: 80, y: 40, zoom: 0.4 })),
+  zoom: 1,
 }));
 
 vi.mock("@xyflow/react", async () => {
@@ -34,7 +35,8 @@ vi.mock("@xyflow/react", async () => {
   ViewportPortal: () => null,
   useNodesInitialized: () => flow.initialized,
   useStore: (selector: (state: object) => unknown) =>
-    selector({ width: 1000, height: 700, transform: [0, 0, 1] }),
+    // React Flow learns its element after the first render, as here.
+    selector({ width: 1000, height: 700, transform: [0, 0, flow.zoom], domNode: document.querySelector('[data-testid="canvas"]') }),
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
   useReactFlow: () => {
     const id = useContext(CanvasId);
@@ -103,6 +105,27 @@ it("does not expose the initial 100% view before the saved viewport is initializ
     expect(canvas().style.pointerEvents).toBe("");
     await act(async () => root.render(null));
   }
+});
+
+it("tells node chrome the zoom, so labels, frames and handles keep their screen size", async () => {
+  flow.zoom = 0.5;
+  await render();
+  await render();
+  expect(canvas().style.getPropertyValue("--canvas-zoom")).toBe("0.5");
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(false);
+  // Zoomed far out, labels would cover each other, so the canvas marks it for its CSS.
+  flow.zoom = 0.2;
+  await render();
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(true);
+  flow.zoom = 1.5;
+  await render();
+  expect(canvas().style.getPropertyValue("--canvas-zoom")).toBe("1.5");
+  expect(canvas().hasAttribute("data-zoomed-out")).toBe(false);
+  // Revealing the canvas rewrites its style without dropping the zoom.
+  await initialize();
+  expect(canvas().style.opacity).toBe("");
+  expect(canvas().style.getPropertyValue("--canvas-zoom")).toBe("1.5");
+  flow.zoom = 1;
 });
 
 it("waits for node measurements and the fitted viewport before revealing a remix", async () => {
@@ -204,4 +227,18 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   await key(document.body);
   parked.remove();
   expect(flow.deleted).toHaveLength(4);
+});
+
+it("says how to start on an empty canvas, and nothing once it has a node to show", async () => {
+  const hint = { title: "The canvas is empty", description: "Double-click to add something." };
+  const show = (items: Node[]) => act(async () => root.render(
+    <EditorCanvas nodes={items} addControl={null} onOpenMenu={vi.fn()} emptyHint={hint} />,
+  ));
+  await show([]);
+  expect(container.querySelector(".canvas-flow-empty")?.textContent).toBe("The canvas is emptyDouble-click to add something.");
+  // Hidden nodes don't count; a shown one replaces the hint.
+  await show([{ ...nodes[0]!, hidden: true }]);
+  expect(container.querySelector(".canvas-flow-empty")).not.toBeNull();
+  await show(nodes);
+  expect(container.querySelector(".canvas-flow-empty")).toBeNull();
 });

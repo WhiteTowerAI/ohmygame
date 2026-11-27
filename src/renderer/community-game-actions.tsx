@@ -13,7 +13,7 @@ import { useAuth } from "./auth.js";
 import {
   CircleStop,
   FolderOpen,
-  LoaderCircle,
+  Spinner,
   MoreHorizontal,
   Pencil,
   Upload,
@@ -22,7 +22,7 @@ import {
 import { PublishDialog } from "./publish-dialog.js";
 import { withRename } from "../shared/publish-v1.js";
 import { communityProfileHash, projectHash } from "./routes.js";
-import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 
 /** Mounted only for the signed-in author; the local project lookup waits until
  * the menu or the editor opens. */
@@ -93,14 +93,14 @@ export function CommunityGameActions({
   const items: MenuEntry[] = [
     {
       label: t("community.editGame"),
-      icon: <Pencil size={14} />,
+      icon: <Pencil size="sm" />,
       onSelect: () => setEditing(true),
     },
     ...(project
       ? [
           {
             label: t("community.openProject"),
-            icon: <FolderOpen size={14} />,
+            icon: <FolderOpen size="sm" />,
             onSelect: () => {
               window.location.hash = projectHash(project.id);
             },
@@ -110,7 +110,7 @@ export function CommunityGameActions({
     "separator",
     {
       label: t("community.unpublish"),
-      icon: <CircleStop size={14} />,
+      icon: <CircleStop size="sm" />,
       danger: true,
       onSelect: () => {
         setError(undefined);
@@ -137,7 +137,7 @@ export function CommunityGameActions({
               onClick();
             }}
           >
-            <MoreHorizontal size={16} />
+            <MoreHorizontal size="md" />
           </IconButton>
         )}
       />
@@ -285,25 +285,23 @@ function UnpublishConfirmation({
       <p id={`${id}-description`}>{t("community.unpublishDescription")}</p>
       {error ? <p role="alert">{error}</p> : null}
       <footer>
-        <button
-          type="button"
+        <Button
           aria-label={t("community.cancelUnpublish")}
           autoFocus
           disabled={busy}
           onClick={onCancel}
         >
           {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          className="project-create-submit"
+        </Button>
+        <Button
+          variant="primary"
           aria-label={t("community.confirmUnpublish")}
           disabled={busy}
+          icon={busy ? <Spinner size="sm" /> : undefined}
           onClick={onConfirm}
         >
-          {busy ? <LoaderCircle size={14} className="spin" /> : null}{" "}
           {t("community.unpublish")}
-        </button>
+        </Button>
       </footer>
     </dialog>
   );
@@ -373,7 +371,7 @@ function CommunityGameEditor({
   }, [busy, onClose]);
   return (
     <div
-      className="project-create-backdrop"
+      className="ui-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -394,7 +392,7 @@ function CommunityGameEditor({
             disabled={busy}
             aria-label={t("common.close")}
           >
-            <X size={16} />
+            <X size="md" />
           </button>
         </header>
         <form
@@ -442,7 +440,7 @@ function CommunityGameEditor({
           <div className="community-editor-links">
             {project ? (
               <a href={projectHash(project.id)} onClick={onClose}>
-                <Pencil size={14} />
+                <FolderOpen size="sm" />
                 {t("community.openProject")}
               </a>
             ) : null}
@@ -457,7 +455,7 @@ function CommunityGameEditor({
                 }
                 disabled={busy || !title.trim()}
               >
-                <Upload size={14} />
+                <Upload size="sm" />
                 {t("publish.update")}
               </button>
             ) : null}
@@ -468,22 +466,22 @@ function CommunityGameEditor({
             </p>
           ) : null}
           {error ? (
-            <p className="project-create-error" role="alert">
+            <p className="community-edit-error" role="alert">
               {error}
             </p>
           ) : null}
           <footer>
-            <button type="button" onClick={onClose} disabled={busy}>
+            <Button onClick={onClose} disabled={busy}>
               {t("common.cancel")}
-            </button>
-            <button
-              className="project-create-submit"
-              type="submit"
+            </Button>
+            <Button
+              variant="primary"
+                  type="submit"
               disabled={busy || !title.trim()}
+              icon={busy ? <Spinner size="sm" /> : undefined}
             >
-              {busy ? <LoaderCircle size={14} className="spin" /> : null}
               {busy ? t("common.saving") : t("common.saveChanges")}
-            </button>
+            </Button>
           </footer>
         </form>
       </section>

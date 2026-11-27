@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, LoaderCircle, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
+import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -47,11 +47,10 @@ import { OpenAIImageModels } from "./openai-image-models.js";
 import { ProviderResponsesTransport } from "./responses-transport-settings.js";
 import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
-import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
+import { ChatModelDefaultRow, GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { useModelProviderAuth } from "./use-model-provider-auth.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
 import { Badge, Button, Dialog, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
-import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
@@ -85,13 +84,13 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
-export function ModelsSettings({ view, onViewChange, onOpenAgents, onOpenChatModel }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void; onOpenChatModel?: () => void }) {
+export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenChatModel={onOpenChatModel} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -141,75 +140,71 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
     return { ...provider, cloud, ...(provider.cloud?.userId !== userId || !userId ? { configured: false, status: "not_configured" as const } : {}) };
   });
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleProviders = availableProviders.filter((provider) => (
-    // Hyper3D's account and key connections share one settings entry.
-    (provider.id !== HYPER3D_CONNECTION_ID || !availableProviders.some((item) => item.id === "hyper3d"))
-    && (capability === "all" || provider.capabilities.includes(capability))
-    && (!normalizedQuery || [
-      provider.name,
-      ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
-      providerDescription(provider),
-      ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
-    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
-  ));
-  // A plugin's providers stay under From plugins, connected or not, not under More.
-  const pluginProviders = visibleProviders.filter((provider) => provider.plugin);
-  const {
-    connected: connectedProviders, free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders,
-  } = groupProviders(visibleProviders.filter((provider) => !pluginProviders.includes(provider)), {
-    isConnected: (provider) => provider.status === "connected",
-    isFree: (provider) => provider.managed === "free_cloud" || provider.id === "hyper3d",
-    isLocal: (provider) => provider.id === "codex-cli" || isLocalModelProvider(provider),
-  });
-  const filteredProviders = [...connectedProviders, ...freeProviders, ...pluginProviders, ...popularProviders, ...localProviders, ...moreProviders];
+  // Hyper3D's account and key connections share one settings entry.
+  const listedProviders = availableProviders.filter((provider) => provider.id !== HYPER3D_CONNECTION_ID || !availableProviders.some((item) => item.id === "hyper3d"));
+  const grouping = {
+    isConnected: (provider: ProviderSummary) => provider.status === "connected",
+    isFree: (provider: ProviderSummary) => provider.managed === "free_cloud" || provider.id === "hyper3d",
+    isLocal: (provider: ProviderSummary) => provider.id === "codex-cli" || isLocalModelProvider(provider),
+  };
+  // What the person has leads: their connections, then plugins' providers,
+  // connected or not. The catalogue under them is what can still be added,
+  // and its search and filters work on it alone.
+  const pluginProviders = listedProviders.filter((provider) => provider.plugin);
+  const connectedProviders = groupProviders(listedProviders.filter((provider) => !provider.plugin), grouping).connected;
+  const matches = (provider: ProviderSummary): boolean => (capability === "all" || provider.capabilities.includes(capability)) && (!normalizedQuery || [
+    provider.name,
+    ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
+    providerDescription(provider),
+    ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
+  ].some((value) => value.toLowerCase().includes(normalizedQuery)));
+  const catalogue = listedProviders.filter((provider) => !provider.plugin && !connectedProviders.includes(provider) && matches(provider));
+  const { free: freeProviders, popular: popularProviders, local: localProviders, more: moreProviders } = groupProviders(catalogue, grouping);
   const filtering = capability !== "all" || Boolean(normalizedQuery);
+  // With nothing connected yet, the page is one path: choose a provider below.
+  const hasConnections = connectedProviders.length > 0 || pluginProviders.some((provider) => provider.status === "connected");
   return (
     <>
-      <div className="settings-toolbar">
-        <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
-        <span className="settings-spacer" />
-        <Button icon={<CirclePlus size={14} />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
-      </div>
-      <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
       {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
         setAdding(undefined);
         setQuery("");
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
-      {!normalizedQuery ? <GlobalMediaModelDefaults capability={capability} leading={onOpenChatModel && (capability === "all" || capability === "language") ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
-      {loading ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingProviders")}</div> : null}
-      {!loading && visibleProviders.length === 0 ? <SettingsNote>{t("providers.noMatch")}</SettingsNote> : null}
-      {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
-      {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
-      {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
-      {!filtering && pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
-      {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
-      {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
-      {!filtering && moreProviders.length ? (
-        <SettingsGroup label={t("providers.group.more")} title={
-          <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
-            {t("providers.group.more")} <span className="settings-count">{moreProviders.length}</span>
-            <ChevronDown size={14} />
-          </button>
-        } bare={!moreOpen}>
-          {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
-        </SettingsGroup>
-      ) : null}
+      {connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
+      {pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
+      {hasConnections ? <GlobalMediaModelDefaults leading={<ChatModelDefaultRow />} /> : null}
+      <section className="settings-catalogue" aria-label={t("providers.catalogue")}>
+        <header className="settings-catalogue-head">
+          <div>
+            <h2>{hasConnections || loading ? t("providers.catalogue") : t("providers.start")}</h2>
+            {hasConnections || loading ? null : <p>{t("providers.startHint")}</p>}
+          </div>
+          <Button size="sm" variant="ghost" icon={<CirclePlus size="sm" />} onClick={() => setAdding("custom")}>{t("providers.addCustom")}</Button>
+        </header>
+        <div className="settings-catalogue-filters">
+          <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
+          <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
+        </div>
+        {loading ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingProviders")}</div> : null}
+        {!loading && catalogue.length === 0 ? <SettingsNote>{filtering ? t("providers.noMatch") : t("providers.allConnected")}</SettingsNote> : null}
+        {filtering && catalogue.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={catalogue} onProvider={openProvider} /> : null}
+        {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
+        {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
+        {!filtering && moreProviders.length ? (
+          <SettingsGroup label={t("providers.group.more")} title={
+            <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+              {t("providers.group.more")} <span className="settings-count">{moreProviders.length}</span>
+              <ChevronDown size="sm" />
+            </button>
+          } bare={!moreOpen}>
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
+          </SettingsGroup>
+        ) : null}
+      </section>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
-  );
-}
-
-/** The chat model belongs to the agent; this row shows it and leads there. */
-function ChatModelRow({ onOpen }: { onOpen: () => void }) {
-  const catalog = useAgentModels({ agentRuntimes: true });
-  const chosen = catalog.defaultModel;
-  const model = chosen ? catalog.models.find((item) => item.provider === chosen.provider && item.id === chosen.id) : undefined;
-  return (
-    <SettingsRow title={t("settings.providers.chatModel")} description={model ? t("settings.providers.chatModelCurrent", { model: model.name }) : t("settings.providers.chatModelHint")} onClick={onOpen}>
-      <IconButton size="sm" label={t("settings.providers.chatModel")} onClick={onOpen}><ChevronRight size={16} /></IconButton>
-    </SettingsRow>
   );
 }
 
@@ -247,9 +242,9 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
         <Switch label={t("providers.enableProvider", { name: provider.name })} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(enabled) => onToggle(provider, enabled)} />
       ) : provider.status === "not_configured" ? null : <span className={`settings-provider-status is-${provider.status}`}>{providerStatus(provider)}</span>}
       {combined || provider.configured ? (
-        <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><SettingsMinimal size={16} /></IconButton>
+        <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><SettingsMinimal size="md" /></IconButton>
       ) : (
-        <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <LoaderCircle size={14} className="spin" /> : provider.status === "error" ? <RefreshCw size={14} /> : undefined} onClick={() => onProvider(provider)}>
+        <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <Spinner size="sm" /> : provider.status === "error" ? <RefreshCw size="sm" /> : undefined} onClick={() => onProvider(provider)}>
           {provider.status === "error" ? t("common.retry") : t("providers.action.connect")}
         </Button>
       )}
@@ -267,7 +262,7 @@ function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "pr
   if (!icon && provider.plugin?.icon && pluginIcon === undefined) return <span className="settings-mark" aria-hidden="true" />;
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : initial ? " is-initial" : ""}`} aria-hidden="true">
-      {icon ? <img src={icon.src} alt="" /> : initial || <Server size={18} />}
+      {icon ? <img src={icon.src} alt="" /> : initial || <Server size="md" />}
     </span>
   );
 }
@@ -490,7 +485,7 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
       <p className="settings-detail-hint">{t("codexImages.managedOptions")}</p>
       {current.error ? <p className="settings-detail-hint">{current.error}</p> : null}
       <div className="settings-form-actions">
-        <Button disabled={busy} onClick={() => void recheck()}><RefreshCw size={13} className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</Button>
+        <Button disabled={busy} onClick={() => void recheck()}><RefreshCw size="sm" className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</Button>
         {current.authStatus === "signed-out" ? <Button disabled={busy} onClick={() => void login()}>{t("common.signIn")}</Button> : null}
         {onOpenAgents ? <Button onClick={onOpenAgents}>{t("agents.open")}</Button> : null}
       </div>
@@ -562,7 +557,7 @@ function FreeCloudAccount({ provider, refreshing, onRefresh }: { provider?: Prov
     <section className="settings-detail-section provider-models" aria-label={t("providers.quota.title")}>
       <div className="provider-models-heading">
         <h4>{t("providers.quota.title")}</h4>
-        {userId ? <IconButton size="sm" disabled={refreshing} onClick={onRefresh} label={t("providers.quota.refresh")}><RefreshCw size={15} className={refreshing ? "spin" : undefined} aria-hidden="true" /></IconButton> : null}
+        {userId ? <IconButton size="sm" disabled={refreshing} onClick={onRefresh} label={t("providers.quota.refresh")}><RefreshCw size="sm" className={refreshing ? "spin" : undefined} aria-hidden="true" /></IconButton> : null}
       </div>
       {quota ? <CloudQuotaDetails quota={quota} /> : <p className="settings-detail-hint" role="status">{needsSignIn ? t("providers.quota.signIn") : refreshing ? t("providers.quota.checking") : cloudQuotaSummary(cloud)}</p>}
       {quota && cloud?.availability !== "ready" ? <p className="settings-detail-hint" role="status">{cloud?.availability === "personal_exhausted" ? t("providers.quota.exhausted") : cloudQuotaSummary(cloud)}</p> : null}
@@ -778,7 +773,7 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, distinc
               <DoubaoVoiceOptions />
               <option value="__custom">{t("providers.voiceSelectCustom")}</option>
             </select>
-            {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="settings-secondary-button settings-voice-sample" />}
+            {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="ui-button ui-button-secondary ui-button-md settings-voice-sample" />}
             <Button variant="primary" type="submit" disabled={savingVoice}>
               {savingVoice ? t("common.saving") : t("common.save")}
             </Button>
@@ -852,7 +847,7 @@ function DoubaoPreview({ kind, voiceId, disabled }: { kind: "speech" | "seed"; v
       <div className="settings-detail-inline">
         <input id={id} className="settings-search-input" value={text} onChange={(event) => setText(event.target.value)} maxLength={500} disabled={busy} />
         <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={busy || !text.trim() || disabled} onClick={() => void run()}>
-          {busy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
+          {busy ? <span className="settings-loading-inline"><Spinner size="sm" />{t("common.loading")}</span> : t("providers.previewAction")}
         </Button>
       </div>
       {url ? <audio controls src={url} className="settings-audio-preview" /> : null}
@@ -910,7 +905,7 @@ function AudioModels({ providerId }: { providerId: string }) {
           })}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -953,7 +948,7 @@ function ProviderImageModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -991,7 +986,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length ? <p className="settings-empty">{t("providers.noVideoModels")}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -1019,7 +1014,7 @@ function ProviderAdvanced({ children, defaultOpen = true }: { children: ReactNod
 }
 
 function ProviderDeleteButton({ deletion, disabled = false, label = t("providers.delete.button") }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean; label?: string }) {
-  return <IconButton className="settings-provider-delete" label={label} aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={16} /></IconButton>;
+  return <IconButton className="settings-provider-delete" label={label} aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size="md" /></IconButton>;
 }
 
 function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { provider: ProviderSummary; deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
@@ -1028,7 +1023,7 @@ function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { 
     <span>{provider.id === "hyper3d" ? t("providers.delete.hyper3d") : provider.custom ? t("providers.delete.custom") : t("providers.delete.builtIn")}{!provider.custom && provider.credentialType === "oauth" ? t("providers.delete.subscriptionKept") : null}</span>
     <span className="settings-actions">
       <Button size="sm" variant="ghost" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>{t("common.cancel")}</Button>
-      <Button size="sm" className="settings-danger-button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>
+      <Button size="sm" variant="danger" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>
     </span>
   </div>;
 }
@@ -1087,9 +1082,9 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
       {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
         <span className="settings-search-field-label">{label}</span>
         <span className="settings-provider-setting-value" title={field === "apiKey" ? undefined : value}>{value}</span>
-        <IconButton size="sm" label={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></IconButton>
+        <IconButton size="sm" label={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size="sm" aria-hidden="true" /></IconButton>
       </div>)}
-    </div> : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingConfiguration")}</div> : null}
+    </div> : !error ? <div className="settings-loading-row"><Spinner size="md" />{t("providers.loadingConfiguration")}</div> : null}
     {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
     {provider.configured ? [...balanceConnections].map(([connection, model]) => <Provider3DBalance key={connection} model={{ provider: provider.id, id: model.id }} label={balanceConnections.size > 1 ? t("providers.apiBalance", { model: model.name }) : undefined} />) : null}
     {settings ? <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} /> : null}
@@ -1184,7 +1179,7 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
                   <strong>{authMethodLabel(method)}</strong>
                   <small>{method.type === "oauth" ? oauthHint(provider.id) : t("providers.connect.apiKeyHint")}</small>
                 </span>
-                <ChevronRight size={14} />
+                <ChevronRight size="sm" />
               </button>
             );
           })}
@@ -1262,7 +1257,7 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
           </div> : <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.apiKey")}</span>
             <span className="settings-provider-setting-value" aria-label={t("providers.apiKeyConfigured")}>••••••••</span>
-            {canEditKey ? <IconButton size="sm" label={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></IconButton> : <span />}
+            {canEditKey ? <IconButton size="sm" label={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size="sm" aria-hidden="true" /></IconButton> : <span />}
           </div>}
           {authEditor}
         </div>
@@ -1276,7 +1271,7 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
           <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
             <span className="settings-provider-setting-value" title={endpoint.savedBaseUrl}>{endpoint.loading ? t("common.loading") : endpoint.savedBaseUrl || t("providers.unavailable")}</span>
-            <IconButton size="sm" label={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></IconButton>
+            <IconButton size="sm" label={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size="sm" aria-hidden="true" /></IconButton>
           </div>
           {editing === "endpoint" ? <form className="settings-provider-setting-editor settings-detail-section" onSubmit={(event) => void saveEndpoint(event)}>
             <BaseUrlField endpoint={endpoint} />
@@ -1350,7 +1345,7 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
       ) : (
         <div className="settings-detail-section">
           <div className="settings-detail-status settings-detail-waiting">
-            <LoaderCircle className="spin" size={16} />
+            <Spinner size="md" />
             <span className="settings-detail-status-copy">
               <strong>{method === "oauth" ? t("providers.waitingSignIn") : t("providers.preparing")}</strong>
               <small>{external && method === "oauth" ? t("providers.finishInBrowser") : notificationText(notification)}</small>
@@ -1359,7 +1354,7 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
             <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
-            {external ? <Button variant="primary" onClick={() => void auth.openBrowser(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
+            {external ? <Button variant="primary" onClick={() => void auth.openBrowser(external)}><ExternalLink size="sm" />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
           </div>
           <ExternalLinkFallback url={auth.openFailedUrl} />
           {browserFallback && prompt ? (
