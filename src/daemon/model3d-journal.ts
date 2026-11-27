@@ -64,8 +64,8 @@ export async function model3DJournal(directory: string, id: string, options: { r
         // Upgrade only after the complete record is understood, under the same submission lock.
         if (legacy) await save();
         if (previous) {
-          if (previous.fingerprint !== fingerprint) throw new Model3DGenerationError("Provider connection or input changed. Restore the original settings to resume, or start a new generation.", 409);
-          if (!previous.credentials) throw new Model3DGenerationError("Submission could not be confirmed. Check the provider dashboard before starting a new generation; retry will not submit another paid task.", 409);
+          if (previous.fingerprint !== fingerprint) throw new Model3DGenerationError("Provider connection or input changed. Check the provider dashboard before starting a new generation.", 409);
+          if (!previous.credentials) throw new Model3DGenerationError("Submission could not be confirmed. Check the provider dashboard before starting a new generation.", 409);
           confirmedExistingStage = true;
           return previous.credentials as T;
         }
@@ -81,7 +81,7 @@ export async function model3DJournal(directory: string, id: string, options: { r
         }
         if (!object(credentials) || !Object.keys(credentials).length || Object.values(credentials).some(value => typeof value !== "string" || !value)) {
           // The request may have been accepted: leave the pre-submission marker in place.
-          throw new Model3DGenerationError("The provider returned invalid task credentials. Retry will not submit another paid task.", 502);
+          throw new Model3DGenerationError("The provider returned invalid task credentials. Check the provider dashboard before starting a new generation.", 502);
         }
         entries[stage] = { fingerprint, credentials };
         await save();

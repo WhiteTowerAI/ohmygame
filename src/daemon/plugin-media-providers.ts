@@ -1138,8 +1138,8 @@ export class PluginMediaProviders {
       if (begun.state === "changed" || begun.state === "unconfirmed") {
         journal.release();
         throw new Failure(begun.state === "changed"
-          ? `${name}: the provider, its key or the request changed since this ${kind} started. Restore them to resume, or start a new generation.`
-          : `${name} may have started this ${kind} already, but its answer was lost. Check ${name}'s own site before starting a new one; retrying won't start another.`, 409);
+          ? `${name}: the provider, its key or the request changed since this ${kind} started. Check the provider before starting a new generation.`
+          : `${name} may have started this ${kind} already, but its answer was lost. Check ${name}'s own site before starting a new generation.`, 409);
       }
       // A staged start also returns "new", but must replay its saved submit responses.
       if (options.resumeOnly && begun.state === "new" && !journal.hasSubmissions()) {
@@ -1384,7 +1384,7 @@ export class PluginMediaProviders {
       if (!journal) throw new Failure("A host-owned output needs its original generation");
       signal.throwIfAborted();
       const bytes = await journal.readOutput(output.file).catch(() => {
-        throw new Failure("The saved audio result is missing, changed or unreadable. Retry will not submit another paid request.");
+        throw new Failure("The saved audio result is missing, changed or unreadable. Check the provider before starting a new generation.");
       });
       if (bytes.length > maxBytes) throw new Failure("The host-owned output is too large");
       return bytes;
