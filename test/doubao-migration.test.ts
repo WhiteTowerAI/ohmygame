@@ -51,7 +51,8 @@ import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { migrateLegacyAudioNodes } from "../src/shared/audio-legacy.js";
 import { DOUBAO_RETIRED_RETRY } from "../src/shared/media-migration-errors.js";
 import type { RunToolRequest, AgentModelRef } from "../src/shared/contracts.js";
-import type { AudioKind } from "../src/shared/audio.js";
+import type { AudioKind, AudioSettings } from "../src/shared/audio.js";
+import { generateOnCanvas } from "./canvas-generation.js";
 
 const pin = DOUBAO_MIGRATION_PACKAGES[0];
 async function bytes(directory: string) {
@@ -358,22 +359,18 @@ describe("prepared Doubao model references", () => {
         undefined,
         state,
       );
-      try {
-        expect(await tools.prepare("generate-audio", selection)).toEqual({
-          ...selection,
-          model: { ...legacy, provider: target },
-        });
-        expect(resolve.mock.calls[0]?.[1]).toMatchObject({
-          model: { provider: target },
-        });
-        expect(
-          await tools.prepare("generate-audio", selection, undefined, {
-            hooksApplied: true,
-          }),
-        ).toBe(selection);
-      } finally {
-        await tools.close();
-      }
+      expect(await tools.prepare("generate-audio", selection)).toEqual({
+        ...selection,
+        model: { ...legacy, provider: target },
+      });
+      expect(resolve.mock.calls[0]?.[1]).toMatchObject({
+        model: { provider: target },
+      });
+      expect(
+        await tools.prepare("generate-audio", selection, undefined, {
+          hooksApplied: true,
+        }),
+      ).toBe(selection);
     });
   });
   it("persists project defaults and old canvas choices on load, preserving intent and rejecting unknown data unchanged", async () => {
@@ -458,14 +455,13 @@ describe("prepared Doubao model references", () => {
         expect(await readFile(file, "utf8")).toBe(unsupported);
       } finally {
         await canvas.close();
-        await tools.close();
       }
     });
   });
   it.each(["volcengine-tts", "volcengine-seed-audio"])(
-    "refuses native paid retry for %s before generation and leaves original history bytes intact",
+    "notes a retired native %s task and leaves other jobs unchanged",
     async (provider) => {
-      await fixture(async (directory) => {
+      await fixture(async () => {
         const model = { provider, id: "seed-audio-1.0" };
         const job = {
           id: "old",
@@ -480,38 +476,15 @@ describe("prepared Doubao model references", () => {
           prepared: true,
           metadata: {},
         };
-        await mkdir(path.join(directory, "tools"));
-        const file = path.join(directory, "tools/jobs.json");
-        const stored = JSON.stringify([job]);
-        await writeFile(file, stored);
-        const generate = vi.fn();
-        const tools = new ToolRunner(
-          directory,
-          { generate },
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { generate, catalog: vi.fn() },
-          state,
-        );
-        await tools.load();
-        try {
-          expect(tools.jobs()[0]?.error).toBe(DOUBAO_RETIRED_RETRY);
-          expect(() => tools.retryJob("old")).toThrow(DOUBAO_RETIRED_RETRY);
-          expect(generate).not.toHaveBeenCalled();
-          expect(mediaJobNotice(job, {})).toBe(job);
-          const succeeded = { ...job, status: "succeeded" as const };
-          expect(mediaJobNotice(succeeded, state)).toBe(succeeded);
-          const plugin = {
-            ...job,
-            input: { ...job.input, model: { ...model, provider: target } },
-          };
-          expect(mediaJobNotice(plugin, state)).toBe(plugin);
-        } finally {
-          await tools.close();
-        }
-        expect(await readFile(file, "utf8")).toBe(stored);
+        expect(mediaJobNotice(job, state).error).toBe(DOUBAO_RETIRED_RETRY);
+        expect(mediaJobNotice(job, {})).toBe(job);
+        const succeeded = { ...job, status: "succeeded" as const };
+        expect(mediaJobNotice(succeeded, state)).toBe(succeeded);
+        const plugin = {
+          ...job,
+          input: { ...job.input, model: { ...model, provider: target } },
+        };
+        expect(mediaJobNotice(plugin, state)).toBe(plugin);
       });
     },
   );
@@ -903,7 +876,7 @@ describe("prepared Doubao application ownership", () => {
       }
     });
   });
-  it("uses the published Beta for both audio models and rejects native endpoints and paid retries", async () => {
+  it("uses the published Beta for both audio models and rejects native endpoints", async () => {
     await installed(async (directory) => {
       await activate(directory);
       const nativeFile = path.join(directory, "doubao-voice.json"),
@@ -1031,12 +1004,6 @@ describe("prepared Doubao application ownership", () => {
           "/settings/models/providers/volcengine-seed-audio/models",
         );
         expect(legacyRoute.statusCode, legacyRoute.body).toBe(409);
-        const retry = await app.inject({
-          method: "POST",
-          url: "/tool-jobs/native-paid/retry",
-        });
-        expect(retry.statusCode, retry.body).toBe(409);
-        expect(retry.json().error).toBe(DOUBAO_RETIRED_RETRY);
         expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
         for (const payload of [
           {
@@ -1052,29 +1019,14 @@ describe("prepared Doubao application ownership", () => {
             output: { format: "mp3", sampleRate: 48000 },
           },
         ]) {
-          const started = await app.inject({
-            method: "POST",
-            url: "/tools/generate-audio/jobs",
-            payload,
-          });
-          expect(started.statusCode, started.body).toBe(202);
-          let completed: any;
-          await expect
-            .poll(
-              async () => {
-                completed = (await app.inject("/tool-jobs"))
-                  .json()
-                  .find((job: { id: string }) => job.id === started.json().id);
-                return completed?.status;
-              },
-              { timeout: 10_000 },
-            )
-            .not.toBe("running");
+          const completed = await (
+            await generateOnCanvas(app, "audio", payload as AudioSettings & { prompt: string })
+          ).finished();
           expect(completed, JSON.stringify(completed)).toMatchObject({
             status: "succeeded",
             model: { provider: target, id: payload.model.id },
           });
-          expect(completed.run.files[0].assetId).toBeTruthy();
+          expect(completed.assetId).toBeTruthy();
         }
         expect(pluginRequest).toHaveBeenCalledTimes(2);
         expect(nativeRequest).not.toHaveBeenCalled();
@@ -1129,23 +1081,12 @@ describe("prepared Doubao application ownership", () => {
                 model.provider === nativeRef.provider,
             ),
         ).toBe(false);
-        const result = await app.inject({
-          method: "POST",
-          url: "/tools/generate-audio/jobs",
-          payload: { model: nativeRef, prompt: "Hello" },
+        const result = await generateOnCanvas(app, "audio", {
+          model: nativeRef,
+          prompt: "Hello",
         });
-        if (result.statusCode === 202)
-          await expect
-            .poll(
-              async () =>
-                (await app.inject("/tool-jobs"))
-                  .json()
-                  .find((job: { id: string }) => job.id === result.json().id)
-                  ?.status,
-              { timeout: 10_000 },
-            )
-            .toBe("failed");
-        else expect(result.statusCode).toBe(400);
+        // The canvas finds no audio model to run, so nothing starts.
+        expect(result.response.statusCode).toBe(503);
         expect(request).not.toHaveBeenCalled();
         expect(await snapshot(directory)).toEqual(original);
       } finally {

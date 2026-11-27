@@ -4,7 +4,7 @@ import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/works
 import { ApiError, request, ServiceUnreachableError } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
-import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
+import { readPluginIconImage, updatePluginDraftIcon, getProjectCoverState, setProjectCoverMode } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -19,19 +19,19 @@ describe("renderer event stream", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: message }, { status: 409 })));
     try {
       await i18next.changeLanguage("zh-CN");
-      await expect(retryToolJob("old-seedance")).rejects.toMatchObject({ status: 409, message: message === SEEDANCE_RETIRED_RETRY
+      await expect(getProjectCoverState("project-1")).rejects.toMatchObject({ status: 409, message: message === SEEDANCE_RETIRED_RETRY
         ? "无法恢复这项旧内置 Seedream 或 Seedance 任务。请先在火山方舟或 BytePlus 确认结果和计费，再决定是否使用插件重新生成。"
         : "Seedream 和 Seedance 已迁移到插件。请选择插件模型，旧内置服务已停用。" });
     } finally { await i18next.changeLanguage(previousLanguage); }
   });
 
-  it("explains retired MiniMax retries in the selected UI language", async () => {
+  it("explains retired MiniMax tasks in the selected UI language", async () => {
     installWindow();
     const previousLanguage = i18next.language;
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: MINIMAX_RETIRED_RETRY }, { status: 409 })));
     try {
       await i18next.changeLanguage("zh-CN");
-      await expect(retryToolJob("legacy-minimax")).rejects.toMatchObject({ status: 409, message: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。" });
+      await expect(getProjectCoverState("project-1")).rejects.toMatchObject({ status: 409, message: "无法恢复这项旧内置 MiniMax 任务。请先在 MiniMax 确认任务状态，再决定是否使用 MiniMax 插件重新生成。" });
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }
@@ -889,31 +889,6 @@ describe("renderer project API", () => {
       { headers: { authorization: "Bearer secret" } },
     );
   });
-});
-
-describe("renderer tools API", () => {
-  it("creates, lists, cancels, and retries background tool jobs", async () => {
-    installWindow();
-    const job = { id: "job-1", toolId: "generate-image", status: "running" };
-    const retry = { ...job, id: "job-2" };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(job, { status: 202 }))
-      .mockResolvedValueOnce(Response.json([job]))
-      .mockResolvedValueOnce(Response.json({ ...job, status: "cancelled" }))
-      .mockResolvedValueOnce(Response.json(retry, { status: 202 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" }, undefined, { projectId: "project-1", nodeId: "node-1" })).resolves.toEqual(job);
-    await expect(listToolJobs()).resolves.toEqual([job]);
-    await expect(cancelToolJob("job-1")).resolves.toMatchObject({ status: "cancelled" });
-    await expect(retryToolJob("job-1")).resolves.toEqual(retry);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools/generate-image/jobs", expect.objectContaining({ method: "POST" }));
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ projectId: "project-1", nodeId: "node-1" });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-jobs", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-jobs/job-1/cancel", expect.objectContaining({ method: "POST" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/tool-jobs/job-1/retry", expect.objectContaining({ method: "POST" }));
-  });
-
 });
 
 function installWindow(): void {

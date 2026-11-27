@@ -88,43 +88,42 @@ that a relay actually implements an endpoint.
 
 ## Recovering paid tasks
 
-Canvas history and standalone tool history save resolved inputs. Each logical 3D
-job also has a private task journal under `tools/model3d-tasks/`. Jobs sharing a
-recovery ID reuse confirmed stages, including when a duplicated project retries
-while the original is running. The daemon serializes submissions to each journal
-and reads its latest saved stages; polling and downloads can run independently.
+Each logical 3D job has a private task journal under `tools/model3d-tasks/`.
+Calls with the same recovery ID reuse confirmed stages. The daemon serializes
+submissions to each journal and reads its latest saved stages; polling and
+downloads can run independently.
 Before submission, it records a stage fingerprint; after the response, it records
 task credentials.
 Fingerprints cover the endpoint, authentication/headers and effective request body.
 API keys are hashed into fingerprints and never saved in the journal. Hyper3D's
 subscription credential stays in the private journal; it is not included in public
-jobs or assets. Journal and standalone history files use owner-only permissions.
-Canvas history stays in the project's existing `canvas/jobs.json`.
+jobs or assets. Journal files use owner-only permissions. Canvas history stays
+in the project's existing `canvas/jobs.json` and does not store resolved inputs.
 
 Native task journals store `version: 1` alongside their existing stage entries,
 so older daemons can still find paid receipts. Loading a valid older
 unversioned journal upgrades it under the submission lock, preserving every stage,
 fingerprint, task credential and unconfirmed submission. Malformed records, unknown
 versions or unsupported fields are left unchanged and block recovery before any
-new request. An invalid submission response also keeps the unconfirmed marker;
-retry cannot turn it into another paid task.
+new request. An invalid submission response also keeps the unconfirmed marker,
+which blocks another submission for that stage and recovery ID.
 
 Meshy reuses an available rig for the same source, height and orientation across jobs
-in the running daemon. The reused rig is also recorded in the new job's journal, so
-its retry can recover after restart. Custom connections reuse their adapter while
+in the running daemon. The reused rig is also recorded in the new job's journal.
+Custom connections reuse their adapter while
 the endpoint, settings, authentication and headers remain unchanged.
 
-**Retry** resumes known upload, generation, refine, rig-check, rig and animation
-tasks, including a failed artifact download. It does not resubmit a known failed
-provider task. Starting Generate again creates a new logical job. If a submission
-response was lost before its task ID could be recorded, retry reports the ambiguity
-and refuses another paid POST; inspect the provider dashboard before starting again.
-Changing a connection or effective input blocks recovery until the original settings
-are restored. Expired/deleted upstream artifacts cannot be recovered from the API;
-locally saved successful assets remain available.
+Canvas jobs have no retry: generating again creates a new logical job.
+The journal still records upload, generation, refine, rig-check, rig and animation
+stages, and a provider call that finds a stage for its recovery ID resumes it
+instead of paying again. If a submission response was lost before its task ID
+could be recorded, the provider refuses another paid POST for that recovery ID;
+inspect the provider dashboard before starting again. Expired/deleted upstream
+artifacts cannot be recovered from the API; locally saved successful assets
+remain available.
 
 Cancellation stops local waiting. It does not promise provider cancellation or a
-refund. Restarted interrupted jobs remain in history for explicit retry. Provider
+refund. Restarted interrupted jobs remain in history as cancelled. Provider
 operations allow up to 60 minutes overall, with bounded individual API requests.
 Free cloud retains its separate server-managed idempotency and quota contract.
 

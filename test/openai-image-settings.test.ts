@@ -8,6 +8,7 @@ import { ProviderImages } from "../src/daemon/provider-images.js";
 import { OpenAIImageSettingsStore } from "../src/daemon/openai-image-settings.js";
 import { openAIImageConnection } from "../src/daemon/openai-image-routes.js";
 import type { SaveOpenAIImageConnectionRequest } from "../src/shared/contracts.js";
+import { generateOnCanvas } from "./canvas-generation.js";
 
 const endpoint = "/settings/models/providers/openai/images";
 const config: SaveOpenAIImageConnectionRequest = {
@@ -348,18 +349,12 @@ describe("OpenAI image connections", () => {
         })
       ).statusCode,
     ).toBe(204);
-    const created = await app.inject({
-      method: "POST",
-      url: "/tools/generate-image/jobs",
-      payload: { prompt: "Game icon", resolution: "1K", aspectRatio: "1:1" },
+    const created = await generateOnCanvas(app, "image", {
+      prompt: "Game icon",
+      resolution: "1K",
+      aspectRatio: "1:1",
     });
-    expect(created.statusCode, created.body).toBe(202);
-    await expect.poll(async () => {
-      const jobs = (
-        await app.inject({ method: "GET", url: "/tool-jobs" })
-      ).json();
-      return jobs.find((job: { id: string }) => job.id === created.json().id);
-    }).toMatchObject({ status: "succeeded" });
+    expect(await created.finished()).toMatchObject({ status: "succeeded" });
     expect(generation).toHaveBeenCalledTimes(1);
     expect(generation.mock.calls[0]?.[0]).toBe(
       "https://relay.test/v1/images/generations",

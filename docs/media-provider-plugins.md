@@ -5,8 +5,8 @@ Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps and
 2.12 adds animation and its action library. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
-`ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
-a retry resumes after a restart (`src/daemon/media-task-journal.ts`), and the
+`ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), receipts for video and
+3D tasks that survive a restart (`src/daemon/media-task-journal.ts`), and the
 market's kinds. What is left is in [Order of work](#order-of-work).
 
 A plugin's model provider can make images, videos, audio and 3D models, not
@@ -72,19 +72,14 @@ step. The host retains receipts through output storage and later canvas import
 failures, until profile removal. Local stop, timeout and app shutdown preserve
 remote ownership; the host does not call the adapter's `cancel` for this operation.
 
-Canvas and tool-job retries carry their original recovery ID and an internal
-`resuming: true` flag, hidden from public job views. A retry may only use an
-existing receipt. An old non-recoverable task, a missing receipt, or an attempt
-that failed before recording a task cannot be silently reinterpreted as new paid
-work after a plugin upgrade. Check the provider and explicitly start a new
-generation if no receipt exists. Changed input/account or an unconfirmed response
-also refuses a replacement submission. If a saved receipt exists and the provider
-loses recovery support or is replaced by a native adapter, retry refuses to fall
-back to a new generation; restore the original provider. Legacy image jobs with
-no receipt retain their existing behavior when the provider has not opted in.
-Stored inputs and source references remain unchanged on retry. A new direct agent call, or generating a failed canvas node
-again, starts new work; use the original saved job’s Retry action for recovery.
-Loading an unsupported retry flag refuses the file rather than rewriting it; missing flags need no migration because the Retry action sets it.
+Canvas jobs have no retry, and keep no input once they finish. A new direct
+agent call, or generating a canvas node again, starts new work with a new
+recovery ID. The image providers still take a `resuming` option, which may only
+use an existing receipt: an old non-recoverable task, a missing receipt, or an
+attempt that failed before recording a task is never reinterpreted as new paid
+work, and changed input/account or an unconfirmed response refuses a replacement
+submission. No job passes it now. The tool-job history earlier versions kept
+in `tools/jobs.json` is no longer read; the file is left as it is.
 
 ### Saved image workflows
 
@@ -961,36 +956,27 @@ better, and the adapter decides the pace:
   Streaming answers (`text/event-stream`) can be added to `host.fetch` when a
   vendor needs them.
 
-A video's, a 3D model's or an audio file's task survives a restart, as a
-built-in 3D job's does (`model3d-journal.ts`).
-The app keeps the task value under the generation's recovery id
-(`media-tasks/<id>.json` in the app's data), writing it before `start` and
-whenever `check` changes it. A generation the restart cut off shows as
-interrupted; **Retry** checks the same task again instead of starting a new
-one:
+For recoverable operations, the app journals paid submissions and their
+receipts under the generation's recovery ID (`media-tasks/<id>.json` in the
+app's data). The journal survives a restart. The host records the task after
+`start` returns it and whenever `check` changes it.
 
-- While the app shuts down, it doesn't call `cancel`, so the vendor goes on.
-- Repeated check failures retain the submitted task without calling `cancel`.
-  Retry checks that task again; it never pays for a replacement submission.
-- When the person stops or time runs out, the app attempts optional `cancel`
-  and retains the task. Local cancellation is not proof of a remote terminal
-  state. The journal stays leased until the bounded cancellation attempt ends,
-  so a retry cannot race it. The next retry queries the original task; an
-  explicit terminal error then clears the journal. A new generation is a
-  separate intentional action.
-- Stopping or failing a result download retains the paid result for retry.
-- A paid `start` is never repeated for the same request. If a `start` request
-  was sent but no answer came back, the retry is refused with a message to
-  check the vendor's site. So is a retry whose provider or request changed.
-  An adapter keeps this guard by throwing, not returning `{ error }`, when
-  the vendor may have taken the request (a 5xx, or a success it can't read).
-- The task stays until the result is stored in the project, so a download or
-  a write that failed is retried by checking the task again (for a fresh
-  address), not by paying for a new one. For a vendor that answered at once,
-  with no task, the app keeps the result's address instead.
+On restart, the app marks interrupted canvas jobs as cancelled. Generating
+again on the canvas or in the agent starts a new job with a new recovery ID
+and may incur another charge. Check the vendor's task and billing before
+starting a new generation after an interrupted or unconfirmed submission.
 
-Agent tool calls that a restart cut off aren't retried, since the agent's turn
-ended with them. Images, which rarely take a task, start again.
+- Shutdown leaves the vendor task running. Repeated check failures retain the
+  submitted task without calling `cancel`. Local stop or timeout may attempt
+  optional cancellation, depending on the operation. The journal stays leased
+  until that attempt ends.
+- A call with the original recovery ID checks a recorded task again, including
+  after a failed result download. If the vendor completed synchronously, the
+  journal can hold the result directly. The journal rejects a changed request
+  or account, or a submission with an unconfirmed response.
+- An adapter keeps this guard by throwing when the vendor may have accepted a
+  request (a 5xx or an unreadable success response). Returning `{ error }`
+  reports a definite failure.
 
 ## In the app
 
@@ -1019,8 +1005,8 @@ can't promise what the plugin doesn't do.
 
 1. The sandbox, `host.fetch`, and image `start`. This includes the official
    SiliconFlow plugin's images, end to end. *Done.*
-2. Video, with tasks, `check`, `cancel`, `retryAfter`, and resuming after a
-   restart. *Done.*
+2. Video, with tasks, `check`, `cancel`, `retryAfter`, and durable task receipts.
+   *Done.*
 3. The market's kinds: the index field, the chips under Model providers, and
    the tags on cards. *Done.*
 4. Audio (speech, sound effects, music) and 3D from a prompt or pictures.
@@ -1614,14 +1600,11 @@ request to the old provider is rejected instead of falling back or silently
 starting a request with a different owner. Profiles whose migration is deferred
 continue using the built-in provider until the verified plugin is ready.
 
-Old built-in MiniMax jobs retain their input and recovery identity. Retrying a
-failed or cancelled job is refused before replacing its record or contacting a
-vendor. Job lists explain this in the selected UI language while retaining the
-original error in stored history. Check that task in MiniMax before intentionally starting a new generation
-with the plugin; the old integration did not retain a vendor task ID, so it cannot
-safely resume it. The migration never automatically resubmits a task. Plugin jobs
-continue to use their own persisted recovery journal. Disabling or uninstalling
-the plugin does not reactivate the retired built-in provider.
+Failed or cancelled built-in MiniMax jobs show a localized notice while stored
+history retains the original error. Check the task in MiniMax before starting
+a new generation with the plugin. The built-in integration did not retain a
+vendor task ID. Plugin jobs use their own recovery journal. Disabling or
+uninstalling the plugin does not reactivate the retired built-in provider.
 
 
 ### Seedance committed-profile cutover
@@ -1633,13 +1616,11 @@ refused. Retained source credentials never become a fallback when the plugin is
 disabled, removed or unavailable. Unmigrated profiles retain their existing paths.
 Custom providers using the same protocols keep their separate identities.
 
-Historical built-in image and video jobs keep their original inputs, outputs,
-errors and recovery IDs. Old video requests have no durable vendor task ID;
-old image requests cannot retrieve a lost synchronous result. Neither can be
-safely replayed as plugin work. Failed or cancelled jobs show a localized notice
-and reject direct retry before starting a request. Check results and billing in
-Ark or BytePlus before deliberately starting a new generation. Plugin-owned
-video tasks retain their own journals and recovery behavior.
+Historical built-in image and video jobs keep their outputs, errors and
+recovery IDs. Old video requests have no durable vendor task ID, and old image
+requests cannot retrieve a lost synchronous result. Failed or cancelled jobs
+show a localized notice to check results and billing in Ark or BytePlus before
+starting a new generation. Plugin-owned video tasks use their own journals.
 
 The user has verified Ark and BytePlus generation and restart recovery. Automated
 cutover checks use simulated providers and published packages without vendor
@@ -1757,18 +1738,17 @@ a Tripo-only migration does not change that default.
 Canvas loads reuse the existing validation, lock, size limit and conflict checks;
 saves normalize old client references too. Options, prompts, action order, sources,
 outputs and layout remain intact. Project metadata keeps unrelated fields, while
-unsupported board data is refused unchanged. Job inputs, recovery IDs and native
-paid-stage journals are never mapped by this step, and their retry routing remains
-a separate cutover requirement.
+unsupported board data is refused unchanged. Recovery IDs and native paid-stage
+journals are outside this reference migration.
 
 #### Native task recovery preparation
 
-`NativeModel3DRecovery` can route saved tool and canvas jobs through the original
-native adapter, independently of the current public model catalog. It loads the
-effective generation and processing settings sealed by the migration, including
-custom versions. It never rebases those settings onto newer presets or uses later
-model edits. Older identity-only preparation records remain readable for reference
-mapping, but recovery refuses them rather than inventing the missing settings.
+`NativeModel3DRecovery` requires the original model selection and recovery ID
+to route a task through the native adapter, independently of the current public
+model catalog. Generating again on the canvas or in the agent creates a new ID.
+The adapter loads the generation and processing settings sealed by the migration,
+including custom versions. Older identity-only preparation records remain readable
+for reference mapping, but recovery requires the saved settings.
 
 The application checks the currently installed reviewed package,
 every-project enablement, capability grants, provider switch and plugin secret.
@@ -1780,13 +1760,11 @@ it does not fall back to the retained native key. A key or original input that
 already changed before migration still fails the saved request fingerprint.
 
 The recovery adapter owns a journal in `tools/model3d-tasks` with the existing-stage
-gate. Standalone retries and canvas retries retain their saved inputs and recovery
-IDs even after future canvas selections move to a plugin. Implicit historical
-Meshy animation keeps its original owner; later stages can continue only after
-the first saved stage is confirmed. New plugin submissions never consume these
-native receipts. A host refusal before dispatch removes only that unsubmitted
-stage's marker, so restoring authorization can continue. Once dispatch starts,
-transport failures remain ambiguous and never automatically resubmit a paid task.
+gate. Implicit historical Meshy animation keeps its original owner. Later stages
+can continue only after the first saved stage is confirmed. New plugin
+submissions leave these native receipts alone. A host refusal before dispatch
+removes only that unsubmitted stage's marker. Once dispatch starts, transport
+failures remain ambiguous and never automatically resubmit a paid task.
 No recovery adapter is exposed as a selectable model.
 
 Startup supplies these recovery records together with native retirement and
@@ -1837,11 +1815,10 @@ and music defaults, audio canvas selections and fresh tool inputs before model
 resolution. Voice, speed, language, assets and unknown reference metadata stay
 unchanged. Scribe, unknown models and mismatched audio kinds are not remapped.
 
-Historical native audio jobs retain their original input and output ownership.
-After activation, retrying an unfinished native job is refused with a translated
-notice to check ElevenLabs results and billing first: the native synchronous
-request has no durable receipt that could safely resume through the plugin.
-The notice preserves the original history.
+Historical native audio jobs retain their output ownership. After activation,
+failed or cancelled jobs show a localized notice to check ElevenLabs results
+and billing before starting a new generation. The native synchronous request
+has no durable receipt. Stored history retains the original error.
 
 ### ElevenLabs startup transaction
 
@@ -1959,10 +1936,10 @@ an old music node still requests instrumental music. Raw nodes and output
 provenance remain otherwise unchanged; repeated loads are idempotent. Unknown
 board data is refused without overwriting it.
 
-Historical native paid jobs retain their owner and original stored request/error.
-After activation, failed/cancelled jobs show a translated notice to check the
-Volcengine result and billing; retry is refused before generation. Native audio
-has no durable vendor receipt that a plugin can safely resume. Keep the upgrade
+Historical native paid jobs retain their owner and original error.
+After activation, failed or cancelled jobs show a localized notice to check the
+Volcengine result and billing before starting a new generation. Native audio
+has no durable vendor receipt. Keep the upgrade
 path through the support window of the first release enabling this cutover, and until outstanding native tasks are accounted for. The beta.5.8
 preparation window ends no earlier than beta.7 and 2026-12-18.
 

@@ -270,7 +270,8 @@ ignored and omitted from new companion files.
   ready;
 - `POST /projects/<id>/canvas/media` with `operation: "transcribe-audio"` —
   returns `{ kind: "text", text }`;
-- `POST /tools/<tool-id>/jobs` — enqueue one of the tools above.
+- `POST /projects/<id>/canvas/boards/<board-id>/nodes/<node-id>/generate` —
+  generate an audio node.
 
 The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
 settings and preview endpoints and the Library audio companion download endpoint

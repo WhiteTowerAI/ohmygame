@@ -13,10 +13,15 @@ import { accountCloudState, canAffordCloudModel, cloudQuotaSummary, quotaResetTi
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { createAgentTools } from "../src/daemon/agent-tools.js";
+import { generateOnCanvas, libraryReference, TINY_PNG } from "./canvas-generation.js";
 
 const MODEL = { provider: HYPER3D_CONNECTION_ID, id: HYPER3D_DEFAULT_TIER };
 const CLOUD_MODEL_IDS = BUILTIN_CLOUD_CATALOG.models.map((model) => model.id);
 const generation = { model: MODEL, images: [{ mediaType: "image/png" as const, data: "aW1hZ2U=" }] };
+const headers = { authorization: "Bearer daemon-token" };
+async function generate(app: ReturnType<typeof createApp>, { model }: { model: typeof MODEL }) {
+  return generateOnCanvas(app, "model-3d", { model, images: [await libraryReference(app, TINY_PNG, headers)] }, { headers });
+}
 function quotas(userId = "user-1", remaining = 5): CloudQuotaSnapshot {
   const balance = { limit: 5, used: 5 - remaining, reserved: 0, remaining, resetsAt: "2026-10-11T16:00:00.000Z" };
   return { userId, fetchedAt: new Date().toISOString(), quotas: [{ key: "hyper3d-models", provider: HYPER3D_CONNECTION_ID, capability: "3d", unit: "models",
@@ -72,11 +77,7 @@ describe("desktop free cloud connection", () => {
     await request(`/settings/models/providers/${MODEL.provider}/enabled`, "PATCH", { enabled: false });
     expect((await request("/settings/providers")).json().filter((provider: { id: string }) => ["hyper3d", MODEL.provider].includes(provider.id)).every((provider: { enabled: boolean }) => !provider.enabled)).toBe(true);
     cloudFetch.mockClear();
-    const blocked = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", headers: { authorization: "Bearer daemon-token" }, payload: generation });
-    expect(blocked.statusCode).toBe(202);
-    await vi.waitFor(async () => {
-      expect((await request("/tool-jobs")).json().find((job: { id: string }) => job.id === blocked.json().id)).toMatchObject({ status: "failed" });
-    });
+    expect(await (await generate(app, generation)).finished()).toMatchObject({ status: "failed" });
     expect(cloudFetch).not.toHaveBeenCalled();
     const preferences = JSON.parse(await readFile(path.join(directory, "model-visibility.json"), "utf8"));
     expect(preferences.disabled).toEqual(expect.arrayContaining(["hyper3d", MODEL.provider]));
@@ -343,11 +344,7 @@ describe("desktop free cloud connection", () => {
       ? Response.json({ id: "job-1", provider: MODEL.provider, modelId: MODEL.id, status: "succeeded", pollAfterMs: 5000 }) : base(url, init));
     const { app, request, cloudFetch } = await fixture(fast);
     await request("/cloud/session", "PUT", { accessToken: "account-token-1", userId: "user-1" });
-    const response = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", headers: { authorization: "Bearer daemon-token" }, payload: { ...generation, model: { ...MODEL, id: "rodin" } } });
-    expect(response.statusCode).toBe(202);
-    await vi.waitFor(async () => {
-      expect((await request("/tool-jobs")).json().find((job: { id: string }) => job.id === response.json().id)).toMatchObject({ status: "succeeded" });
-    });
+    expect(await (await generate(app, { ...generation, model: { ...MODEL, id: "rodin" } })).finished()).toMatchObject({ status: "succeeded" });
     const submission = cloudFetch.mock.calls.find(([url]) => String(url).endsWith("/3d/jobs"));
     expect(JSON.parse(submission![1]!.body as string).modelId).toBe(HYPER3D_DEFAULT_TIER);
   });

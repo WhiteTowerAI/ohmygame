@@ -13,6 +13,7 @@ import { pluginModelProviderId } from "../src/daemon/plugin-model-providers.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { MeshyProvider } from "../src/daemon/meshy-provider.js";
+import { generateOnCanvas } from "./canvas-generation.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -390,12 +391,7 @@ describe("custom providers", () => {
     expect(after.defaultModel).toEqual(defaultModel);
     expect(after.models[0]).toMatchObject(defaultModel);
 
-    const response = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Make a game icon" } });
-    expect(response.statusCode, response.body).toBe(202);
-    await vi.waitFor(async () => {
-      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
-      expect(jobs.find((job: { id: string }) => job.id === response.json().id)?.status).toBe("succeeded");
-    }, { timeout: 5_000 });
+    expect(await (await generateOnCanvas(app, "image", { prompt: "Make a game icon" })).finished()).toMatchObject({ status: "succeeded" });
     const generated = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
     expect(generated?.[0]).toBe(`${gateway.baseUrl}/images/generations`);
     expect(generated?.[1]?.headers).toMatchObject({ authorization: `Bearer ${gateway.apiKey}` });

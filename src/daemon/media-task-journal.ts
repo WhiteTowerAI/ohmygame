@@ -14,7 +14,7 @@ import { replaceFile } from "./replace-file.js";
 /** Why the daemon stopped a generation: it is shutting down, and the task stays to resume. */
 export class GenerationShutdown extends Error {
   constructor() {
-    super("OhMyGame is shutting down. Retry to resume.");
+    super("OhMyGame is shutting down.");
     this.name = "GenerationShutdown";
   }
 }
@@ -226,7 +226,7 @@ export async function mediaTaskJournal(directory: string, id: string): Promise<M
       const fingerprint = hash(request), previous = current.submissions && Object.hasOwn(current.submissions, id) ? current.submissions[id] : undefined;
       if (previous) {
         if (previous.fingerprint !== fingerprint) throw new Error("This paid step changed. Restore its original request or start a new generation.");
-        if (!("response" in previous)) throw new Error("This paid step may already have been submitted, but its response was lost. Check the provider before starting a new generation; retry will not submit it again.");
+        if (!("response" in previous)) throw new Error("This paid step may already have been submitted, but its response was lost. Check the provider before starting a new generation.");
         return structuredClone(previous.response) as T;
       }
       if (Object.keys(current.submissions ?? {}).length >= MAX_SUBMISSIONS) throw new Error("Too many paid steps in this generation");
