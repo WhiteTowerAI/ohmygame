@@ -24,6 +24,7 @@ import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
+import { saveServiceDownload, serviceDownloadPath } from "./service-download.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { applicationMenuTemplate, isApplicationMenuLabels, windowContextMenuTemplate } from "./application-menu.js";
@@ -551,6 +552,23 @@ handle("ohmygame:open-logs-directory", async (event) => {
 handle("ohmygame:export-diagnostics", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid diagnostics source");
   return desktopDiagnosticsArchive({ logDirectory, logs: [mainLog, daemonLog], service: () => daemon?.state(), redact: redactLog });
+});
+// A project file or web build goes from the service straight to disk; the window never holds it.
+handle("ohmygame:save-service-download", async (event, route: unknown, version: unknown, fileName: unknown) => {
+  const window = mainWindow;
+  const servicePath = serviceDownloadPath(route);
+  if (!window || event.sender !== window.webContents || !servicePath || typeof fileName !== "string" ||
+      (version !== undefined && typeof version !== "string")) throw new Error("Invalid download request");
+  return saveServiceDownload({
+    runtime: daemon?.state().runtime,
+    path: servicePath,
+    version,
+    fileName,
+    chooseFile: async (name) => {
+      const result = await dialog.showSaveDialog(window, { defaultPath: path.join(app.getPath("downloads"), name) });
+      return result.canceled ? undefined : result.filePath;
+    },
+  });
 });
 handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");

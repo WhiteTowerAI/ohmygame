@@ -82,17 +82,17 @@ export function useProjectsSelection(visible: ProjectState[], reload: () => Prom
   async function exportChosen(): Promise<void> {
     const projects = chosen;
     const failed: string[] = [];
+    let exported = 0;
     setWork({ kind: "export", done: 0, total: projects.length });
     for (const [index, project] of projects.entries()) {
       try {
-        await downloadProjectArchive(project);
+        if (await downloadProjectArchive(project)) exported += 1;
       } catch {
         failed.push(project.name);
       }
       setWork({ kind: "export", done: index + 1, total: projects.length });
     }
     setWork(undefined);
-    const exported = projects.length - failed.length;
     if (exported) toast({ title: t("projects.exportedMany", { count: exported }), tone: "success" });
     if (failed.length) toast({ title: t("projects.exportFailed", { names: failed.join(", ") }), tone: "danger" });
   }

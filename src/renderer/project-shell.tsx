@@ -50,8 +50,7 @@ import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-r
 import {
   ApiError,
   acquirePreview,
-  buildWebGame,
-  exportProject,
+  saveProjectDownload,
   renameProject,
   releasePreview,
   stopPreview,
@@ -1220,13 +1219,9 @@ export function ProjectShell({
       // Both are read from disk, so pending edits are saved first.
       await saveDesign.current?.();
       await desktopSave.flush();
-      const file = kind === "web" ? await buildWebGame(project.id, version) : await exportProject(project.id);
-      const url = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = kind === "web" ? `${project.name} (${t("workspace.webBuildSuffix")}).zip` : `${project.name}.zip`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      const fileName = kind === "web" ? `${project.name} (${t("workspace.webBuildSuffix")}).zip` : `${project.name}.zip`;
+      // The project file is read as the workspace is now; the web build must match the edits just saved.
+      await saveProjectDownload(kind, project.id, fileName, kind === "web" ? version : undefined);
     } catch (cause) {
       dispatch({ type: "notice", message: errorMessage(cause) });
     } finally {

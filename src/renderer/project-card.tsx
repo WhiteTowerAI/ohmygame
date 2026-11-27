@@ -2,7 +2,7 @@ import { useNearViewport } from "./asset-gallery.js";
 import { Check, Download, FolderOpen, Spinner, MoreHorizontal, Pencil, Play, Trash2, Duplicate } from "./icons.js";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, exportProject, renameProject } from "./api.js";
+import { deleteProject, duplicateProject, renameProject, saveProjectDownload } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { projectRemoval } from "./project-deletion.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -201,15 +201,9 @@ function selectionClass(selection?: ProjectSelection): string {
   return selection.selected ? " is-selecting is-selected" : " is-selecting";
 }
 
-/** Exports a project and saves it as `<name>.zip`. */
-export async function downloadProjectArchive(project: ProjectState): Promise<void> {
-  const archive = await exportProject(project.id);
-  const url = URL.createObjectURL(archive);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${project.name}.zip`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+/** Exports a project and saves it as `<name>.zip`. Resolves to false if the person cancels the save. */
+export async function downloadProjectArchive(project: ProjectState): Promise<boolean> {
+  return saveProjectDownload("project", project.id, `${project.name}.zip`);
 }
 
 /** The project's type as an icon, named in a tooltip. */

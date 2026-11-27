@@ -5,12 +5,12 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
 
-const exportProject = vi.fn<(projectId: string) => Promise<Blob>>();
+const saveProjectDownload = vi.fn<(kind: "project" | "web", projectId: string, fileName: string) => Promise<boolean>>();
 const importProject = vi.fn<(file: File) => Promise<ProjectState>>();
 const listProjects = vi.fn<() => Promise<ProjectState[]>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  exportProject,
+  saveProjectDownload,
   importProject,
   listProjects,
   streamProjectActivity: async () => undefined,
@@ -42,25 +42,16 @@ const actions = {
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
-let downloads: string[];
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  exportProject.mockReset();
+  saveProjectDownload.mockReset();
   importProject.mockReset();
   listProjects.mockReset().mockResolvedValue([]);
   updateRuntimeConnection({
     status: "ready",
     generation: runtimeConnection().generation + 1,
     recovered: false,
-  });
-  downloads = [];
-  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:archive");
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    downloads.push(this.download);
   });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -92,17 +83,16 @@ function menuItem(label: string): HTMLButtonElement {
 }
 
 describe("project card export", () => {
-  it("downloads the project archive under the project's name", async () => {
-    exportProject.mockResolvedValue(new Blob(["zip"]));
+  it("saves the project archive under the project's name", async () => {
+    saveProjectDownload.mockResolvedValue(true);
     await openMenu();
     await act(async () => menuItem("Export project").click());
-    expect(exportProject).toHaveBeenCalledWith("project-1");
-    expect(downloads).toEqual(["Moon Garden.zip"]);
+    expect(saveProjectDownload).toHaveBeenCalledWith("project", "project-1", "Moon Garden.zip");
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("shows why an export failed", async () => {
-    exportProject.mockRejectedValue(
+    saveProjectDownload.mockRejectedValue(
       new Error("Wait for the agent to finish before exporting"),
     );
     await openMenu();
@@ -110,7 +100,6 @@ describe("project card export", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe(
       "Wait for the agent to finish before exporting",
     );
-    expect(downloads).toEqual([]);
   });
 });
 

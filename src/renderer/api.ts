@@ -12,7 +12,7 @@ import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connect
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
 import { syncPluginTheme } from "./appearance.js";
-import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
+import type { DesktopRuntimeService, ServiceDownloadResult } from "../shared/desktop-runtime.js";
 import type { UsageStats } from "../shared/usage-stats.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget, AgentResultRead } from "../shared/agent-notifications.js";
 import {
@@ -201,6 +201,8 @@ declare global {
       removeProject?: (projectId: string) => Promise<void>;
       /** Builds the diagnostics ZIP without the background service, for when it is not running. */
       exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
+      /** Saves a project's archive or web build from the service straight to disk; older builds lack it. */
+      saveServiceDownload?: (route: string, version: string | undefined, fileName: string) => Promise<ServiceDownloadResult>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;
@@ -1186,6 +1188,32 @@ export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: strin
   }
 }
 
+/**
+ * Saves a project's archive, or its web build, as `fileName`. The desktop app
+ * writes it to disk as it arrives, so a large project saves as well as a small
+ * one; a browser downloads it whole first. Resolves to false if the person
+ * cancels the save.
+ */
+export async function saveProjectDownload(kind: "project" | "web", projectId: string, fileName: string, version?: string): Promise<boolean> {
+  const save = window.ohMyGameDesktop?.saveServiceDownload;
+  if (save) {
+    const route = `/projects/${encodeURIComponent(projectId)}/${kind === "web" ? "build" : "export"}`;
+    const current = version ?? workspaceVersion(projectId);
+    assertWorkspaceVersion(projectId, current);
+    const result = await save(route, current, fileName);
+    if (result.status === "refused") throw bodyError(result.code, result.body);
+    return result.status === "saved";
+  }
+  const file = kind === "web" ? await buildWebGame(projectId, version) : await exportProject(projectId, version);
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
+}
+
 /** Downloads the game as it publishes, to host on another site. */
 export async function buildWebGame(projectId: string, version?: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/build`), {
@@ -1708,9 +1736,14 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
+  return bodyError(response.status, await response.json().catch(() => ({})));
+}
+
+/** The error a service response carries, from its status and parsed body. */
+function bodyError(status: number, parsed: unknown): ApiError {
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(mediaMigrationError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status })), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
+  return new ApiError(mediaMigrationError(body.message ?? body.error ?? t("api.requestFailed", { status })), status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(
