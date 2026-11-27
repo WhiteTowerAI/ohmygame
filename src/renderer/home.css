@@ -176,7 +176,7 @@
   gap: var(--space-1);
 }
 
-/* 最近项目: one row of project cards, the same grid as 探索 below it. */
+/* 最近项目, under 新建项目: one row of project cards, the same grid as 探索 below it. */
 .home-continue-body {
   --project-shelf-columns: 4;
   display: grid;
@@ -194,34 +194,6 @@
   .home-continue-body {
     --project-shelf-columns: 2;
   }
-}
-
-/* Folded: the latest project on the heading's line, still one click away. */
-.home-continue-line {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.home-continue.is-collapsed .home-section-head h2 {
-  flex: none;
-}
-
-.home-continue-line-name {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: var(--text-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-continue-line-time {
-  flex: 1;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  white-space: nowrap;
 }
 
 /* 新建游戏: one card per type, three across. */

@@ -958,9 +958,6 @@ const en = {
     firstHint: "Pick one to start. You can change anything as you go.",
     newGame: "New project",
     continue: "Recent projects",
-    open: "Open",
-    collapseContinue: "Collapse",
-    expandContinue: "Expand",
     randomIdea: "Random idea",
     ideas: {
       web: {

@@ -943,9 +943,6 @@ const zhCN: typeof en = {
     firstHint: "选一种开始，做的过程中随时能改。",
     newGame: "新建项目",
     continue: "最近项目",
-    open: "打开",
-    collapseContinue: "收起",
-    expandContinue: "展开",
     randomIdea: "随机灵感",
     ideas: {
       web: {
