@@ -10,7 +10,6 @@ import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
 import type { ImageModel, ProjectState, ToolJob } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import type { LibraryAsset } from "../src/renderer/library-assets.js";
 import type { ImageNodeRuntime } from "../src/renderer/asset-canvas-flow.js";
 
 const captured = {
@@ -22,8 +21,7 @@ let renderForms = true;
 const resizeCallbacks = new Map<Element, () => void>();
 const setCenter = vi.fn();
 const runMedia = vi.fn();
-const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
-const upload = vi.fn(async (file: File) => ({ id: "materialized", name: file.name }));
+const upload = vi.fn(async (_projectId: string, file: File) => ({ id: "materialized", name: file.name, path: file.name, size: file.size, mediaType: "image" as const, contentType: file.type, createdAt: "2026-01-01T00:00:00.000Z" }));
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
 vi.doMock(path.resolve("src/renderer/canvas-sync.ts"), () => ({ followCanvasChanges: () => () => {} }));
@@ -82,14 +80,13 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   getProjectCover: async () => new Blob(),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
-  getLibraryAsset: async () => new Blob(),
-  uploadLibraryAsset: upload,
-}));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: loadAssets,
+  addCanvasMedia: upload,
+  getWorkspaceAsset: async () => new Blob(),
 }));
 const { setTemplateExampleStore } = await import("../src/renderer/template-example-cache.js");
+const { CanvasAssetProvider, canvasAssetSources } = await import("../src/renderer/use-workspace-asset-url.js");
+// A video the canvas has, for the tools that preview it.
+const VIDEO = { id: "video", name: "clip.mp4", path: "clip.mp4", size: 1, mediaType: "video" as const, contentType: "video/mp4", createdAt: "2026-01-01T00:00:00.000Z" };
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
 const { CanvasTableStorage } =
@@ -117,7 +114,6 @@ beforeEach(async () => {
   });
   localStorage.clear();
   runMedia.mockReset();
-  loadAssets.mockResolvedValue([]);
   imageModels.length = 0;
   audioCatalog.mockResolvedValue({ models: [], providers: [] });
   delete project.mediaModelDefaults;
@@ -149,7 +145,7 @@ beforeEach(async () => {
   root = createRoot(container);
   await act(async () =>
     root.render(
-      <CanvasBoardEditor
+      <CanvasAssetProvider assets={canvasAssetSources("p", [VIDEO])}><CanvasBoardEditor
         project={project}
         storage={storage}
         documents={{ documents: [] } as unknown as CanvasDocuments}
@@ -158,8 +154,8 @@ beforeEach(async () => {
           open: vi.fn(),
           add: vi.fn(),
         }}
-        assets={[]}
-      />,
+        assets={[VIDEO]}
+      /></CanvasAssetProvider>,
     ),
   );
   await act(async () =>
@@ -314,11 +310,10 @@ it("shows only categories until opened, including GIF and frame actions on gener
 });
 
 it("runs pixel-art fixing immediately and creates a derived asset", async () => {
-  runMedia.mockResolvedValue({ kind: "asset", assetId: "fixed", name: "pixel-art-fixed.png", mediaType: "image/png" });
-  loadAssets.mockResolvedValue([{
-    id: "fixed", assetId: "fixed", name: "pixel-art-fixed.png", path: "pixel-art-fixed.png", size: 1,
+  runMedia.mockResolvedValue({ kind: "asset", asset: {
+    id: "fixed", name: "pixel-art-fixed.png", path: "pixel-art-fixed.png", size: 1,
     mediaType: "image", contentType: "image/png", createdAt: "2026-01-01T00:00:00.000Z",
-  }]);
+  } });
   await select("first");
   await chooseTool("Image tools", "Fix pixel art");
   await vi.waitFor(() => expect(runMedia).toHaveBeenCalledWith("p", {
@@ -416,7 +411,7 @@ it("turns a template example into the node's output before running a media tool"
   await select("example");
   await chooseTool("Grid split", "4 cells (2 × 2)");
   expect(fetchExample).toHaveBeenCalledTimes(1);
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", { purpose: "asset" });
+  expect(upload).toHaveBeenCalledWith("p", expect.objectContaining({ name: "monster.webp" }), "image/webp");
   expect(captured.props!.nodes.find((node) => node.id === "example")?.data.assetId).toBe("materialized");
   expect(runMedia).toHaveBeenCalledWith("p", {
     boardId: "b",
@@ -441,7 +436,7 @@ it("generates from a template reference slot by uploading its example", async ()
   await act(async () => imageRuntime("generator").onGenerate());
 
   expect(fetchExample).toHaveBeenCalledWith("https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp");
-  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
+  expect(upload).toHaveBeenCalledWith("p", expect.objectContaining({ name: "creature.webp" }), "image/webp");
   expect(captured.props!.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
   const saved = save.mock.calls.at(-1)![0] as { nodes: Array<{ id: string; data: { assetId?: string } }> };
   expect(saved.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
@@ -468,7 +463,7 @@ it("keeps each example it fetches and generates from that copy while offline", a
     generate.mockClear();
     await addSlot("offline");
     await act(async () => imageRuntime("generator-offline").onGenerate());
-    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", { purpose: "reference" });
+    expect(upload).toHaveBeenCalledWith("p", expect.objectContaining({ name: "creature.webp" }), "image/webp");
     expect(generate).toHaveBeenCalledWith("generator-offline");
   } finally {
     setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });

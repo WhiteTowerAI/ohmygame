@@ -1,6 +1,5 @@
 import { ProjectManager } from "../src/daemon/projects.js";
 import { CanvasStore } from "../src/daemon/canvas-workspace.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { Model3DOptions } from "../src/shared/contracts.js";
 
 import { migrateModel3DSettings } from "../src/daemon/model3d-settings-migration.js";
@@ -43,7 +42,7 @@ import { migratedMediaBoard, migratedMediaModel, type MediaMigrationState } from
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { createHash } from "node:crypto";
 import { model3DTransactionFiles, model3DSettingsTransaction, proposeModel3DTransaction } from "../src/daemon/model3d-settings-transaction.js";
-import { generateOnCanvas, libraryReference } from "./canvas-generation.js";
+import { canvasReference, generateOnCanvas } from "./canvas-generation.js";
 
 describe("prepared 3D model reference migration", () => {
   const state: MediaMigrationState = { model3D: [{ source: "meshy", target: "plugin.ohmygame.meshy.meshy", models: [{ id: "custom-version", operations: ["text", "image"] }], processing: { id: "connection", operations: ["remesh", "retexture", "animate"] } }] };
@@ -358,13 +357,13 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         await transaction.resumeSettingsTransaction(directory);
         await transaction.commitSettingsTransaction(directory);
         const record = (await transaction.committedMigration(directory))!;
-        const library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
-        await Promise.all([library.load(), projects.load()]);
+        const projects = new ProjectManager(directory);
+        await projects.load();
         const project = await projects.create("Saved 3D selections", "asset-canvas");
         const legacy = { provider: pin.provider, id: MODEL_3D_PRESETS[pin.provider][0]!.id };
         await projects.setMediaModelDefaults(project.id, { "3d": legacy });
         const oldTools = new ToolRunner(directory, { generate: vi.fn() });
-        const oldCanvas = new CanvasStore(projects, library, oldTools);
+        const oldCanvas = new CanvasStore(projects, oldTools);
         const boardId = (await oldCanvas.workspace(project.id)).boards[0]!.id;
         const board = await oldCanvas.board(project.id, boardId);
         board.board.nodes.push({ id: "future", type: "model-3d", position: { x: 0, y: 0 }, data: { model: legacy, operation: "text", prompt: "Future tower", images: [], targetPolycount: 4000, texture: true, pbr: false } });
@@ -409,14 +408,15 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
           ] as const) statuses.push((await app.inject({ method, url: endpoint + suffix, ...(payload ? { payload } : {}) })).statusCode);
           expect(statuses).toEqual(Array(10).fill(409));
           expect(await settingsSnapshot(directory, model3DTransactionFiles(pin.provider))).toEqual(beforeRequests);
-          let completed = await (await generateOnCanvas(app, "model-3d", { model: { provider: pin.provider, id: definition.id }, operation: "text", prompt: "A stone tower", images: [], texture: false, pbr: false })).finished();
+          const first = await generateOnCanvas(app, "model-3d", { model: { provider: pin.provider, id: definition.id }, operation: "text", prompt: "A stone tower", images: [], texture: false, pbr: false });
+          let completed = await first.finished();
           expect(completed, JSON.stringify(completed)).toMatchObject({ status: "succeeded", model: { provider: target, id: definition.id } });
           expect(taskNumber).toBe(1);
           const sourceAssetId = completed.assetId;
           expect(sourceAssetId).toBeTruthy();
           const options = ({ meshy: { textureModel: "meshy-6" }, tripo: { textureQuality: "detailed" }, hyper3d: {} } satisfies Record<string, Model3DOptions>)[pin.provider] as Model3DOptions;
-          const images = pin.provider === "hyper3d" ? [await libraryReference(app)] : [];
-          completed = await (await generateOnCanvas(app, "model-3d", { model: { provider: pin.provider, id: definition.id }, operation: "retexture", source: { type: "library", assetId: sourceAssetId! }, prompt: "Weathered stone", images, options })).finished();
+          // Retextured on the same canvas, which has the model.
+          completed = await (await generateOnCanvas(app, "model-3d", async (projectId) => ({ model: { provider: pin.provider, id: definition.id }, operation: "retexture" as const, source: { type: "library" as const, assetId: sourceAssetId! }, prompt: "Weathered stone", images: pin.provider === "hyper3d" ? [await canvasReference(app, projectId)] : [], options }), { projectId: first.projectId })).finished();
           expect(completed, JSON.stringify(completed)).toMatchObject({ status: "succeeded", model: { provider: target, id: "connection" } });
           const texturePost = pluginRequest.mock.calls.find(([url, init]) => init?.method === "POST" && String(url).endsWith({ meshy: "/retexture", tripo: "/models/texture", hyper3d: "/rodin_texture_only" }[pin.provider]));
           if (pin.provider === "hyper3d") {

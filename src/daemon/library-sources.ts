@@ -2,15 +2,22 @@ import { open, readFile, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import type { LibraryAsset, LibrarySource, LibrarySourceItem, LibrarySourceResults, LibrarySourceSearchRequest, LibraryUploadMediaType } from "../shared/contracts.js";
+import type { LibraryAssetSourcing, LibrarySource, LibrarySourceItem, LibrarySourceResults, LibrarySourceSearchRequest, LibraryUploadMediaType } from "../shared/contracts.js";
 import { ASSET_SOURCE_MEDIA } from "../shared/plugin-manifest.js";
 import type { PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
-import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
-import { isLibraryMediaOfType } from "./library-routes.js";
+import { isMediaOfType } from "./media-routes.js";
+import type { ProjectManager } from "./projects.js";
 import { workspaceMediaInfo } from "./workspace.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { embedOf } from "../shared/library-embeds.js";
+
+/** A source's call that failed, with the status the page hears. */
+export class AssetSourceError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+  }
+}
 
 const Optional = (maxLength: number) => Type.Optional(Type.String({ minLength: 1, maxLength }));
 const HttpsUrl = Type.Optional(Type.String({ pattern: "^https://", maxLength: 2000 }));
@@ -36,7 +43,7 @@ const SearchResults = Type.Object({
   next: Optional(2000),
 });
 
-/** What a source's `fetch` returns: a file it saved in its data folder, which the media store takes. */
+/** What a source's `fetch` returns: a file it saved in its data folder, which the project takes. */
 const FetchResult = Type.Object({
   file: Type.String({ minLength: 1, maxLength: 1000 }),
   name: Optional(200),
@@ -48,7 +55,7 @@ const FetchResult = Type.Object({
 /**
  * Plugins' asset sources: their searches, checked before a project's Assets
  * shows them, and what the person or an agent adds, taken from the plugin's
- * data folder into the media store and from there into the project.
+ * data folder into the project's media.
  */
 export class LibrarySources {
   /** Each plugin's adds, one at a time: a source may save every fetch under the same name. */
@@ -56,7 +63,7 @@ export class LibrarySources {
 
   constructor(
     private readonly plugins: PluginServices,
-    private readonly library: AssetLibrary,
+    private readonly projects: Pick<ProjectManager, "addMedia" | "sourcedMedia">,
   ) {}
 
   list(locale?: PluginLocale): Promise<LibrarySource[]> {
@@ -65,15 +72,15 @@ export class LibrarySources {
 
   async search(request: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
     const source = await this.#source(request.source);
-    if (request.media && !source.media.includes(request.media)) throw new AssetLibraryError(`${source.title} has no ${request.media}`, 400);
-    if (request.collection && !source.collections?.some((collection) => collection.id === request.collection)) throw new AssetLibraryError(`${source.title} has no collection ${request.collection}`, 400);
+    if (request.media && !source.media.includes(request.media)) throw new AssetSourceError(`${source.title} has no ${request.media}`, 400);
+    if (request.collection && !source.collections?.some((collection) => collection.id === request.collection)) throw new AssetSourceError(`${source.title} has no collection ${request.collection}`, 400);
     const value = await this.#run(source.id, "search", {
       query: request.query,
       ...(request.media ? { media: request.media } : {}),
       ...(request.cursor ? { cursor: request.cursor } : {}),
       ...(request.collection ? { collection: request.collection } : {}),
     }, signal);
-    if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results OhMyGame can't read`, 502);
+    if (!Check(SearchResults, value)) throw new AssetSourceError(`${source.title} returned results OhMyGame can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
       items: results.items.filter((item) => source.media.includes(item.mediaType)).map((item) => pickItem(item, source.embedHosts ?? [])),
@@ -82,49 +89,44 @@ export class LibrarySources {
   }
 
   /**
-   * Downloads a result into the media store; adding it again finds the same
-   * asset. Its credit is what the source's `fetch` gives, and otherwise what
-   * the result showed when searched.
+   * Downloads a result into the project's media. Its credit is what the
+   * source's `fetch` gives, and otherwise what the result showed when searched.
    */
-  async add(sourceId: string, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
+  async add(sourceId: string, item: SourceItemToAdd, projectId: string, signal?: AbortSignal): Promise<SourcedAsset> {
     const source = await this.#source(sourceId);
     const before = this.#adding.get(source.plugin) ?? Promise.resolve();
-    const added = before.then(() => this.#add(source, item, signal));
+    const added = before.then(() => this.#add(source, item, projectId, signal));
     const settled = added.catch(() => undefined);
     this.#adding.set(source.plugin, settled);
     void settled.then(() => { if (this.#adding.get(source.plugin) === settled) this.#adding.delete(source.plugin); });
     return added;
   }
 
-  async #add(source: LibrarySource, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
-    if (!source.media.includes(item.mediaType)) throw new AssetLibraryError(`${source.title} has no ${item.mediaType}`, 400);
-    const sourceKey = `library-source:${source.id}:${item.id}`;
-    // Added before, to this project or another: its file is stored, so it comes without a download.
-    const stored = this.library.bySource(sourceKey);
-    if (stored) return stored;
+  async #add(source: LibrarySource, item: SourceItemToAdd, projectId: string, signal?: AbortSignal): Promise<SourcedAsset> {
+    if (!source.media.includes(item.mediaType)) throw new AssetSourceError(`${source.title} has no ${item.mediaType}`, 400);
+    // A result added before is the file it became, with no second download.
+    const key = `${source.id}#${item.id}`;
+    const kept = await this.projects.sourcedMedia(projectId, key);
+    if (kept) return { path: kept, name: path.basename(kept), sourcedFrom: { source: source.id, item: item.id, ...credit({}, item) } };
     const value = await this.#run(source.id, "fetch", { id: item.id, mediaType: item.mediaType }, signal);
-    if (!Check(FetchResult, value)) throw new AssetLibraryError(`${source.title} returned a file OhMyGame can't read`, 502);
+    if (!Check(FetchResult, value)) throw new AssetSourceError(`${source.title} returned a file OhMyGame can't read`, 502);
     const fetched = value as Static<typeof FetchResult>;
     const file = await this.#fileInDataFolder(source, fetched.file);
     try {
       const name = path.basename(fetched.name ?? fetched.file);
       const media = workspaceMediaInfo(name);
-      if (!media || media.mediaType !== item.mediaType) throw new AssetLibraryError(`${source.title} returned ${name}, which isn't ${item.mediaType}`, 502);
+      if (!media || media.mediaType !== item.mediaType) throw new AssetSourceError(`${source.title} returned ${name}, which isn't ${item.mediaType}`, 502);
       const { size } = await stat(file);
-      if (size === 0 || size > LIBRARY_UPLOAD_MAX_BYTES) throw new AssetLibraryError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
+      if (size === 0 || size > LIBRARY_UPLOAD_MAX_BYTES) throw new AssetSourceError(`${source.title} returned a file that is empty or larger than 200 MB`, 502);
       // An SVG is checked whole, as text; other kinds by their first bytes.
       const head = media.contentType === "image/svg+xml" ? await readFile(file) : await readHead(file);
-      if (!isLibraryMediaOfType(head, media.contentType as LibraryUploadMediaType)) throw new AssetLibraryError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
-      const asset = await this.library.addFile(name, file, {
-        origin: "uploaded",
-        sourceKey,
-        sourcedFrom: {
-          source: source.id,
-          item: item.id,
-          ...credit(fetched, item),
-        },
-      });
-      return asset;
+      if (!isMediaOfType(head, media.contentType as LibraryUploadMediaType)) throw new AssetSourceError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
+      signal?.throwIfAborted();
+      return {
+        path: await this.projects.addMedia(projectId, name, { file }, { source: key }),
+        name,
+        sourcedFrom: { source: source.id, item: item.id, ...credit(fetched, item) },
+      };
     } finally {
       await rm(file, { force: true });
     }
@@ -132,7 +134,7 @@ export class LibrarySources {
 
   async #source(id: string): Promise<LibrarySource> {
     const source = (await this.plugins.assetSources()).find((candidate) => candidate.id === id);
-    if (!source) throw new AssetLibraryError("This source isn't available: its plugin is off, removed or not allowed what it asks for", 404);
+    if (!source) throw new AssetSourceError("This source isn't available: its plugin is off, removed or not allowed what it asks for", 404);
     return source;
   }
 
@@ -140,8 +142,8 @@ export class LibrarySources {
     try {
       return await this.plugins.runAssetSource(source, handler, { input, ...(signal ? { signal } : {}) });
     } catch (cause) {
-      if (cause instanceof AssetLibraryError) throw cause;
-      throw new AssetLibraryError(cause instanceof Error ? cause.message : String(cause), 502);
+      if (cause instanceof AssetSourceError) throw cause;
+      throw new AssetSourceError(cause instanceof Error ? cause.message : String(cause), 502);
     }
   }
 
@@ -149,10 +151,17 @@ export class LibrarySources {
   async #fileInDataFolder(source: LibrarySource, file: string): Promise<string> {
     const folder = await realpath(this.plugins.dataFolder(source.plugin)).catch(() => undefined);
     const resolved = folder ? await realpath(path.resolve(folder, file)).catch(() => undefined) : undefined;
-    if (!folder || !resolved || !resolved.startsWith(`${folder}${path.sep}`)) throw new AssetLibraryError(`${source.title} returned a file outside its data folder`, 502);
-    if (!(await stat(resolved)).isFile()) throw new AssetLibraryError(`${source.title} returned something that isn't a file`, 502);
+    if (!folder || !resolved || !resolved.startsWith(`${folder}${path.sep}`)) throw new AssetSourceError(`${source.title} returned a file outside its data folder`, 502);
+    if (!(await stat(resolved)).isFile()) throw new AssetSourceError(`${source.title} returned something that isn't a file`, 502);
     return resolved;
   }
+}
+
+/** A source's result, added to a project. */
+export interface SourcedAsset {
+  path: string;
+  name: string;
+  sourcedFrom: LibraryAssetSourcing;
 }
 
 /** A result to add, with the credit it showed when searched. */
@@ -163,7 +172,7 @@ export type SourceItemToAdd = Pick<LibrarySourceItem, "id" | "mediaType" | "auth
  * else from the search result, so a source that names them only in its
  * results still keeps them with the asset.
  */
-function credit(fetched: Static<typeof FetchResult>, item: SourceItemToAdd): { author?: string; license?: string; url?: string } {
+function credit(fetched: Partial<Static<typeof FetchResult>>, item: SourceItemToAdd): { author?: string; license?: string; url?: string } {
   const author = fetched.author ?? item.author;
   const license = fetched.license ?? item.license;
   const url = fetched.url ?? (item.url?.startsWith("https://") ? item.url : undefined);

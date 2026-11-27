@@ -43,7 +43,7 @@ async function renderImage(initial: AssetCanvasFlowData) {
     const [data, setData] = useState(initial);
     return <ReactFlowProvider><ImageNode selected data={{ ...data, panelOpen: true, imageRuntime: {
       models: [character, tileset], providers: [], references: [], maxReferences: 1, uploading: false, accept: "image/png", addLabel: "Add reference",
-      busy: false, generating: false, onGenerate: vi.fn(), onRemoveReference: vi.fn(), onUploadSourceImage: vi.fn(), onSetSourceAsset: vi.fn(), onUploadReferences: vi.fn(),
+      busy: false, generating: false, onGenerate: vi.fn(), onRemoveReference: vi.fn(), onUploadSourceImage: vi.fn(), onSetSourceFile: vi.fn(), onUploadReferences: vi.fn(),
       onChange: (next) => { changed(next); setData(next); },
     } }} /></ReactFlowProvider>;
   }

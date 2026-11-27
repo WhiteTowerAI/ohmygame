@@ -53,7 +53,7 @@ function service(run: PluginGenerationOptions["tools"]["run"]) {
   const removed: string[] = [];
   const tools = {
     run: vi.fn(run),
-    file: vi.fn(async (_run: string, name: string) => ({ bytes: Buffer.from(name), mediaType: name.endsWith(".mp3") ? "audio/mpeg" : "image/png", assetId: `asset-${name}` })),
+    file: vi.fn(async (_run: string, name: string) => ({ bytes: Buffer.from(name), mediaType: name.endsWith(".mp3") ? "audio/mpeg" : "image/png" })),
     removeRun: vi.fn(async (id: string) => { removed.push(id); }),
   };
   const generation = new PluginGeneration({ tools, models: async () => ({ models: [] }), log: (plugin, text) => logs.push(`${plugin}: ${text}`) });
@@ -63,15 +63,15 @@ function service(run: PluginGenerationOptions["tools"]["run"]) {
 const toolRun = (files: ToolRun["files"]): ToolRun => ({ id: "run-1", toolId: "generate-image", createdAt: "", files, model: { provider: "acme", id: "pix" } });
 
 describe("plugin generation", () => {
-  it("makes what a plugin asks the way the app does, gives back its files and keeps only the Library's copy", async () => {
+  it("makes what a plugin asks the way the app does, gives back its files and keeps nothing", async () => {
     const { generation, tools, logs, removed } = service(async () => toolRun([{ name: "output-1.png", mediaType: "image/png" }, { name: "output-2.png", mediaType: "image/png" }]));
     const result = await generation.generate("acme/fx", "project-1", read({ media: "image", prompt: "A spark", model: { provider: "acme", id: "pix" }, aspectRatio: "1:1", outputs: 2, images: [{ data: "aGk=", type: "image/png" }] }), new AbortController().signal);
     expect(tools.run).toHaveBeenCalledWith("generate-image", {
       prompt: "A spark", imageModel: { provider: "acme", id: "pix" }, aspectRatio: "1:1", outputs: 2, images: [{ mediaType: "image/png", data: "aGk=" }],
-    }, expect.any(AbortSignal), "project-1", { addedBy: "acme/fx" });
+    }, expect.any(AbortSignal), "project-1");
     expect(result).toEqual({ model: { provider: "acme", id: "pix" }, files: [
-      { name: "output-1.png", type: "image/png", data: Buffer.from("output-1.png").toString("base64"), assetId: "asset-output-1.png" },
-      { name: "output-2.png", type: "image/png", data: Buffer.from("output-2.png").toString("base64"), assetId: "asset-output-2.png" },
+      { name: "output-1.png", type: "image/png", data: Buffer.from("output-1.png").toString("base64") },
+      { name: "output-2.png", type: "image/png", data: Buffer.from("output-2.png").toString("base64") },
     ] });
     expect(removed).toEqual(["run-1"]);
     expect(logs).toEqual(["acme/fx: Made 2 images with acme/pix"]);
@@ -80,7 +80,7 @@ describe("plugin generation", () => {
   it("gives back an audio run's sound without its subtitles", async () => {
     const { generation, tools, logs } = service(async () => toolRun([{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio" }, { name: "output.srt", mediaType: "text/plain", role: "subtitles" }]));
     const result = await generation.generate("acme/fx", "project-1", read({ media: "audio", prompt: "Hello", kind: "speech" }), new AbortController().signal);
-    expect(tools.run).toHaveBeenCalledWith("generate-audio", { prompt: "Hello", kind: "speech" }, expect.any(AbortSignal), "project-1", { addedBy: "acme/fx" });
+    expect(tools.run).toHaveBeenCalledWith("generate-audio", { prompt: "Hello", kind: "speech" }, expect.any(AbortSignal), "project-1");
     expect(result.files.map((file) => file.name)).toEqual(["output.mp3"]);
     expect(logs).toEqual(["acme/fx: Made audio with acme/pix"]);
   });
@@ -156,17 +156,14 @@ describe("plugin generation routes", () => {
     return { app, base: `/projects/${project.id}/plugin-media/acme/fx`, generate };
   }
 
-  it("makes an image for a page that asks for media, keeps it in the Library under the plugin, and writes it in the log", async () => {
+  it("makes an image for a page that asks for media, gives it back without keeping it, and writes it in the log", async () => {
     const { app, base, generate } = await setup({ media: true });
     expect((await app.inject({ method: "GET", url: `${base}?media=image` })).json()).toEqual({ models: [] });
     // It writes nothing in the project, so it never waits for the workspace or fails for an old version of it.
     const made = await app.inject({ method: "POST", url: `${base}/generate`, headers: { "x-workspace-version": "stale" }, payload: { media: "image", prompt: "A spark" } });
     expect(made.statusCode, made.body).toBe(200);
     expect(generate).toHaveBeenCalledTimes(1);
-    const { files } = made.json<{ files: Array<{ name: string; type: string; data: string; assetId: string }> }>();
-    expect(files).toEqual([{ name: "output.webp", type: "image/webp", data: Buffer.from("spark").toString("base64"), assetId: expect.any(String) }]);
-    const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json<Array<{ id: string; addedBy?: string; prompt?: string }>>();
-    expect(assets.find((asset) => asset.id === files[0]!.assetId)).toMatchObject({ addedBy: "acme/fx", prompt: "A spark" });
+    expect(made.json()).toMatchObject({ files: [{ name: "output.webp", type: "image/webp", data: Buffer.from("spark").toString("base64") }] });
     expect((await app.inject({ method: "POST", url: `${base}/generate`, payload: { media: "image" } })).statusCode).toBe(400);
     const log = (await app.inject({ method: "GET", url: "/plugin-store/acme/fx/log" })).json<{ entries: Array<{ text: string }> }>();
     expect(log.entries.map((entry) => entry.text)).toContain("Made 1 image");

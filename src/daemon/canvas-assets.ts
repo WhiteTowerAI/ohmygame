@@ -1,12 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { createReadStream } from "node:fs";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { CANVAS_ASSETS_SCHEMA, type CanvasAsset, type CanvasAssetManifest, type CanvasAssetCatalogEntry, type UnavailableCanvasAsset } from "../shared/canvas-assets.js";
-import type { AssetLibrary } from "./asset-library.js";
+import type { AudioAssetData } from "../shared/audio.js";
 import type { ProjectManager } from "./projects.js";
 import type { ProjectState } from "../shared/contracts.js";
 import { getWorkspaceMedia } from "./workspace.js";
+import type { ToolMediaFiles } from "./tools.js";
 import { readMediaDimensions } from "./media-dimensions.js";
 import { CanvasError, parseCanvasJson, readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 
@@ -16,23 +16,48 @@ export async function readCanvasAssets(workspace: string): Promise<CanvasAssetMa
   return { ...manifest, assets: Object.assign(Object.create(null), manifest.assets) };
 }
 
-export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = [], origin: "generated" | "imported" = "imported"): Promise<CanvasAssetManifest> {
-  const manifest = await readCanvasAssets(project.workspacePath);
-  let changed = false;
+/** A project's media file as a tool reads it, with what the canvas keeps of a 3D model, such as which way it faces. */
+export function projectToolMedia(projects: Pick<ProjectManager, "get">): ToolMediaFiles {
+  return async (projectId, filePath) => {
+    const project = projects.get(projectId);
+    if (!project) throw new Error("Project not found");
+    const media = await getWorkspaceMedia(project.workspacePath, filePath);
+    const model3d = media.mediaType === "model"
+      ? Object.values((await readCanvasAssets(project.workspacePath).catch(() => undefined))?.assets ?? {}).find((asset) => asset.path === media.relativePath)?.model3d
+      : undefined;
+    return { name: path.basename(media.relativePath), absolutePath: media.absolutePath, mediaType: media.mediaType, contentType: media.contentType, size: media.size, ...(model3d ? { model3d } : {}) };
+  };
+}
+
+/** Every asset a board names must be in the manifest; one an older board already named stays editable when its file is gone. */
+export function requireCanvasAssets(manifest: CanvasAssetManifest, ids: readonly string[], existingIds: readonly string[] = []): void {
   for (const id of new Set(ids)) {
-    if (manifest.assets[id]) continue;
-    const asset = library.get(id);
-    if (!asset) {
-      // Keep existing broken references editable without accepting new unknown assets.
-      if (existingIds.includes(id)) continue;
-      throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
-    }
-    const file = await projects.materializeLibraryAsset(project.id, id, origin);
-    manifest.assets[id] = { ...(asset.audio ? { audio: asset.audio } : {}), ...(asset.model3d ? { model3d: asset.model3d } : {}), name: asset.name, path: file.path, libraryAssetId: id, ...(asset.prompt ? { prompt: asset.prompt } : {}) };
-    changed = true;
+    if (!manifest.assets[id] && !existingIds.includes(id)) throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
   }
-  if (changed) await writeCanvasJson(project.workspacePath, "assets.json", manifest);
-  return manifest;
+}
+
+/** Adds a media file to the project and to the canvas, returning its canvas id. */
+export async function addCanvasAsset(
+  project: ProjectState,
+  projects: Pick<ProjectManager, "addMedia">,
+  name: string,
+  source: { file: string } | { bytes: Uint8Array },
+  details: Omit<CanvasAsset, "name" | "path" | "libraryAssetId"> & { origin?: "generated" | "imported" } = {},
+): Promise<{ id: string; asset: CanvasAsset }> {
+  const { origin, ...described } = details;
+  const file = await projects.addMedia(project.id, name, source, { origin, ...(described.prompt ? { prompt: described.prompt } : {}), ...(described.audio ? { audio: described.audio as AudioAssetData } : {}) });
+  return registerCanvasAsset(project.workspacePath, { ...described, name: path.basename(file), path: file });
+}
+
+/** Names a file already in the project on the canvas; a file it names already keeps its id. */
+export async function registerCanvasAsset(workspace: string, asset: CanvasAsset): Promise<{ id: string; asset: CanvasAsset }> {
+  const manifest = await readCanvasAssets(workspace);
+  const existing = Object.entries(manifest.assets).find(([, candidate]) => candidate.path === asset.path);
+  if (existing) return { id: existing[0], asset: existing[1] };
+  const id = randomUUID();
+  manifest.assets[id] = asset;
+  await writeCanvasJson(workspace, "assets.json", manifest);
+  return { id, asset };
 }
 
 export async function canvasAssetCatalog(workspace: string, manifest: CanvasAssetManifest, ids: readonly string[] = Object.keys(manifest.assets)): Promise<CanvasAssetCatalogEntry[]> {
@@ -62,20 +87,10 @@ async function resolveCanvasAsset(workspace: string, id: string, asset: CanvasAs
   return { ...asset, id, contentType: file.contentType, mediaType: file.mediaType, size: info.size, createdAt: info.mtime.toISOString(), ...dimensions };
 }
 
-export async function canvasLibraryAsset(project: ProjectState, library: AssetLibrary, id: string): Promise<string> {
-  const asset = (await readCanvasAssets(project.workspacePath)).assets[id];
+/** The project file a canvas asset names, for a generation that reads it. */
+export async function canvasAssetFile(workspace: string, id: string): Promise<CanvasAsset> {
+  const asset = (await readCanvasAssets(workspace)).assets[id];
   if (!asset) throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
-  const file = await getWorkspaceMedia(project.workspacePath, asset.path);
-  const digest = await fileDigest(file.absolutePath);
-  if (asset.libraryAssetId && library.get(asset.libraryAssetId)) {
-    const original = await library.content(asset.libraryAssetId);
-    if (await fileDigest(original.absolutePath) === digest) return asset.libraryAssetId;
-  }
-  return (await library.addFile(path.basename(asset.path), file.absolutePath, { origin: "workspace", prompt: asset.prompt, audio: asset.audio, model3d: asset.model3d, sourceKey: `canvas:${project.id}:${file.contentType}:${digest}` })).id;
-}
-
-async function fileDigest(file: string): Promise<string> {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest("hex");
+  await getWorkspaceMedia(workspace, asset.path);
+  return asset;
 }

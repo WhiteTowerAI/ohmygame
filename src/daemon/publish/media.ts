@@ -134,7 +134,7 @@ function orientationSegment(orientation: number): Buffer {
   return segment; // The next directory's offset, 0, ends it.
 }
 
-/** Temporary publish copies only; the Library and workspace always retain originals. */
+/** Temporary publish copies only; the workspace always retains originals. */
 export class PublishMediaOptimizer {
   readonly #files = new Map<string, string>();
   #temporary?: string;

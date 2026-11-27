@@ -629,11 +629,10 @@ and `size`, or `resolution` and `aspectRatio`, in the kind the request
 already uses. It can't add or remove reference images. Plugins run in the
 project's order, each seeing the one before's changes, before the image's
 model is resolved; one that fails, takes over 10 seconds, or answers with
-a field or value it can't set changes nothing. The Library keeps the
-prompt as it was generated, with `requestedPrompt` and `pluginChanges`
-(which plugin and version changed which fields), and shows them on the
-asset; the agent's result says which plugins changed the request and the
-prompt used.
+a field or value it can't set changes nothing. The generation's run keeps
+the prompt as asked, with `requestedPrompt` and `pluginChanges` (which
+plugin and version changed which fields); the agent's result says which
+plugins changed the request and the prompt used.
 
 ## When a plugin misbehaves
 
@@ -695,7 +694,7 @@ On the board the node is `type: "plugin"` with `data.node`
 (`publisher/name:id`), `data.params`, and `data.inputs`, a list of references
 per input id. Each input has its own port; a drop elsewhere fills the first
 input that takes that kind and has room. Text and Document nodes give
-`text`, image, video, audio and 3D nodes and Library assets give their file,
+`text`, and image, video, audio and 3D nodes give their file,
 and another plugin node gives its output.
 
 Running the node starts a canvas job (`toolId: "plugin-node"`). The command
@@ -705,7 +704,7 @@ each input as `[{ type: "text", text }]` or
 result. It returns `{ text }` for a `text` output (up to 100,000
 characters), or `{ file }`, a regular file inside `output` whose kind
 matches the node's output, up to 512 MB. The app adds that file to the
-Library and sets `data.assetId`. A missing required input, a param that
+project's media and the canvas, and sets `data.assetId`. A missing required input, a param that
 doesn't fit, or a plugin that is off fails the job with a message. Rerunning
 with the same params, inputs and output reuses the last result. A node whose
 plugin is off stays on the board with its links and last output, and says
@@ -722,7 +721,7 @@ list. Each preset is
 `board` is a JSON file in the package holding `{ nodes, edges }` in the
 board's own node format. A preset holds up to 200 nodes of the kinds that
 stand alone (text, image, video, audio, 3D, group and plugin nodes) and no
-outputs or Library assets (no `assetId` anywhere). Installing and
+outputs or project media (no `assetId` anywhere). Installing and
 `plugin:check` refuse one that breaks these rules or links to a node it
 doesn't hold. Adding a preset gives its nodes new ids, keeps the links
 between them, and puts them in a new group named after it where the view is;
@@ -1309,7 +1308,7 @@ and `src/renderer/asset-source-browser.tsx` shows it.
   thumbnail (`SourceEmbed` in `asset-source-browser.tsx`). It is kept only
   when it is https, carries no user name, password or port, and its host is
   one the plugin's `capabilities.network` lists (as `host` or `host:443`),
-  which the person saw when allowing the plugin; `GET /library/sources` gives
+  which the person saw when allowing the plugin; `GET /asset-sources` gives
   them as the source's `embedHosts` (`src/shared/library-embeds.ts`). Any
   other `embed` is dropped and the item still shows. Nothing reaches the site
   until the person chooses **Load interactive preview**, which says the host.
@@ -2282,15 +2281,15 @@ The file is a PNG, JPEG or WebP image, a sound, a video or a 3D model of at
 most 200 MB, named with its type; a `File` keeps its own name unless given
 one. Its data must be the type its name says, and SVG isn't taken, since it
 can hold a script. `prompt`, at most 1,000 characters, says what it was made
-from. It is copied into the project's `.ohmygame/media/imported/`, stored
-with `addedBy` naming the plugin; the person sees a toast as each one comes.
+from. It is copied into the project's `.ohmygame/media/imported/` as
+generated; the person sees a toast as each one comes.
 Only a page that shows adds, at most 2 at once and 20 a minute; a Plugin
 Builder preview doesn't add to the person's projects
 (`/projects/:id/plugin-library/:publisher/:name` in `src/daemon/app.ts`).
 `assets.add` (API 2.38.0) resolves with the file's `path` in the project.
 `host.library.add`, its name before the Library became the project's assets,
-is deprecated: it adds the same way and resolves with an `id`, and goes in
-API 3.0.0.
+is deprecated: it adds the same way and resolves with an `id`, the file's
+path, and goes in API 3.0.0.
 
 ### AI models
 
@@ -2376,8 +2375,8 @@ API 2.38.0 lets a page make images and audio with the models the person set
 up in OhMyGame, with `capabilities.media` (`src/daemon/plugin-generation.ts`).
 The person sees before the plugin is installed or turned on that this may
 cost them. Each request is made the way the app's own generation makes it:
-the project's default model, other plugins' image hooks, and the Library,
-where each file is kept as generated and added by the plugin.
+the project's default model and other plugins' image hooks. The files come
+back to the page and nothing is kept; `host.assets.add` keeps one.
 
 ```js
 const { default: chosen, models } = await host.media.models("image");
@@ -2388,7 +2387,7 @@ const { files } = await host.media.generate({
   aspectRatio: "16:9",
   transparentBackground: true,
 }, { signal });
-// files: [{ name, type, data: Blob, assetId }]
+// files: [{ name, type, data: Blob }]
 const sound = await host.media.generate({ media: "audio", kind: "sound-effect", prompt: "A short electric zap", durationSeconds: 1 });
 ```
 

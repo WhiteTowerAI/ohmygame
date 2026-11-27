@@ -188,10 +188,10 @@ const Capabilities = Type.Object(
     models: Type.Optional(Type.Boolean()),
     /**
      * Pages make images and audio with the models the person set up, which
-     * may cost them; what they make goes in the Library too (API 2.38.0).
+     * may cost them (API 2.38.0).
      */
     media: Type.Optional(Type.Boolean()),
-    /** Pages add files they make to the person's Library, under the plugin's name (API 2.35.0). */
+    /** Pages add files they make to the project's media (API 2.35.0). */
     library: Type.Optional(Type.Boolean()),
     network: Type.Optional(
       Type.Array(
@@ -506,8 +506,8 @@ const CanvasNode = Type.Object(
 export const ASSET_SOURCE_MEDIA = ["image", "video", "audio", "model"] as const;
 
 /**
- * A place the Library browses for media, such as a free asset site, shown as
- * a tab beside Local. Its `search` and `fetch` are native command handlers
+ * A place the Assets panel browses for media, such as a free asset site,
+ * shown as a tab beside This project. Its `search` and `fetch` are native command handlers
  * (API 2.5.0).
  */
 const AssetSource = Type.Object(
@@ -520,7 +520,7 @@ const AssetSource = Type.Object(
     fetch: CamelId,
     timeoutSeconds: Type.Optional(TimeoutSeconds),
     /**
-     * How long the Library shows a browse of it again (no search words, by
+     * How long the panel shows a browse of it again (no search words, by
      * kind) without asking the plugin; 0 never. Ten minutes when left out
      * (API 2.35.0).
      */

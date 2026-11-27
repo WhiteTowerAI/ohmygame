@@ -4,10 +4,9 @@ import path from "node:path";
 import Fastify from "fastify";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { ensureCanvasAssets, readCanvasAssets } from "../src/daemon/canvas-assets.js";
+import { projectToolMedia, readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
@@ -24,15 +23,13 @@ const { registerCanvasRoutes } = await import("../src/daemon/canvas-routes.js");
 let directory: string;
 let app: ReturnType<typeof Fastify>;
 let store: ReturnType<typeof registerCanvasRoutes>;
-let library: AssetLibrary;
 let projects: ProjectManager;
 let project: Awaited<ReturnType<ProjectManager["create"]>>;
 let assetId: string;
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), "ohmygame-canvas-media-"));
-  library = new AssetLibrary(directory);
-  projects = new ProjectManager(directory, library);
-  await Promise.all([library.load(), projects.load()]);
+  projects = new ProjectManager(directory);
+  await projects.load();
   project = await projects.create("Media tools", "asset-canvas");
   const tools = new ToolRunner(
     directory,
@@ -43,18 +40,20 @@ beforeEach(async () => {
     },
     undefined,
     undefined,
-    library,
+    projectToolMedia(projects),
   );
   app = Fastify();
-  store = registerCanvasRoutes(app, { projects, library, tools });
+  store = registerCanvasRoutes(app, { projects, tools });
   await store.workspace(project.id);
   const bytes = await sharp({
     create: { width: 8, height: 4, channels: 4, background: "red" },
   })
     .png()
     .toBuffer();
-  assetId = (await library.add("source.png", bytes)).id;
+  assetId = (await addAsset("source.png", bytes)).id;
 });
+/** Puts a file on the project's canvas, as an upload does. */
+const addAsset = (name: string, bytes: Uint8Array) => store.addAsset(project.id, name, { bytes });
 afterEach(async () => {
   vi.restoreAllMocks();
   await app.close();
@@ -205,7 +204,6 @@ it("saves an image model's settings on its node and sends them with the request"
 });
 
 it("passes an empty image prompt when a reference provides the subject", async () => {
-  await ensureCanvasAssets(project, projects, library, [assetId]);
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
   const node = {
@@ -257,7 +255,6 @@ it.each(["prompt", "legacy field"])("requires a custom action entered through %s
   const action = "raise a shield, brace, then lower it $& $'";
   if (mode === "legacy field") node.data.actionDescription = action;
   else node.data.prompt = node.data.prompt.replace("{USER_ACTION}", () => action);
-  await ensureCanvasAssets(project, projects, library, [assetId]);
   node.data.images = [{ type: "library", assetId }];
   await store.saveBoard(project.id, board, saved.revision);
   await store.generateNode(project.id, boardId, node.id);
@@ -274,7 +271,6 @@ it("requires one source image for quick reskin and sends it with the appearance 
   expect(saved.statusCode, saved.body).toBe(200);
   await expect(store.generateNode(project.id, boardId, "reskin")).rejects.toThrow("Quick reskin requires one source image");
 
-  await ensureCanvasAssets(project, projects, library, [assetId]);
   const next = await store.board(project.id, boardId);
   node.data.images = [{ type: "library", assetId }];
   const referenced = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: next.revision } });
@@ -292,8 +288,7 @@ it("requires person and clothing references for the new quick reskin mode", asyn
   const clothingBytes = await sharp({
     create: { width: 8, height: 4, channels: 4, background: "blue" },
   }).png().toBuffer();
-  const clothingAssetId = (await library.add("clothing.png", clothingBytes)).id;
-  await ensureCanvasAssets(project, projects, library, [assetId, clothingAssetId]);
+  const clothingAssetId = (await addAsset("clothing.png", clothingBytes)).id;
 
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
@@ -392,12 +387,12 @@ it("processes crop-image before the input node has been saved and registers a us
   });
   expect(response.statusCode, response.body).toBe(200);
   const result = response.json();
-  expect(result).toMatchObject({ kind: "asset", mediaType: "image" });
-  expect(result.assetId).not.toBe(assetId);
+  expect(result).toMatchObject({ kind: "asset", asset: { mediaType: "image" } });
+  expect(result.asset.id).not.toBe(assetId);
   const manifest = await readCanvasAssets(project.workspacePath);
-  expect(manifest.assets[result.assetId]).toBeDefined();
+  expect(manifest.assets[result.asset.id]).toBeDefined();
   const metadata = await sharp(
-    path.join(project.workspacePath, manifest.assets[result.assetId]!.path),
+    path.join(project.workspacePath, manifest.assets[result.asset.id]!.path),
   ).metadata();
   expect(metadata).toMatchObject({ width: 4, height: 3 });
 });
@@ -413,7 +408,7 @@ it("reconstructs a native-resolution pixel-art asset without changing its source
   });
   for (let y = 0; y < width; y++) for (let x = 0; x < width; x++)
     pixels.set(colours[Math.floor(y / 8) * 16 + Math.floor(x / 8)]!, (y * width + x) * 4);
-  const sourceId = (await library.add("scaled-pixel-art.png", await sharp(pixels, {
+  const sourceId = (await addAsset("scaled-pixel-art.png", await sharp(pixels, {
     raw: { width, height: width, channels: 4 },
   }).png().toBuffer())).id;
   const response = await app.inject({
@@ -423,9 +418,9 @@ it("reconstructs a native-resolution pixel-art asset without changing its source
   });
   expect(response.statusCode, response.body).toBe(200);
   const result = response.json();
-  expect(result).toMatchObject({ kind: "asset", name: "pixel-art-fixed.png", mediaType: "image" });
-  expect(result.assetId).not.toBe(sourceId);
-  const fixedPath = (await readCanvasAssets(project.workspacePath)).assets[result.assetId]!.path;
+  expect(result).toMatchObject({ kind: "asset", asset: { name: "pixel-art-fixed.png", mediaType: "image" } });
+  expect(result.asset.id).not.toBe(sourceId);
+  const fixedPath = (await readCanvasAssets(project.workspacePath)).assets[result.asset.id]!.path;
   expect(await sharp(path.join(project.workspacePath, fixedPath)).metadata()).toMatchObject({ width: 128, height: 128 });
 });
 
@@ -473,7 +468,7 @@ it("returns every split frame as a registered canvas asset in frame order", asyn
   const manifest = await readCanvasAssets(project.workspacePath);
   for (const asset of result.assets) {
     const metadata = await sharp(
-      path.join(project.workspacePath, manifest.assets[asset.assetId]!.path),
+      path.join(project.workspacePath, manifest.assets[asset.id]!.path),
     ).metadata();
     expect(metadata).toMatchObject({ width: 4, height: 2 });
   }
@@ -493,7 +488,7 @@ it("creates only the selected cells as canvas nodes", async () => {
 
 it("composes selected image assets into one layered PNG", async () => {
   const blue = await sharp({ create: { width: 2, height: 2, channels: 4, background: "blue" } }).png().toBuffer();
-  const blueId = (await library.add("blue.png", blue)).id;
+  const blueId = (await addAsset("blue.png", blue)).id;
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: {
     operation: "compose-image-layers", assetIds: [assetId, blueId], options: { width: 8, height: 4, layers: [
       { x: 0, y: 0, scale: 1, opacity: 1, visible: true },
@@ -502,9 +497,9 @@ it("composes selected image assets into one layered PNG", async () => {
   } });
   expect(response.statusCode, response.body).toBe(200);
   const result = response.json();
-  expect(result).toMatchObject({ kind: "asset", mediaType: "image" });
+  expect(result).toMatchObject({ kind: "asset", asset: { mediaType: "image" } });
   const manifest = await readCanvasAssets(project.workspacePath);
-  const { data, info } = await sharp(path.join(project.workspacePath, manifest.assets[result.assetId]!.path)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(path.join(project.workspacePath, manifest.assets[result.asset.id]!.path)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   expect(info).toMatchObject({ width: 8, height: 4 });
   expect([...data.subarray((1 * 8 + 1) * 4, (1 * 8 + 1) * 4 + 4)]).toEqual([0, 0, 255, 255]);
 });
@@ -514,7 +509,7 @@ it.each([
   ["compose-gif", "image"],
 ] as const)("encodes %s through the canvas route", async (operation, mediaType) => {
   const second = await sharp({ create: { width: 6, height: 6, channels: 4, background: "blue" } }).png().toBuffer();
-  const secondId = (await library.add("second.png", second)).id;
+  const secondId = (await addAsset("second.png", second)).id;
   const response = await app.inject({
     method: "POST",
     url: `/projects/${project.id}/canvas/media`,
@@ -522,9 +517,9 @@ it.each([
   });
   expect(response.statusCode, response.body).toBe(200);
   const result = response.json();
-  expect(result).toMatchObject({ kind: "asset", mediaType });
+  expect(result).toMatchObject({ kind: "asset", asset: { mediaType } });
   const manifest = await readCanvasAssets(project.workspacePath);
-  const saved = path.join(project.workspacePath, manifest.assets[result.assetId]!.path);
+  const saved = path.join(project.workspacePath, manifest.assets[result.asset.id]!.path);
   if (operation === "compose-gif") expect((await sharp(saved, { animated: true }).metadata()).pages).toBe(2);
   else expect((await readFile(saved)).toString("ascii", 4, 8)).toBe("ftyp");
 });
@@ -557,7 +552,7 @@ it("rejects GIF extraction from a regular image", async () => {
 
 it("extracts a GIF asset into image nodes", async () => {
   const gif = await sharp({ create: { width: 8, height: 4, channels: 4, background: "blue" } }).gif().toBuffer();
-  const gifId = (await library.add("animation.gif", gif)).id;
+  const gifId = (await addAsset("animation.gif", gif)).id;
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "extract-gif-frames", assetIds: [gifId] } });
   expect(response.statusCode, response.body).toBe(200);
   expect(response.json()).toMatchObject({ kind: "assets", assets: [{ mediaType: "image" }] });
@@ -565,23 +560,23 @@ it("extracts a GIF asset into image nodes", async () => {
 
 it("does not register extracted frames when their actual count exceeds board capacity", async () => {
   const gif = await sharp(Buffer.from([255, 0, 0, 255, 0, 0, 255, 255]), { raw: { width: 1, height: 2, channels: 4, pageHeight: 1 } }).gif({ delay: [100, 100] }).toBuffer();
-  const gifId = (await library.add("animation.gif", gif)).id;
+  const gifId = (await addAsset("animation.gif", gif)).id;
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
   vi.spyOn(store, "board").mockResolvedValue({ ...current, board: { ...current.board, nodes: Array(MAX_ASSET_CANVAS_NODES - 1).fill(current.board.nodes[0]) } });
-  const before = library.list().length;
+  const before = Object.keys((await readCanvasAssets(project.workspacePath)).assets).length;
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { boardId, operation: "extract-gif-frames", assetIds: [gifId] } });
   expect(response.statusCode).toBe(409);
   expect(response.json().error).toBe("Canvas is full");
-  expect(library.list()).toHaveLength(before);
+  expect(Object.keys((await readCanvasAssets(project.workspacePath)).assets)).toHaveLength(before);
 });
 
 it("transcribes an audio asset to text without registering media", async () => {
   const transcribe = vi.fn().mockResolvedValue({ text: "Hello there", model: { provider: "elevenlabs", id: "scribe_v2" } });
   const audioApp = Fastify();
-  const audioStore = registerCanvasRoutes(audioApp, { projects, library, tools: new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library), audio: { catalog: vi.fn(), generate: vi.fn(), transcribe } as never });
+  const audioStore = registerCanvasRoutes(audioApp, { projects, tools: new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, projectToolMedia(projects)), audio: { catalog: vi.fn(), generate: vi.fn(), transcribe } as never });
   try {
-    const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+    const audioId = (await addAsset("line.mp3", mp3Fixture(48000))).id;
     const response = await audioApp.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId], options: { language: "en" } } });
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json()).toEqual({ kind: "text", text: "Hello there" });
@@ -598,7 +593,7 @@ it("transcribes an audio asset to text without registering media", async () => {
 });
 
 it("reports transcription as unavailable without an audio provider", async () => {
-  const audioId = (await library.add("line.mp3", mp3Fixture(48000))).id;
+  const audioId = (await addAsset("line.mp3", mp3Fixture(48000))).id;
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [audioId] } });
   expect(response.statusCode).toBe(503);
 });

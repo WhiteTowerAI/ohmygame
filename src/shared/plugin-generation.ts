@@ -1,8 +1,7 @@
 // A plugin's use of the image and audio models the person set up in
 // OhMyGame (`capabilities.media`, API 2.38.0). A page asks with
 // `host.media`; `src/daemon/plugin-generation.ts` runs each request the way the
-// app's own generation does, so what it makes lands in the person's Library
-// too, and checks it with `readPluginGenerationRequest`.
+// app's own generation does, and checks it with `readPluginGenerationRequest`.
 
 import { AUDIO_KINDS, AUDIO_PROMPT_MAX_LENGTH, AUDIO_VOICE_ID_MAX_LENGTH, type AudioKind } from "./audio.js";
 import {
@@ -59,8 +58,6 @@ export interface PluginGenerationFile {
   name: string;
   type: string;
   data: string;
-  /** Where the person finds it in their Library. */
-  assetId?: string;
 }
 
 export interface PluginGenerationResult {

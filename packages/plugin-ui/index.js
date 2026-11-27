@@ -269,9 +269,8 @@ function bridge(port, hello) {
     },
     /**
      * The image and audio models the person set up, for a plugin with the
-     * `media` capability. Each request may cost them, and what it makes
-     * goes in their Library too, so make only what the person asked for,
-     * while the panel shows.
+     * `media` capability. Each request may cost them, so make only what the
+     * person asked for, while the panel shows; `assets.add` keeps a file.
      */
     media: {
       models(media, { kind } = {}) {

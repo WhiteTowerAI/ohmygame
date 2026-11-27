@@ -4,7 +4,7 @@ export const ASSET_SORTS = ["newest", "oldest", "largest", "smallest", "name"] a
 export type AssetSort = (typeof ASSET_SORTS)[number];
 export type AssetPeriod = "all" | "today" | "week" | "month";
 
-/** What sorting and the time filter read: a Library asset's `createdAt` or a project file's `modifiedAt`. */
+/** What sorting and the time filter read: a canvas asset's `createdAt` or a project file's `modifiedAt`. */
 interface DatedAsset {
   path: string;
   size: number;

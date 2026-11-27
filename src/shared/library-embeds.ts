@@ -1,4 +1,4 @@
-// Pages a Library source's results may show in their details, such as a 3D
+// Pages an asset source's results may show in their details, such as a 3D
 // viewer: only from the sites the source's plugin asks to connect to.
 
 /**

@@ -13,14 +13,14 @@ import { accountCloudState, canAffordCloudModel, cloudQuotaSummary, quotaResetTi
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { createAgentTools } from "../src/daemon/agent-tools.js";
-import { generateOnCanvas, libraryReference, TINY_PNG } from "./canvas-generation.js";
+import { canvasReference, generateOnCanvas, TINY_PNG } from "./canvas-generation.js";
 
 const MODEL = { provider: HYPER3D_CONNECTION_ID, id: HYPER3D_DEFAULT_TIER };
 const CLOUD_MODEL_IDS = BUILTIN_CLOUD_CATALOG.models.map((model) => model.id);
 const generation = { model: MODEL, images: [{ mediaType: "image/png" as const, data: "aW1hZ2U=" }] };
 const headers = { authorization: "Bearer daemon-token" };
 async function generate(app: ReturnType<typeof createApp>, { model }: { model: typeof MODEL }) {
-  return generateOnCanvas(app, "model-3d", { model, images: [await libraryReference(app, TINY_PNG, headers)] }, { headers });
+  return generateOnCanvas(app, "model-3d", async (projectId) => ({ model, images: [await canvasReference(app, projectId, TINY_PNG, headers)] }), { headers });
 }
 function quotas(userId = "user-1", remaining = 5): CloudQuotaSnapshot {
   const balance = { limit: 5, used: 5 - remaining, reserved: 0, remaining, resetsAt: "2026-10-11T16:00:00.000Z" };

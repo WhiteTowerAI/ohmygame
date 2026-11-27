@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LibrarySource, LibrarySourceItem } from "../shared/contracts.js";
 import { addSourceItemToProject, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
-import { isPixelArt } from "./library-assets.js";
+import { isPixelArt } from "./media-assets.js";
 import { mediaTypeLabel } from "./asset-browser.js";
 import { Box, Check, ExternalLink, Layers3, Spinner, Plus, RefreshCw } from "./icons.js";
 import { AudioTile, sourcePreviewAudio, useTileAudio } from "./library-tile-audio.js";

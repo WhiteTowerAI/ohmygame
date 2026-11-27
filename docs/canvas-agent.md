@@ -170,7 +170,7 @@ the node and the nodes after it one at a time in the daemon
 ids). The first node runs again; the rest reuse their output when nothing they
 read changed. A failure stops the chain before what reads it. On an image with
 something after it that runs, **Run with several images** picks 2 to 10 PNG,
-JPEG or WebP Library images, its button saying how many generations can run,
+JPEG or WebP images from the project's media, its button saying how many generations can run,
 and copies the chain once per image, each in
 its own group below the original named after the image (keeping the pixel
 density its groups gave each image), then runs every copy. A chain doesn't
@@ -262,15 +262,15 @@ multiline editing.
 Descriptions describe purpose; prompts record generation instructions.
 Neither is a verified description of image pixels. The agent reads local
 images when it needs to inspect appearance. The shared canvas reference type
-`library` resolves through this project manifest; `libraryAssetId`
-records the origin of an imported or generated file.
+`library` resolves through this project manifest. `libraryAssetId`, which
+versions before the Library was removed recorded, is kept and not used.
 
 Canvas media downloads use the node's custom `title` as the filename, falling
 back to the original asset name when the title is blank or unusable. The preview
 and context menu use the same name. Downloads retain the asset extension, remove
 unsafe filename characters, handle reserved device names and limit the full name
-to 200 UTF-8 bytes. Renaming a node does not rename the workspace file or shared
-Library asset; adding the asset to another project still uses its asset name.
+to 200 UTF-8 bytes. Renaming a node does not rename the workspace file;
+sending the asset to another project still uses its file name.
 
 The editor supplies the current board path and selected node IDs as a
 removable chat context. The agent reads current files before making changes.
@@ -368,7 +368,7 @@ document.
 Dropping, pasting or uploading files imports Markdown and text files as
 documents (up to 1 MB) and CSV or TSV files as tables (up to 4 MB). Images
 (PNG, JPEG, GIF, WebP, AVIF, SVG), video (MP4, MOV, WebM), audio (MP3, WAV,
-Ogg, M4A) and GLB models go to the Library as asset nodes, up to 200 MB each;
+Ogg, M4A) and GLB models go to the project's media as asset nodes, up to 200 MB each;
 `src/shared/media-files.ts` lists the media types, and the daemon checks each
 file's data against its type. Any other file, such as a source file, font,
 archive or editor project, is copied into the project under
@@ -391,7 +391,7 @@ suffix. Folder imports take up to 5,000 files and 2 GB at a time.
 nothing.
 
 Hold Option (Alt on Windows and Linux) when starting a node drag to pull out
-copies. Copies keep node content and Library resources, use new IDs, and drop
+copies. Copies keep node content and the assets they show, use new IDs, and drop
 all connections, including connections within a copied selection. The originals
 stay in place. Releasing at the starting position cancels the copies; a completed
 drag is one board undo step. If the copies would exceed the 2,000-node limit,

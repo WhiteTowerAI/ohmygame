@@ -1,6 +1,5 @@
 import type { MediaMigrationState } from "./media-model-migration.js";
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
-import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -10,22 +9,25 @@ import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
 import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
 import { CanvasError, CanvasStore, type CanvasPluginRunner } from "./canvas-workspace.js";
 import { ProjectAssetError, type ProjectManager } from "./projects.js";
-import type { AssetLibrary } from "./asset-library.js";
+import { readMediaFile } from "./media-routes.js";
+import { MEDIA_CONTENT_TYPES } from "../shared/media-files.js";
+import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
 import { fixPixelArt, PixelArtFixerError } from "./pixel-art-fixer.js";
 import { checkPixelArtImages, PixelArtCheckError } from "./pixel-art-check.js";
 import type { PixelArtCheckBatch, PixelArtCheckExpectations } from "../shared/pixel-art-check.js";
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
-import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
+import { canvasAssetCatalog, readCanvasAssets } from "./canvas-assets.js";
+import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
 import type { ProjectWrites } from "./project-writes.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; mediaMigrations?: MediaMigrationState; writes?: ProjectWrites;
+  projects: ProjectManager; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; mediaMigrations?: MediaMigrationState; writes?: ProjectWrites;
 }): CanvasStore {
-  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.mediaMigrations, options.writes);
+  const store = new CanvasStore(options.projects, options.tools, options.plugins, options.mediaMigrations, options.writes);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
@@ -41,8 +43,35 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
       return detail;
     } catch (cause) { return failure(cause, reply); }
   });
-  app.post<{ Params: { projectId: string; assetId: string } }>(`${base}/assets/:assetId/library`, async (request, reply) => {
-    try { return await store.exportAsset(request.params.projectId, request.params.assetId); } catch (cause) { return failure(cause, reply); }
+  /** A media file put on the canvas: uploaded from this computer, or from a project's media, this one's or another's. */
+  const catalogEntry = async (projectId: string, id: string) => (await canvasAssetCatalog(options.projects.get(projectId)!.workspacePath, await readCanvasAssets(options.projects.get(projectId)!.workspacePath), [id]))[0]!;
+  app.post<{ Params: { projectId: string }; Querystring: { name: string; mediaType: string }; Body: Buffer }>(`${base}/assets`, {
+    schema: { querystring: { type: "object", additionalProperties: false, required: ["name", "mediaType"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, mediaType: { type: "string", enum: [...MEDIA_CONTENT_TYPES] } } } },
+  }, async (request, reply) => {
+    const contents = request.body;
+    if (!Buffer.isBuffer(contents) || contents.length === 0) return reply.code(400).send({ error: "File is empty" });
+    const file = readMediaFile(request.query.name, contents, request.query.mediaType as LibraryUploadMediaType);
+    if (!file.ok) return reply.code(400).send({ error: file.error });
+    try {
+      const { id } = await store.addAsset(request.params.projectId, file.name, { bytes: contents });
+      return reply.code(201).send(await catalogEntry(request.params.projectId, id));
+    } catch (cause) { return projectFailure(cause, reply); }
+  });
+  app.post<{ Params: { projectId: string }; Body: { projectId: string; path: string } }>(`${base}/assets/media`, {
+    schema: { body: { type: "object", additionalProperties: false, required: ["projectId", "path"], properties: { projectId: { type: "string", minLength: 1, maxLength: 200 }, path: { type: "string", minLength: 1, maxLength: 1000 } } } },
+  }, async (request, reply) => {
+    try {
+      const { projectId } = request.params;
+      const from = options.projects.get(request.body.projectId);
+      if (!from) throw new CanvasError("Project not found", 404);
+      const { id } = from.id === projectId
+        ? await store.registerAsset(projectId, request.body.path)
+        : await (async () => {
+          const media = await getWorkspaceMedia(from.workspacePath, request.body.path);
+          return store.addAsset(projectId, path.basename(media.relativePath), { file: media.absolutePath });
+        })();
+      return reply.code(201).send(await catalogEntry(projectId, id));
+    } catch (cause) { return projectFailure(cause, reply); }
   });
   const projectFailure = (cause: unknown, reply: FastifyReply) => cause instanceof ProjectAssetError ? reply.code(cause.statusCode).send({ error: cause.message }) : failure(cause, reply);
   app.post<{ Params: { projectId: string }; Querystring: { name: string; directory?: string }; Body: Buffer }>(`${base}/files`, {
@@ -169,14 +198,14 @@ interface CanvasMediaRequest {
 }
 
 type CanvasMediaResult =
-  | { kind: "asset"; assetId: string; name: string; mediaType: string }
-  | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
+  | { kind: "asset"; asset: CanvasAssetCatalogEntry }
+  | { kind: "assets"; assets: CanvasAssetCatalogEntry[] }
   | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
   | { kind: "text"; text: string }
   | { kind: "pixel-check"; checks: PixelArtCheckBatch };
 
 async function runCanvasMedia(
-  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore; audio?: AudioGenerator },
+  options: { projects: ProjectManager; tools: ToolRunner; store: CanvasStore; audio?: AudioGenerator },
   projectId: string,
   request: CanvasMediaRequest,
 ): Promise<CanvasMediaResult> {
@@ -188,16 +217,7 @@ async function runCanvasMedia(
   if (!Array.isArray(request.assetIds) || request.assetIds.length < 1 || request.assetIds.length > MAX_MEDIA_FRAMES || request.assetIds.some((id) => typeof id !== "string" || !id)) {
     throw new CanvasError("Choose at least one canvas asset", 400);
   }
-  // A node can be acted on immediately after it is added, before the board
-  // save that normally registers its library asset in canvas/assets.json.
-  // Materialize any missing library assets here so the operation does not
-  // fail silently because the save request is still in flight.
-  let manifest = await readCanvasAssets(project.workspacePath);
-  const missingAssetIds = request.assetIds.filter((id) => !manifest.assets[id]);
-  if (missingAssetIds.length) {
-    await ensureCanvasAssets(project, options.projects, options.library, missingAssetIds);
-    manifest = await readCanvasAssets(project.workspacePath);
-  }
+  const manifest = await readCanvasAssets(project.workspacePath);
   const sources = await Promise.all(request.assetIds.map(async (id) => {
     const asset = manifest.assets[id];
     if (!asset) throw new CanvasError(`Canvas asset not found: ${id}`, 404);
@@ -263,26 +283,14 @@ async function runCanvasMedia(
     const frameOutputs = outputs.filter((item) => item.mediaType.startsWith("image/") || item.mediaType.startsWith("video/"));
     if (!frameOutputs.length) throw new CanvasError("Media operation produced no frame assets", 500);
     if (project.type === "asset-canvas" && frameOutputs.length > await availableNodes()) throw new CanvasError("Canvas is full", 409);
-    const assets = [];
-    for (const frame of frameOutputs) assets.push(await options.library.add(frame.name, frame.bytes, {
-      origin: "generated",
-      sourceKey: `canvas-media:${projectId}:${randomUUID()}`,
-    }));
-    await ensureCanvasAssets(project, options.projects, options.library, assets.map((asset) => asset.id));
-    return {
-      kind: "assets",
-      assets: assets.map((asset) => ({
-        assetId: asset.id,
-        name: asset.name,
-        mediaType: asset.mediaType,
-      })),
-    };
+    const ids = [];
+    for (const frame of frameOutputs) ids.push((await options.store.addAsset(projectId, frame.name, { bytes: frame.bytes }, { origin: "generated" })).id);
+    return { kind: "assets", assets: await canvasAssetCatalog(project.workspacePath, await readCanvasAssets(project.workspacePath), ids) };
   }
   if (!output) throw new CanvasError("Media operation produced no output", 500);
   if (project.type === "asset-canvas" && await availableNodes() < 1) throw new CanvasError("Canvas is full", 409);
-  const asset = await options.library.add(output.name, output.bytes, { origin: "generated", sourceKey: `canvas-media:${projectId}:${randomUUID()}` });
-  await ensureCanvasAssets(project, options.projects, options.library, [asset.id]);
-  return { kind: "asset", assetId: asset.id, name: asset.name, mediaType: asset.mediaType };
+  const { id } = await options.store.addAsset(projectId, output.name, { bytes: output.bytes }, { origin: "generated" });
+  return { kind: "asset", asset: (await canvasAssetCatalog(project.workspacePath, await readCanvasAssets(project.workspacePath), [id]))[0]! };
 }
 
 /** What a pixel-art check compares against: only valid settings the request names. */

@@ -223,8 +223,9 @@ export type PlaytestRequest =
   | { operation: "actTogether"; players: PlaytestPlayerActions[]; samples?: number[] }
   | { operation: "capture"; sessionId: string }
   | { operation: "captureFrame"; sessionId: string; frame: number }
-  /** `title` names the recording in the Library; the agent's are "Agent playtest". */
-  | { operation: "recordStart"; sessionId: string; title?: string }
+  /** `title` names the recording in the project's media; the agent's are "Agent playtest". */
+  /** `projectId`: the project whose media keeps the recording. */
+  | { operation: "recordStart"; sessionId: string; projectId: string; title?: string }
   | { operation: "recordStop"; sessionId: string }
   | { operation: "close"; sessionId: string }
   | { operation: "closeAll" }

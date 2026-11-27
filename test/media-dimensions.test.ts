@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { canvasAssetCatalog } from "../src/daemon/canvas-assets.js";
 import { readMediaDimensions } from "../src/daemon/media-dimensions.js";
 
@@ -93,22 +92,6 @@ describe("readMediaDimensions", () => {
       await writeFile(file, jpegWithExif(jpeg, tiff));
       expect(await readMediaDimensions(file)).toEqual({ width: 300, height: 200 });
     }
-  });
-
-  it("records dimensions for new Library assets and backfills older records", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-"));
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const asset = await library.add("boat.png", await image("png"));
-    expect(asset).toMatchObject({ width: 300, height: 200 });
-    const metadata = path.join(dataDirectory, "library/assets.json");
-    const stored = JSON.parse(await readFile(metadata, "utf8"));
-    delete stored.assets[0].width; delete stored.assets[0].height;
-    await writeFile(metadata, JSON.stringify(stored));
-    const restored = new AssetLibrary(dataDirectory);
-    await restored.load();
-    expect(restored.get(asset.id)).toMatchObject({ width: 300, height: 200 });
-    expect(JSON.parse(await readFile(metadata, "utf8")).assets[0]).toMatchObject({ width: 300, height: 200 });
   });
 
   it("adds the current file dimensions to canvas catalog entries", async () => {

@@ -154,7 +154,7 @@ export function duplicateCanvasSelection(nodes: AssetCanvasNode[], edges: AssetC
 
 /**
  * For each image, a copy of what comes after `sourceId`, reading that
- * Library image in its place, in a group of its own placed clear of the
+ * canvas image in its place, in a group of its own placed clear of the
  * board. Copies start without outputs; links to nodes outside the chain,
  * such as a shared prompt, stay. `starts` are the new image nodes, one per
  * group, to run each copy from.

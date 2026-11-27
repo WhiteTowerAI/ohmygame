@@ -1,4 +1,4 @@
-/** Media files that workspaces and the Library recognize, by lower-case extension. */
+/** Media files that workspaces recognize, by lower-case extension. */
 export const MEDIA_FILE_TYPES = {
   ".avif": { mediaType: "image", contentType: "image/avif" },
   ".gif": { mediaType: "image", contentType: "image/gif" },
@@ -20,7 +20,7 @@ export const MEDIA_FILE_TYPES = {
   { mediaType: "image" | "video" | "audio" | "model"; contentType: string }
 >;
 
-/** The largest media file the Library takes, from an upload or a plugin's source. */
+/** The largest media file a project takes, from an upload or a plugin's source. */
 export const LIBRARY_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
 
 export type MediaFileInfo =

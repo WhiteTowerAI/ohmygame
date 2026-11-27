@@ -2,12 +2,13 @@
 export const GAME_RECORDING_MAX_SECONDS = 5 * 60;
 /** An agent's recording stops itself after this long. */
 export const AGENT_RECORDING_MAX_SECONDS = 60;
-/** Stops early enough for the file to fit the Library's 200 MB upload limit. */
+/** Stops early enough for the file to fit the 200 MB upload limit. */
 export const GAME_RECORDING_MAX_BYTES = 190 * 1024 * 1024;
 
-/** A finished recording, as saved to the Library. */
+/** A finished recording, as saved to the project's media. */
 export interface GameRecordingSaved {
-  assetId: string;
+  /** Where it is in the project. */
+  path: string;
   name: string;
   /** Seconds. */
   duration: number;
@@ -55,7 +56,7 @@ export interface GameRecorderHostBridge {
   failed(message: string): void;
 }
 
-/** The Library's name for a recording, safe on every platform. */
+/** A recording's file name, safe on every platform. */
 export function gameRecordingFileName(title: string, at: Date, extension: GameRecorderStarted["extension"]): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   const stamp = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}-${pad(at.getMinutes())}-${pad(at.getSeconds())}`;

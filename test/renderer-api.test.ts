@@ -3,7 +3,7 @@ import { MINIMAX_RETIRED_RETRY, SEEDANCE_RETIRED_RETRY, SEEDANCE_RETIRED_PROVIDE
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { ApiError, request, ServiceUnreachableError } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addSourceItemToProject, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { addCanvasMedia, addCanvasMediaFromProject, addPlugin, addSourceItemToProject, compactConversation, copyProjectMedia, createConversation, createProject, deleteProject, deleteWorkspaceEntry, duplicateProject, getCheckpointChanges, getCheckpointFile, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getOpenAIEndpointSettings, getProjectCover, getUnfinishedChanges, getUnfinishedRestore, getWorkspaceAsset, getWorkspaceFile, inspectAddedPlugin, listLibrarySources, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, reapplyCheckpoint, removePendingPrompt, renameConversation, renameProject, renameWorkspaceEntry, restoreUnfinished, reviseLastPrompt, searchLibrarySource, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, undoCheckpoint, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadProjectMedia } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, getProjectCoverState, setProjectCoverMode } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -120,31 +120,24 @@ describe("renderer event stream", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "web-game", exampleId: "story-example" }) }));
   });
 
-  it("uploads a Library asset as binary data", async () => {
+  it("adds media to a project and its canvas as binary data, or from another project", async () => {
     installWindow();
     const file = new File(["video"], "opening.mp4", { type: "video/mp4" });
-    const asset = { id: "asset-1", name: file.name, mediaType: "video" };
-    const fetchMock = vi.fn(async () => Response.json(asset, { status: 201 }));
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ path: "opening.mp4" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(uploadLibraryAsset(file, "video/mp4", { duration: 6.5 })).resolves.toEqual(asset);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/library/assets/upload?name=opening.mp4&mediaType=video%2Fmp4&duration=6.5",
-      expect.objectContaining({ method: "POST", body: file, headers: expect.objectContaining({ "content-type": "application/octet-stream" }) }),
-    );
-  });
-
-  it("sends the video a trimmed upload was cut from, and the project it goes to", async () => {
-    installWindow();
-    const file = new File(["video"], "opening (trimmed).mp4", { type: "video/mp4" });
-    const fetchMock = vi.fn(async () => Response.json({ id: "asset-2" }, { status: 201 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await uploadLibraryAsset(file, "video/mp4", { duration: 3.2, derivedFrom: { assetId: "asset-1", trim: { start: 2.2, end: 5.4 } }, projectId: "project-1" });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/library/assets/upload?name=opening+%28trimmed%29.mp4&mediaType=video%2Fmp4&duration=3.2&projectId=project-1&trimSource=asset-1&trimStart=2.2&trimEnd=5.4",
-      expect.objectContaining({ method: "POST", body: file }),
-    );
+    await expect(uploadProjectMedia("p 1", file, "video/mp4")).resolves.toEqual({ path: "opening.mp4" });
+    await addCanvasMedia("p 1", file, "video/mp4");
+    await copyProjectMedia("p 1", { projectId: "p 2", path: "hero.png" });
+    await addCanvasMediaFromProject("p 1", { projectId: "p 2", path: "hero.png" });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/projects/p%201/media?name=opening.mp4&mediaType=video%2Fmp4",
+      "/api/projects/p%201/canvas/assets?name=opening.mp4&mediaType=video%2Fmp4",
+      "/api/projects/p%201/media/copy",
+      "/api/projects/p%201/canvas/assets/media",
+    ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({ method: "POST", body: file, headers: expect.objectContaining({ "content-type": "application/octet-stream" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, expect.any(String), expect.objectContaining({ method: "POST", body: JSON.stringify({ projectId: "p 2", path: "hero.png" }) }));
   });
 
   it("handles chunked UTF-8 and ignores malformed events", async () => {
@@ -753,38 +746,24 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/files?path=assets%2Fnew%20name.glb", expect.objectContaining({ method: "DELETE" }));
   });
 
-  it("uses global Library asset endpoints", async () => {
+  it("uses the asset source endpoints", async () => {
     installWindow();
-    const asset = { id: "video", name: "opening.mp4" };
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json([asset]))
-      .mockResolvedValueOnce(Response.json(asset, { status: 201 }))
-      .mockResolvedValueOnce(new Response(new Blob(["video"])))
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(Response.json({ items: [] }))
       .mockResolvedValueOnce(Response.json({ path: ".ohmygame/media/imported/star.png", name: "star.png" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(listLibraryAssets()).resolves.toEqual([asset]);
-    await expect(createLibraryImage({ name: "reference.png", image: { mediaType: "image/png", data: "aW1hZ2U=" } })).resolves.toEqual(asset);
-    await expect(getLibraryAsset("video")).resolves.toBeInstanceOf(Blob);
     await expect(listLibrarySources()).resolves.toEqual([]);
     await expect(searchLibrarySource({ source: "acme/shapes:shapes", query: "star", cursor: "2" })).resolves.toEqual({ items: [] });
     await expect(addSourceItemToProject("p 1", "acme/shapes:shapes", { id: "star", mediaType: "image" })).resolves.toEqual({ path: ".ohmygame/media/imported/star.png", name: "star.png" });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "/api/library/assets",
-      "/api/library/assets",
-      "/api/library/assets/video/content",
-      "/api/library/sources?locale=en",
-      "/api/library/sources/search",
+      "/api/asset-sources?locale=en",
+      "/api/asset-sources/search",
       "/api/projects/p%201/assets/source",
     ]);
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/library/sources/search", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", query: "star", cursor: "2" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/projects/p%201/assets/source", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", id: "star", mediaType: "image" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/library/assets", expect.objectContaining({
-      method: "POST",
-      body: JSON.stringify({ name: "reference.png", image: { mediaType: "image/png", data: "aW1hZ2U=" } }),
-    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-sources/search", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", query: "star", cursor: "2" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/p%201/assets/source", expect.objectContaining({ method: "POST", body: JSON.stringify({ source: "acme/shapes:shapes", id: "star", mediaType: "image" }) }));
   });
 
   it("downloads workspace assets with desktop authorization", async () => {

@@ -13,9 +13,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames, pluginChangeNote, projectPiToolNames } from "../src/daemon/agent-tools.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { projectToolMedia } from "../src/daemon/canvas-assets.js";
 import { AGENT_SOURCE_SEARCHES_PER_MINUTE, AssetSearch } from "../src/daemon/asset-search.js";
-import type { LibraryAsset, LibrarySource, LibrarySourceResults, LibrarySourceSearchRequest } from "../src/shared/contracts.js";
+import type { MediaAsset, LibrarySource, LibrarySourceResults, LibrarySourceSearchRequest } from "../src/shared/contracts.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -78,7 +78,7 @@ describe("agent tools", () => {
     expect(activePiToolNames([], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
     expect(activePiToolNames([], ["canvas_initialize"])).toContain("canvas_initialize");
     expect(projectPiToolNames("planning", [], ["canvas_initialize"])).not.toContain("canvas_initialize");
-    // Reading the Library helps plan, as reading the web does.
+    // Searching asset sources helps plan, as reading the web does.
     expect(projectPiToolNames("planning", [], ["asset_search"])).toContain("asset_search");
   });
 
@@ -552,9 +552,8 @@ describe("agent tools", () => {
 
   it("generates a video from a project image", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
-    const library = new AssetLibrary(dataDirectory);
-    const projects = new ProjectManager(dataDirectory, library);
-    await Promise.all([library.load(), projects.load()]);
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
     const project = await projects.create("Game");
     await projects.addGeneratedAsset(project.id, "source.webp", Buffer.from("source image"));
     const videoGenerator: VideoGenerator = {
@@ -567,7 +566,7 @@ describe("agent tools", () => {
         return { bytes: Buffer.from("generated mp4"), mediaType: "video/mp4" };
       },
     };
-    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, videoGenerator, library);
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, videoGenerator, projectToolMedia(projects));
     await runner.load();
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
@@ -584,13 +583,12 @@ describe("agent tools", () => {
 
   it("generates speech into the current project through the common audio tool", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-audio-"));
-    const library = new AssetLibrary(dataDirectory);
-    const projects = new ProjectManager(dataDirectory, library);
-    await Promise.all([library.load(), projects.load()]);
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
     const project = await projects.create("Story");
     const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
     const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("generated mp3"), mediaType: "audio/mpeg" as const, model });
-    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, undefined, library, undefined, {
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, undefined, undefined, undefined, {
       catalog: () => ({ models: [], providers: [] }), generate,
     });
     await runner.load();
@@ -609,9 +607,8 @@ describe("agent tools", () => {
   });
   it("registers standalone image and frame processing tools", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-media-agent-tool-"));
-    const library = new AssetLibrary(dataDirectory);
-    const projects = new ProjectManager(dataDirectory, library);
-    await Promise.all([library.load(), projects.load()]);
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
     const project = await projects.create("Media Game");
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
@@ -665,7 +662,6 @@ describe("browser tool scope", () => {
 });
 
 describe("asset_search", () => {
-  const asset = (fields: Partial<LibraryAsset>): LibraryAsset => ({ id: "a", name: "a.png", size: 1, mediaType: "image", contentType: "image/png", createdAt: "2026-11-01T00:00:00Z", saved: true, ...fields });
   const icons: LibrarySource = { id: "example/icon-pack:icons", plugin: "example/icon-pack", pluginName: "Icon pack", title: "Icon pack", description: "Icons from icons.example.", media: ["image"], cacheSeconds: 0, collections: [{ id: "all", title: "All" }, { id: "weapon", title: "Weapons" }] };
   const tunes: LibrarySource = { id: "acme/tunes:tunes", plugin: "acme/tunes", pluginName: "Tunes", title: "Tunes", media: ["audio"] };
   const results: LibrarySourceResults = { items: [
@@ -676,21 +672,14 @@ describe("asset_search", () => {
 
   function setup(sources: LibrarySource[] = [icons, tunes]) {
     let now = 1_000_000;
-    const assets: LibraryAsset[] = [];
     const search = vi.fn(async (_request: LibrarySourceSearchRequest) => results);
-    // Adding a source's result stores it with its credit.
-    const add = vi.fn(async (source: string, item: { id: string; mediaType: LibraryAsset["mediaType"] }) => {
-      const added = asset({ id: `added-${item.id}`, name: `${item.id.split("/").pop()}.svg`, sourcedFrom: { source, item: item.id, author: "Lorc", license: "CC BY 3.0", ...(item.id === "lorc/broadsword" ? { url: "https://icons.example/broadsword.html" } : {}) } });
-      assets.push(added);
-      return added;
+    // Adding a source's result puts it in the project, with its credit.
+    const add = vi.fn(async (source: string, item: { id: string; mediaType: MediaAsset["mediaType"] }) => {
+      const name = `${item.id.split("/").pop()}.svg`;
+      return { path: `assets/imported/${name}`, name, sourcedFrom: { source, item: item.id, author: "Lorc", license: "CC BY 3.0", ...(item.id === "lorc/broadsword" ? { url: "https://icons.example/broadsword.html" } : {}) } };
     });
-    const materializeLibraryAsset = vi.fn(async (_project: string, assetId: string) => ({ path: `assets/imported/${assets.find((item) => item.id === assetId)!.name}`, assetId }));
-    const library = new AssetSearch(
-      { list: async () => sources, search, add },
-      { materializeLibraryAsset },
-      () => now,
-    );
-    return { library, search, add, materializeLibraryAsset, later: (ms: number) => { now += ms; } };
+    const library = new AssetSearch({ list: async () => sources, search, add }, () => now);
+    return { library, search, add, later: (ms: number) => { now += ms; } };
   }
 
   it("lists the sources that are on", async () => {
@@ -737,8 +726,10 @@ describe("asset_search", () => {
   it("credits what a license asks once, even for two added at once", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-asset-use-credits-"));
     const search = vi.fn(async () => ({ items: ["sword", "axe", "bow"].map((name) => ({ id: `lorc/${name}`, name: `${name}.svg`, mediaType: "image" as const, author: "Lorc", license: "CC BY 3.0" })) }));
-    const credited = new AssetSearch({ list: async () => [icons], search, add: async (source, item) => ({ id: item.id, name: `${item.id.split("/").pop()}.svg`, size: 1, mediaType: "image", contentType: "image/svg+xml", createdAt: "2026-11-01T00:00:00Z", saved: false, sourcedFrom: { source, item: item.id, author: "Lorc", license: "CC BY 3.0" } }) },
-      { materializeLibraryAsset: async (_project, assetId) => ({ path: `assets/imported/${assetId.split("/").pop()}.svg`, assetId }) });
+    const credited = new AssetSearch({ list: async () => [icons], search, add: async (source, item) => {
+      const name = `${item.id.split("/").pop()}.svg`;
+      return { path: `assets/imported/${name}`, name, sourcedFrom: { source, item: item.id, author: "Lorc", license: "CC BY 3.0" } };
+    } });
     const target = { conversation: "chat", projectId: "game", workspacePath, approve: async () => true };
     await credited.search("chat", { source: icons.id });
     expect(await credited.use({ source: icons.id, item: "lorc/sword" }, target)).toContain("Credit: Lorc, CC BY 3.0. Added to CREDITS.md");
@@ -772,7 +763,7 @@ describe("asset_search", () => {
     approve.mockResolvedValue(true);
     const used = await library.use({ source: icons.id, item: "lorc/broadsword" }, target);
     // With the credit the person was shown, kept should the source's download name none.
-    expect(add).toHaveBeenCalledWith(icons.id, { id: "lorc/broadsword", mediaType: "image", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/broadsword.html" }, undefined);
+    expect(add).toHaveBeenCalledWith(icons.id, { id: "lorc/broadsword", mediaType: "image", author: "Lorc", license: "CC BY 3.0", url: "https://icons.example/broadsword.html" }, "game", undefined);
     expect(used).toContain("broadsword.svg is at assets/imported/broadsword.svg");
     expect(await readFile(path.join(workspacePath, "CREDITS.md"), "utf8")).toContain("- `assets/imported/broadsword.svg`: broadsword.svg by Lorc, CC BY 3.0");
     // Where nobody can be asked, as for an agent outside OhMyGame, a source's result isn't added.

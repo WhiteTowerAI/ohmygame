@@ -10,7 +10,7 @@ import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 import { normalizeModel3DConfig, resolveModel3D } from "../src/shared/generation-config.js";
 import { defaultModel3DSettings } from "../src/shared/custom-models.js";
 import { normalizeCustomProviderModel } from "../src/daemon/provider-model-settings.js";
-import { generateOnCanvas, libraryReference } from "./canvas-generation.js";
+import { canvasReference, generateOnCanvas } from "./canvas-generation.js";
 
 const directories: string[] = [], apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => {
@@ -38,7 +38,7 @@ async function fixture(provider: "meshy" | "tripo" | "hyper3d", directory?: stri
   return { app, directory, request, root };
 }
 async function generate(app: ReturnType<typeof createApp>, provider: string, id: string, options?: { targetPolycount?: number; texture?: boolean; pbr?: boolean }) {
-  return (await generateOnCanvas(app, "model-3d", { model: { provider, id }, images: [await libraryReference(app)], ...options })).finished();
+  return (await generateOnCanvas(app, "model-3d", async (projectId) => ({ model: { provider, id }, images: [await canvasReference(app, projectId)], ...options }))).finished();
 }
 
 describe("native 3D model management", () => {

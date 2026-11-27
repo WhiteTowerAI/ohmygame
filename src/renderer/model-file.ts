@@ -1,4 +1,4 @@
-import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
+import { getWorkspaceAsset } from "./api.js";
 
 interface FileRead {
   users: number;
@@ -10,18 +10,15 @@ const reads = new Map<string, FileRead>();
 
 /** One object URL for the thumbnail and any detail view still reading this model. */
 export function acquireModelFile(
-  project: string | undefined,
+  project: string,
   path: string,
-  asset: string | undefined,
   revision: number,
 ) {
-  const key = JSON.stringify(asset ? [asset] : [project, path, revision]);
+  const key = JSON.stringify([project, path, revision]);
   let entry = reads.get(key);
   if (!entry) {
     const request = new AbortController();
-    const file = asset
-      ? getLibraryAsset(asset, request.signal)
-      : getWorkspaceAsset(project!, path, request.signal);
+    const file = getWorkspaceAsset(project, path, request.signal);
     const created: FileRead = {
       users: 0,
       request,

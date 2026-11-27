@@ -12,7 +12,7 @@ export const PROPOSED_PLAN_TOOL = "proposed_plan";
 export const PLANNING_DENIAL =
   "This is a planning turn: do not change anything. Read files and run only commands that need no approval.";
 
-/** Imports a native image through the project's existing generated-asset and Library pipeline. */
+/** Imports a native image through the project's existing generated-asset pipeline. */
 export type SaveGeneratedImage = (
   fileName: string,
   bytes: Uint8Array,

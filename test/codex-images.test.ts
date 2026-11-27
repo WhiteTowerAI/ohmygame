@@ -11,7 +11,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { importCodexImage } from "../src/daemon/agent-runtimes/codex-images.js";
 import type { DriverContext } from "../src/daemon/agent-runtimes/driver-context.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 
 const png = Buffer.from(
@@ -39,11 +38,9 @@ async function setup() {
 }
 
 describe("Codex image import", () => {
-  it("registers one durable project asset and Library record through the existing importer", async () => {
+  it("registers one durable project asset through the existing importer", async () => {
     const { home, context } = await setup();
-    const library = new AssetLibrary(home);
-    await library.load();
-    const projects = new ProjectManager(home, library);
+    const projects = new ProjectManager(home);
     await projects.load();
     const project = await projects.create("Native image", "general");
     // Plugins hear about it once, as a generated asset, however often the image is imported.
@@ -63,24 +60,18 @@ describe("Codex image import", () => {
     expect(
       await readFile(path.join(project.workspacePath, artifact.path)),
     ).toEqual(png);
-    const restored = new AssetLibrary(home);
-    await restored.load();
-    expect(restored.list()).toEqual([
-      expect.objectContaining({ origin: "generated", prompt: "Orange cat" }),
-    ]);
     expect(await projects.generatedAssetPrompt(project.id, artifact.path)).toBe(
       "Orange cat",
     );
     expect(added.mock.calls).toEqual([[project, { path: artifact.path, origin: "generated", prompt: "Orange cat" }]]);
-    // Adding a Library asset to another project is an import there; adding it again isn't.
+    // Copied to another project, it is an import there.
     const other = await projects.create("Other", "general");
-    const imported = await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
-    await projects.materializeLibraryAsset(other.id, restored.list()[0]!.id);
-    expect(added.mock.calls.slice(1)).toEqual([[other, { path: imported.path, origin: "imported", prompt: "Orange cat" }]]);
+    const imported = await projects.addMedia(other.id, "cat.png", { file: path.join(project.workspacePath, artifact.path) });
+    expect(added.mock.calls.slice(1)).toEqual([[other, { path: imported, origin: "imported" }]]);
     // Canvas saves its generations through the same path, as generated.
     const canvas = await projects.create("Canvas", "general");
-    const generated = await projects.materializeLibraryAsset(canvas.id, restored.list()[0]!.id, "generated");
-    expect(added.mock.calls.at(-1)).toEqual([canvas, { path: generated.path, origin: "generated", prompt: "Orange cat" }]);
+    const generated = await projects.addMedia(canvas.id, "cat.png", { bytes: png }, { origin: "generated", prompt: "Orange cat" });
+    expect(added.mock.calls.at(-1)).toEqual([canvas, { path: generated, origin: "generated", prompt: "Orange cat" }]);
   });
 
   it("imports inline data without reading the external savedPath and uses stable names", async () => {

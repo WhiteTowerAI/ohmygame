@@ -45,7 +45,7 @@ class FakeDriver implements GameRuntimeAdapter {
       };
     }
     if (request.operation === "recordStart") return { operation: "recordStart", sessionId: request.sessionId, maxSeconds: 60 };
-    if (request.operation === "recordStop") return { operation: "recordStop", sessionId: request.sessionId, recording: { assetId: "asset-1", name: "Agent playtest.mp4", duration: 12, bytes: 1000 } };
+    if (request.operation === "recordStop") return { operation: "recordStop", sessionId: request.sessionId, recording: { path: ".ohmygame/media/imported/Agent playtest.mp4", name: "Agent playtest.mp4", duration: 12, bytes: 1000 } };
     if (request.operation === "close" || request.operation === "closeAll") return { operation: request.operation };
     if (request.operation === "captureFrame") {
       return {
@@ -227,14 +227,12 @@ describe("game use tool", () => {
 
   it("records a session on request and says where the file went", async () => {
     const driver = new FakeDriver();
-    const keepRecording = vi.fn(async (assetId: string) => `.ohmygame/media/imported/${assetId}.webm`);
-    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }), { keepRecording });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }), { projectId: "forest" });
     const started = await tool.execute("record-1", { operation: "recordStart", sessionId: "session-1" }, undefined, undefined, {} as never);
     expect(started.content[0]).toMatchObject({ text: expect.stringContaining("\"maxSeconds\":60") });
     const stopped = await tool.execute("record-2", { operation: "recordStop", sessionId: "session-1" }, undefined, undefined, {} as never);
     expect(stopped.content[0]).toMatchObject({ text: expect.stringContaining("Saved the recording to the project: {\"path\":\".ohmygame/media/imported/") });
-    expect(keepRecording).toHaveBeenCalledOnce();
-    expect(driver.requests).toEqual([{ operation: "recordStart", sessionId: "session-1" }, { operation: "recordStop", sessionId: "session-1" }]);
+    expect(driver.requests).toEqual([{ operation: "recordStart", sessionId: "session-1", projectId: "forest" }, { operation: "recordStop", sessionId: "session-1" }]);
     await expect(tool.execute("record-3", { operation: "recordStart" }, undefined, undefined, {} as never)).rejects.toThrow("sessionId is required");
   });
 

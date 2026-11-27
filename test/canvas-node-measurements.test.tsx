@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Node, ReactFlowInstance } from "@xyflow/react";
@@ -11,6 +11,7 @@ import type {
   AssetCanvasDocument,
   ProjectState,
 } from "../src/shared/contracts.js";
+import type { CanvasAssetCatalogEntry } from "../src/shared/canvas-assets.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
 
@@ -37,19 +38,16 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listAudioModelCatalog: async () => ({ models: [], providers: [] }),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
-  uploadLibraryAsset: async () => ({
+  addCanvasMedia: async () => ({
     id: "upload",
     name: "reference.png",
+    path: ".ohmygame/media/imported/reference.png",
     mediaType: "image",
     contentType: "image/png",
     size: 100,
     createdAt: new Date().toISOString(),
   }),
   getProjectCover: async () => new Blob(),
-}));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: async () => [],
 }));
 
 const { CanvasBoardEditor } =
@@ -89,8 +87,10 @@ beforeEach(async () => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () =>
-    root.render(
+  // The canvas's assets live with its workspace, which hears of each one added.
+  function Workspace() {
+    const [assets, setAssets] = useState<CanvasAssetCatalogEntry[]>([]);
+    return (
       <CanvasBoardEditor
         project={{ id: "p", type: "asset-canvas" } as ProjectState}
         storage={storage}
@@ -100,13 +100,15 @@ beforeEach(async () => {
           open: vi.fn(),
           add: vi.fn(),
         }}
-        assets={[]}
+        assets={assets}
+        onAssetsAdded={(added) => setAssets((current) => [...current, ...added])}
         onResolveReady={(value) => {
           if (value) resolveConflict = value;
         }}
-      />,
-    ),
-  );
+      />
+    );
+  }
+  await act(async () => root.render(<Workspace />));
   props.onInit!({
     screenToFlowPosition: (point) => point,
   } as ReactFlowInstance);

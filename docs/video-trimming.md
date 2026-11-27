@@ -50,21 +50,7 @@ is saved or its frames are read.
 - The video is encoded at the source's average bitrate, kept between 1 and
   20 Mbit/s, so a trimmed file is not much larger per second than the
   original.
-- The result is uploaded through `POST /library/assets/upload` like any
-  other file, with the 200 MB upload limit; from Assets, with `projectId`, so
-  it is copied into that project's media.
-
-## Stored record
-
-A trimmed video's record in the media store has `derivedFrom`: the original's
-stored asset ID and the kept range in seconds from the start of the original file.
-
-```json
-{ "derivedFrom": { "assetId": "…", "trim": { "start": 2.2, "end": 5.4 } } }
-```
-
-The upload endpoint sets it from the `trimSource`, `trimStart`, and `trimEnd`
-query parameters. All three come together, for a video upload, and the
-source must be an existing stored asset; anything else is rejected with
-`Invalid trim source`. A video trimmed from a file that is not stored has no
-`derivedFrom`. Records without it are read as before.
+- The result is uploaded like any other file, with the 200 MB upload limit:
+  from Assets through `POST /projects/:id/media`, and on an Asset Canvas
+  through `POST /projects/:id/canvas/assets`, which also names it on the
+  canvas.

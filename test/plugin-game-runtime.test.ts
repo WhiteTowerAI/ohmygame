@@ -116,7 +116,7 @@ describe("plugin game runtime", () => {
       { operation: "capture", sessionId },
       { operation: "inspect", sessionId },
       { operation: "act", sessionId, actions: [{ type: "wait", milliseconds: 10 }] },
-      { operation: "recordStart", sessionId },
+      { operation: "recordStart", sessionId, projectId: "p" },
     ] satisfies PlaytestRequest[])
       await expect(runtime.request(request)).rejects.toThrow("does not support");
     await expect(runtime.request({ operation: "captureFrame", sessionId, frame: 601 })).rejects.toThrow("from 1 to 600");
@@ -301,12 +301,12 @@ describe("plugin game bridge", () => {
 
   it("plays the project's game for a plugin, within what the runtime takes", async () => {
     const { requests, runtime } = webGame();
-    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const bridge = new PluginGameBridge(async () => ({ projectId: "p", runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
     const snapshot = await bridge.handle(caller(), { operation: "open" }, signal()) as { sessionId: string };
     expect(requests[0]).toEqual({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 1280, height: 720 } });
     // Recordings say which plugin made them.
     expect(await bridge.handle(caller(), { operation: "recordStart", session: snapshot.sessionId }, signal())).toEqual({ maxSeconds: 60 });
-    expect(requests[1]).toEqual({ operation: "recordStart", sessionId: snapshot.sessionId, title: "acme/tester playtest" });
+    expect(requests[1]).toEqual({ operation: "recordStart", sessionId: snapshot.sessionId, projectId: "p", title: "acme/tester playtest" });
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [{ type: "press", key: "Space" }] }, signal())).rejects.toThrow("keyboard");
     await expect(bridge.handle(caller(), { operation: "act", session: snapshot.sessionId, actions: [] }, signal())).rejects.toThrow("1 to 20 actions");
     await expect(bridge.handle(caller(), { operation: "captureFrame", session: snapshot.sessionId, frame: 1 }, signal())).rejects.toThrow("can't captureFrame");
@@ -315,7 +315,7 @@ describe("plugin game bridge", () => {
 
   it("reloads a web game, takes it off line and back, and plays several of the plugin's sessions at once", async () => {
     const { requests, runtime } = webGame();
-    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const bridge = new PluginGameBridge(async () => ({ projectId: "p", runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
     const first = await bridge.handle(caller(), { operation: "open", networkControl: true }, signal()) as { sessionId: string };
     expect(requests[0]).toMatchObject({ operation: "open", networkControl: true });
     const second = await bridge.handle(caller(), { operation: "open", path: "/?room=2" }, signal()) as { sessionId: string };
@@ -340,7 +340,7 @@ describe("plugin game bridge", () => {
 
   it("reloads and controls the network of web games only", async () => {
     const { runtime } = plugin();
-    const bridge = new PluginGameBridge(async () => ({ runtime, provider: PROVIDER, target: async () => TARGET }));
+    const bridge = new PluginGameBridge(async () => ({ projectId: "p", runtime, provider: PROVIDER, target: async () => TARGET }));
     await expect(bridge.handle(caller(), { operation: "open", networkControl: true }, signal())).rejects.toThrow("can't control the network");
     await expect(bridge.handle(caller(), { operation: "open", path: "/level-2" }, signal())).rejects.toThrow("can't open a path");
     await expect(bridge.handle(caller(), { operation: "reload", session: "s" }, signal())).rejects.toThrow("can't reload");
@@ -349,7 +349,7 @@ describe("plugin game bridge", () => {
 
   it("keeps each plugin, and each start of its host, to the sessions it opened", async () => {
     const { requests, runtime } = webGame();
-    const bridge = new PluginGameBridge(async () => ({ runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
+    const bridge = new PluginGameBridge(async () => ({ projectId: "p", runtime, target: async () => ({ runtime: "web", url: "http://127.0.0.1:43123/" }) }));
     const { sessionId } = await bridge.handle(caller(), { operation: "open" }, signal()) as { sessionId: string };
     await expect(bridge.handle(caller("acme/other"), { operation: "close", session: sessionId }, signal())).rejects.toThrow("does not belong");
     await expect(bridge.handle(caller("acme/tester", 2), { operation: "close", session: sessionId }, signal())).rejects.toThrow("does not belong");
@@ -362,7 +362,7 @@ describe("plugin game bridge", () => {
 
   it("won't let a plugin play the game it runs itself", async () => {
     const { runtime } = plugin();
-    const bridge = new PluginGameBridge(async () => ({ runtime, provider: PROVIDER, target: async () => TARGET }));
+    const bridge = new PluginGameBridge(async () => ({ projectId: "p", runtime, provider: PROVIDER, target: async () => TARGET }));
     await expect(bridge.handle(caller("ohmygame/maker"), { operation: "open" }, signal())).rejects.toThrow("runs this project's game itself");
     expect(await bridge.handle(caller("acme/tester"), { operation: "open" }, signal())).toMatchObject({ runtime: "plugin" });
   });

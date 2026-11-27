@@ -222,16 +222,16 @@ describe("electron playtest driver", () => {
   });
 
   it("records a session and reports the saved file", async () => {
-    const recording = { assetId: "asset-1", name: "Agent playtest.mp4", duration: 4, bytes: 100 };
+    const recording = { path: ".ohmygame/media/imported/Agent playtest.mp4", name: "Agent playtest.mp4", duration: 4, bytes: 100 };
     const recorder = { start: vi.fn(async () => ({ outcome: Promise.resolve(recording) })), stop: vi.fn() };
     const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
     const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected a session");
     const sessionId = opened.snapshot.sessionId;
     await expect(driver.request({ operation: "recordStop", sessionId })).rejects.toThrow("not recording");
-    await expect(driver.request({ operation: "recordStart", sessionId })).resolves.toEqual({ operation: "recordStart", sessionId, maxSeconds: 60 });
-    expect(recorder.start).toHaveBeenCalledWith(`agent:${sessionId}`, electron.windows[0]!.webContents, { title: "Agent playtest", maxSeconds: 60 });
-    await expect(driver.request({ operation: "recordStart", sessionId })).rejects.toThrow("already recorded");
+    await expect(driver.request({ operation: "recordStart", sessionId, projectId: "forest" })).resolves.toEqual({ operation: "recordStart", sessionId, maxSeconds: 60 });
+    expect(recorder.start).toHaveBeenCalledWith(`agent:${sessionId}`, electron.windows[0]!.webContents, { title: "Agent playtest", maxSeconds: 60, projectId: "forest" });
+    await expect(driver.request({ operation: "recordStart", sessionId, projectId: "forest" })).rejects.toThrow("already recorded");
     await expect(driver.request({ operation: "recordStop", sessionId })).resolves.toEqual({ operation: "recordStop", sessionId, recording });
     expect(recorder.stop).toHaveBeenCalledWith(`agent:${sessionId}`);
     driver.close();
@@ -242,7 +242,7 @@ describe("electron playtest driver", () => {
     const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
     const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected a session");
-    await driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId });
+    await driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId, projectId: "forest" });
     await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
     expect(recorder.stop).toHaveBeenCalledWith(`agent:${opened.snapshot.sessionId}`);
   });
@@ -251,7 +251,7 @@ describe("electron playtest driver", () => {
     const driver = new ElectronPlaytestDriver();
     const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected a session");
-    await expect(driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId })).rejects.toThrow("not available");
+    await expect(driver.request({ operation: "recordStart", sessionId: opened.snapshot.sessionId, projectId: "forest" })).rejects.toThrow("not available");
     driver.close();
   });
 

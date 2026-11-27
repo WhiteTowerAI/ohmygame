@@ -10,14 +10,14 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
-import { LibraryAssetPicker } from "./library-asset-picker.js";
+import { MediaPicker } from "./media-picker.js";
+import { addCanvasMediaFromProject } from "./api.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
 import { ChevronLeft, ChevronRight, Layers3, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
-import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { CanvasAssetProvider, canvasAssetSources } from "./use-workspace-asset-url.js";
 import "./game-design.css";
 import { ProjectMediaModelSettings } from "./media-model-defaults.js";
@@ -58,7 +58,6 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
   const [dialog, setDialog] = useState<{ type: "create" | "rename" | "delete"; id?: string }>();
   const [name, setName] = useState("");
   const [insertion, setInsertion] = useState<{ documentId?: string; assetId?: string; text?: string }>();
-  const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [error, setError] = useState<string>();
   const [noticeStack, setNoticeStack] = useState<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,14 +123,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
     }, applyGeneration: docs.applyGeneration,
     setMain: singleBoard ? undefined : (id) => { void run(() => docsRef.current.setMain(id)); },
     insertImage: (id, assetId) => { void run(() => docsRef.current.insertImage(id, assetId)); },
-    pickImage: (id) => {
-      setInsertion({ documentId: id });
-      void loadLibraryAssets().then((value) => {
-        const all = new Map(value.map((asset) => [asset.id, asset]));
-        for (const asset of workspace?.assets ?? []) all.set(asset.id, { ...all.get(asset.libraryAssetId ?? asset.id), ...asset, assetId: asset.id });
-        setAssets([...all.values()].filter((asset) => asset.mediaType === "image"));
-      }).catch((cause) => setError(String(cause)));
-    },
+    pickImage: (id) => setInsertion({ documentId: id }),
     appendImage: (assetId) => setInsertion({ assetId, documentId: workspace?.mainDocumentId ?? workspace?.documents[0]?.id }),
     appendText: (text) => setInsertion({ text, documentId: workspace?.mainDocumentId ?? workspace?.documents[0]?.id }),
   };
@@ -167,7 +159,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
     </div></div>
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : docs.loadError ? <div className="design-loading"><span>{t("canvas.restoreWorkspace")}</span></div> : <Loading label={t("assetCanvas.loading")} />}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} onAssetsAdded={docs.addAssets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} noticeTarget={noticeStack} onSyncFailedChange={setBoardSyncFailed} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} /> : docs.loadError ? <div className="design-loading"><span>{t("canvas.restoreWorkspace")}</span></div> : <Loading label={t("assetCanvas.loading")} />}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size="sm" /> : <ChevronRight size="sm" />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
@@ -197,7 +189,12 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
         {dialog.type === "delete" ? null : <Input aria-label={t("common.name")} placeholder={t("common.name")} autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />}
       </form>
     </Dialog> : null}
-    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <Dialog open size="sm" title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}
+    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <MediaPicker title={t("canvas.insertImage")} projectId={project.id} accept={(file) => file.mediaType === "image"} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(file) => void run(async () => {
+      const added = await addCanvasMediaFromProject(project.id, file);
+      docsRef.current.addAssets([added]);
+      await docsRef.current.insertImage(insertion.documentId!, added.id);
+      setInsertion(undefined);
+    })} /> : insertion ? <Dialog open size="sm" title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}
       footer={<>
         <Button disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</Button>
         <Button type="submit" form="canvas-insert-form" variant="primary" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</Button>

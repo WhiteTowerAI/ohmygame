@@ -15,7 +15,7 @@ import { Model3DGenerationError } from "../src/daemon/model3d.js";
 import { inspectModel3D, modelFacingPositiveZ } from "../src/daemon/model3d-inspect.js";
 import { mergeAnimationClips } from "../src/daemon/merge-animations.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { projectMedia } from "./project-media.js";
 import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 import { model3DModel, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { normalizeCustomProviderModel } from "../src/daemon/provider-model-settings.js";
@@ -148,17 +148,16 @@ describe("3D operation contracts", () => {
     expect(request.mock.calls.some(([url]) => String(url).endsWith("/animations/rig"))).toBe(false);
   });
   it("runs Tripo v3 humanoid presets through the tool and rejects legacy action IDs before upload", async () => {
-    const location = await directory(), library = new AssetLibrary(location); await library.load();
-    const source = await library.add("hero.glb", TEST_GLB), request = tripoService();
+    const location = await directory(), media = await projectMedia(location, { "hero.glb": TEST_GLB }), request = tripoService();
     const provider = new TripoProvider(() => "key", request, 0);
     const providers = new ProviderModels3D({ runtime: async () => { throw new Error("Native animation needs no custom runtime"); },
       meshy: { generator: new MeshyProvider(() => undefined), configured: () => false },
       tripo: { generator: provider, configured: () => true }, customProviders: async () => [],
       nativeModels: (id) => [...MODEL_3D_PRESETS[id]], isEnabled: () => true, isVisible: () => true, defaultModel: () => undefined });
-    const runner = new ToolRunner(location, { generate: vi.fn() }, providers, undefined, library); await runner.load();
+    const runner = new ToolRunner(location, { generate: vi.fn() }, providers, undefined, media); await runner.load();
     const options = { rigModel: "v3.0-20260909" as const, rigType: "biped" as const };
     expect(await provider.animations(undefined, undefined, options)).toContainEqual(expect.objectContaining({ id: "preset:walk" }));
-    await runner.run("animate-3d", { assetId: source.id, model: tripoModel, actionIds: ["preset:idle", "preset:walk"], options });
+    await runner.run("animate-3d", { path: "hero.glb", model: tripoModel, actionIds: ["preset:idle", "preset:walk"], options }, undefined, "project");
     const rig = request.mock.calls.find(([url]) => String(url).endsWith("/animations/rig"))!;
     expect(JSON.parse(String(rig[1]!.body))).toMatchObject({ model: options.rigModel, rig_type: "biped", spec: "tripo", out_format: "glb" });
     const retarget = request.mock.calls.find(([url]) => String(url).endsWith("/animations/retarget"))!;
@@ -229,7 +228,7 @@ describe("durable 3D tasks and asset preflight", () => {
     const record = migration("meshy"); record.references.processing = { id: "connection", operations: ["animate"] };
     const animations = vi.fn().mockResolvedValue([{ id: 0, name: "Idle" }]);
     const runner = new ToolRunner(await directory(), { generate: vi.fn() }, { generate: vi.fn(), animations }, undefined, undefined, undefined, undefined, { model3D: [record.references] });
-    const input = { assetId: "character", actionIds: [0] }, model = { provider: record.references.target, id: "connection" };
+    const input = { path: "character.glb", actionIds: [0] }, model = { provider: record.references.target, id: "connection" };
     expect(await runner.prepare("animate-3d", input)).toEqual({ ...input, model });
     expect(await runner.prepare("animate-3d", input, undefined, { hooksApplied: true })).toEqual(input);
     await runner.animationActions();
@@ -384,22 +383,20 @@ describe("durable 3D tasks and asset preflight", () => {
     expect(result.getRoot().listAnimations()[0]!.listChannels()[0]!.getTargetNode()).toBe(scenes[1]!.listChildren()[1]!.listChildren()[0]);
   });
   it("rejects untextured Meshy sources before spending and persists model metadata", async () => {
-    const location = await directory(), library = new AssetLibrary(location); await library.load();
-    const source = await library.add("model.glb", await model3DFixture({ textured: false }));
-    const animate = vi.fn(), runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn(), animate }, undefined, library); await runner.load();
-    await expect(runner.run("animate-3d", { assetId: source.id, actionIds: [0] })).rejects.toThrow("textured model");
+    const location = await directory(), media = await projectMedia(location, { "model.glb": await model3DFixture({ textured: false }) });
+    const animate = vi.fn(), runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn(), animate }, undefined, media); await runner.load();
+    await expect(runner.run("animate-3d", { path: "model.glb", actionIds: [0] }, undefined, "project")).rejects.toThrow("textured model");
     expect(animate).not.toHaveBeenCalled();
   });
 });
 
 describe("3D rig reuse", () => {
   it("reuses a rig across animations", async () => {
-    const location = await directory(), library = new AssetLibrary(location); await library.load();
-    const source = await library.add("hero.glb", TEST_GLB);
+    const location = await directory(), media = await projectMedia(location, { "hero.glb": TEST_GLB });
     const request = meshyService();
-    const runner = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library); await runner.load();
-    await runner.run("animate-3d", { assetId: source.id, actionIds: [0], heightMeters: 1.6 });
-    await runner.run("animate-3d", { assetId: source.id, actionIds: [30], heightMeters: 1.6 });
+    const runner = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, media); await runner.load();
+    await runner.run("animate-3d", { path: "hero.glb", actionIds: [0], heightMeters: 1.6 }, undefined, "project");
+    await runner.run("animate-3d", { path: "hero.glb", actionIds: [30], heightMeters: 1.6 }, undefined, "project");
     expect(posts(request).filter(([url]) => String(url).endsWith("/rigging"))).toHaveLength(1);
     const animationBodies = posts(request).filter(([url]) => String(url).endsWith("/animations")).map(([, init]) => JSON.parse(String(init!.body)));
     expect(animationBodies).toEqual([{ rig_task_id: "meshy-1", action_ids: [0] }, { rig_task_id: "meshy-1", action_ids: [30] }]);
@@ -408,8 +405,7 @@ describe("3D rig reuse", () => {
 
 describe("operation capability discovery", () => {
   it.each(["meshy", "tripo", "hyper3d"] as const)("processes GLBs through the %s connection independently of geometry versions and face counts", async (provider) => {
-    const location = await directory(), library = new AssetLibrary(location); await library.load();
-    const source = await library.add("source.glb", TEST_GLB);
+    const location = await directory(), media = await projectMedia(location, { "source.glb": TEST_GLB });
     const request = provider === "meshy" ? meshyService() : provider === "tripo" ? tripoService() : hyperService();
     const models = new ProviderModels3D({ runtime: async () => { throw new Error("Native processing needs no custom runtime"); },
       meshy: { generator: new MeshyProvider(() => "key", request, 0), configured: () => provider === "meshy" },
@@ -417,11 +413,11 @@ describe("operation capability discovery", () => {
       hyper3d: { generator: new Hyper3DProvider(() => "key", request, 0), configured: () => provider === "hyper3d" },
       customProviders: async () => [], nativeModels: (id) => [...MODEL_3D_PRESETS[id]],
       isEnabled: () => true, isVisible: () => false, defaultModel: () => undefined });
-    const runner = new ToolRunner(location, { generate: vi.fn() }, models, undefined, library); await runner.load();
+    const runner = new ToolRunner(location, { generate: vi.fn() }, models, undefined, media); await runner.load();
     for (const id of [MODEL3D_CONNECTION_ID, MODEL_3D_PRESETS[provider].at(-1)!.id]) {
-      const run = await runner.run("image-to-3d", { model: { provider, id }, operation: "retexture", sourceAssetId: source.id,
-        images: provider === "hyper3d" ? [image] : [], ...(provider === "hyper3d" ? {} : { prompt: "Stone" }), targetPolycount: 1_200_000 });
-      expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider, operation: "retexture" });
+      const run = await runner.run("image-to-3d", { model: { provider, id }, operation: "retexture", sourcePath: "source.glb",
+        images: provider === "hyper3d" ? [image] : [], ...(provider === "hyper3d" ? {} : { prompt: "Stone" }), targetPolycount: 1_200_000 }, undefined, "project");
+      expect(run.files[0]!.model3d).toMatchObject({ provider, operation: "retexture" });
     }
   });
   it("keeps animation available with hidden generation models and requires custom opt-in", async () => {

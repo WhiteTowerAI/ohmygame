@@ -15,17 +15,6 @@ import { generateOnCanvas } from "./canvas-generation.js";
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
-async function uploadLibraryAsset(app: Awaited<ReturnType<typeof createApp>>, name: string, mediaType: string, contents: Buffer) {
-  const uploaded = await app.inject({
-    method: "POST",
-    url: `/library/assets/upload?name=${encodeURIComponent(name)}&mediaType=${encodeURIComponent(mediaType)}`,
-    headers: { "content-type": "application/octet-stream" },
-    payload: contents,
-  });
-  expect(uploaded.statusCode, uploaded.body).toBe(201);
-  return uploaded.json<{ id: string }>();
-}
-
 describe("daemon", () => {
   it("exposes project activity without requiring a conversation event subscription", async () => {
     let finish!: () => void;
@@ -557,165 +546,38 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
   });
 
-  it("materializes a Library asset once", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-materialize-"));
-    const app = createApp({ dataDirectory });
+  it("adds SVG, GIF, AVIF, Ogg, M4A and GLB files whose data matches their type to a project's media", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-media-upload-")) });
     apps.push(app);
-    const target = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Target" } })).json();
-    const asset = await uploadLibraryAsset(app, "sprite.png", "image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-
-    const [first, second] = await Promise.all([
-      app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/${asset.id}` }),
-      app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/${asset.id}` }),
-    ]);
-
-    expect(first.statusCode).toBe(201);
-    expect(second.json()).toEqual(first.json());
-    expect(await readdir(path.join(target.workspacePath, ".ohmygame", "media", "imported"))).toEqual(["sprite.png"]);
-    const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
-    expect(missing.statusCode).toBe(404);
-  });
-
-  it("imports a local image into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
-
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const response = await app.inject({
-      method: "POST",
-      url: "/library/assets",
-      payload: {
-        name: "reference.webp",
-        image: { mediaType: "image/png", data: png.toString("base64") },
-      },
-    });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(response.json()).toMatchObject({ name: "reference.png", mediaType: "image", contentType: "image/png" });
-    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
-    expect(content.rawPayload).toEqual(png);
-
-    await useLibraryAsset(app, response.json().id);
-  });
-
-  it("rejects Library image data that does not match its media type", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/library/assets",
-      payload: {
-        name: "reference.png",
-        image: { mediaType: "image/png", data: Buffer.from("not a png").toString("base64") },
-      },
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Image data does not match its media type" });
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
-  });
-
-  it("uploads a video into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
-    const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=opening.mp4&mediaType=video%2Fmp4&duration=6.5",
-      headers: { "content-type": "application/octet-stream" },
-      payload: mp4,
-    });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(response.json()).toMatchObject({ name: "opening.mp4", mediaType: "video", contentType: "video/mp4", duration: 6.5 });
-    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
-    expect(content.rawPayload).toEqual(mp4);
-
-    await useLibraryAsset(app, response.json().id);
-  });
-
-  it("records the Library video a trimmed upload was cut from, and rejects an unknown or partial source", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-trim-"));
-    const app = createApp({ dataDirectory });
-    apps.push(app);
-    const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
-    const upload = (query: string) => app.inject({
-      method: "POST",
-      url: `/library/assets/upload?${query}`,
-      headers: { "content-type": "application/octet-stream" },
-      payload: mp4,
-    });
-    const original = (await upload("name=opening.mp4&mediaType=video%2Fmp4&duration=10")).json();
-
-    const trimmed = await upload(`name=opening%20(trimmed).mp4&mediaType=video%2Fmp4&duration=3.2&trimSource=${original.id}&trimStart=2.2&trimEnd=5.4`);
-    expect(trimmed.statusCode, trimmed.body).toBe(201);
-    expect(trimmed.json()).toMatchObject({ name: "opening (trimmed).mp4", duration: 3.2, derivedFrom: { assetId: original.id, trim: { start: 2.2, end: 5.4 } } });
-    expect((await upload("name=plain.mp4&mediaType=video%2Fmp4")).json().derivedFrom).toBeUndefined();
-
-    for (const query of [
-      "name=a.mp4&mediaType=video%2Fmp4&trimSource=missing&trimStart=1&trimEnd=2",
-      `name=a.mp4&mediaType=video%2Fmp4&trimSource=${original.id}&trimStart=1`,
-      `name=a.mp4&mediaType=video%2Fmp4&trimSource=${original.id}&trimStart=3&trimEnd=2`,
-    ]) {
-      const response = await upload(query);
-      expect(response.statusCode, query).toBe(400);
-      expect(response.json()).toEqual({ error: "Invalid trim source" });
-    }
-
-    // The record survives a restart.
-    const reopened = createApp({ dataDirectory });
-    apps.push(reopened);
-    const listed = (await reopened.inject({ method: "GET", url: "/library/assets" })).json() as { id: string; derivedFrom?: unknown }[];
-    expect(listed.find((asset) => asset.id === trimmed.json().id)?.derivedFrom).toEqual({ assetId: original.id, trim: { start: 2.2, end: 5.4 } });
-  });
-
-  it("uploads and serves an SVG image from the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
-    const svg = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>');
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=logo.svg&mediaType=image%2Fsvg%2Bxml",
-      headers: { "content-type": "application/octet-stream" },
-      payload: svg,
-    });
-
-    expect(response.statusCode, response.body).toBe(201);
-    expect(response.json()).toMatchObject({ name: "logo.svg", mediaType: "image", contentType: "image/svg+xml" });
-    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
-    expect(content.headers["content-type"]).toMatch(/^image\/svg\+xml/);
-    expect(content.rawPayload).toEqual(svg);
-  });
-
-  it("uploads GIF, AVIF, Ogg, M4A and GLB files whose data matches their type", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Media" } })).json();
     const ftyp = (brand: string) => Buffer.concat([Buffer.from([0, 0, 0, 0x14]), Buffer.from(`ftyp${brand}\0\0\0\0mif1`, "latin1")]);
     const glb = Buffer.alloc(12);
     glb.write("glTF", 0, "ascii");
     glb.writeUInt32LE(2, 4);
     glb.writeUInt32LE(12, 8);
+    const svg = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>');
     const upload = (name: string, mediaType: string, payload: Buffer) => app.inject({
       method: "POST",
-      url: `/library/assets/upload?name=${name}&mediaType=${encodeURIComponent(mediaType)}`,
+      url: `/projects/${project.id}/media?name=${name}&mediaType=${encodeURIComponent(mediaType)}`,
       headers: { "content-type": "application/octet-stream" },
       payload,
     });
-    for (const [name, mediaType, kind, payload] of [
-      ["walk.gif", "image/gif", "image", Buffer.from("GIF89a\x01\0\x01\0", "latin1")],
-      ["sky.avif", "image/avif", "image", ftyp("avif")],
-      ["theme.ogg", "audio/ogg", "audio", Buffer.from("OggS\0\x02", "latin1")],
-      ["voice.m4a", "audio/mp4", "audio", ftyp("M4A ")],
-      ["hero.glb", "model/gltf-binary", "model", glb],
+    for (const [name, mediaType, payload] of [
+      ["logo.svg", "image/svg+xml", svg],
+      ["walk.gif", "image/gif", Buffer.from("GIF89a\x01\0\x01\0", "latin1")],
+      ["sky.avif", "image/avif", ftyp("avif")],
+      ["theme.ogg", "audio/ogg", Buffer.from("OggS\0\x02", "latin1")],
+      ["voice.m4a", "audio/mp4", ftyp("M4A ")],
+      ["hero.glb", "model/gltf-binary", glb],
     ] as const) {
       const response = await upload(name, mediaType, payload);
       expect(response.statusCode, response.body).toBe(201);
-      expect(response.json()).toMatchObject({ name, mediaType: kind, contentType: mediaType });
+      expect(response.json()).toEqual({ path: `.ohmygame/media/imported/${name}` });
     }
+    const shown = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=${encodeURIComponent(".ohmygame/media/imported/logo.svg")}` });
+    expect(shown.rawPayload).toEqual(svg);
     for (const [name, mediaType, payload] of [
+      ["logo.svg", "image/svg+xml", Buffer.from("not an svg")],
       ["sky.avif", "image/avif", ftyp("isom")],
       ["clip.mp4", "video/mp4", ftyp("avif")],
       ["hero.glb", "model/gltf-binary", Buffer.from("not a model")],
@@ -724,21 +586,6 @@ describe("daemon", () => {
       expect(response.statusCode, name).toBe(400);
       expect(response.json()).toEqual({ error: "File data does not match its media type" });
     }
-  });
-
-  it("rejects non-SVG data uploaded as SVG", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
-    apps.push(app);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=logo.svg&mediaType=image%2Fsvg%2Bxml",
-      headers: { "content-type": "application/octet-stream" },
-      payload: Buffer.from("not an svg"),
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "File data does not match its media type" });
   });
 
   it("rejects unsafe workspace file paths", async () => {
@@ -935,8 +782,6 @@ describe("daemon", () => {
       expect(detail.json().agent.status).toBe("idle");
     });
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Again", images: [image] } })).statusCode).toBe(202);
-    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
-    expect(asset).toMatchObject({ name: "狗大王.png", mediaType: "image" });
     // A sent image is a reference kept on this computer, out of the game's files and every build.
     const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json();
     expect(files).toEqual(expect.arrayContaining([
@@ -949,7 +794,7 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame` })).json()).toEqual([{ path: ".ohmygame/local", size: 0, directory: true }]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files?directory=.ohmygame/local` })).json()).toEqual([{ path: ".ohmygame/local/references", size: 0, directory: true }]);
     // Using it in the game takes a copy of its own, and the reference can go.
-    const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` });
+    const used = await app.inject({ method: "POST", url: `/projects/${project.id}/media/copy`, payload: { projectId: project.id, path: ".ohmygame/local/references/狗大王.png" } });
     expect(used.json()).toMatchObject({ path: ".ohmygame/media/imported/狗大王.png" });
     const removed = await app.inject({ method: "DELETE", url: `/projects/${project.id}/files?path=${encodeURIComponent(".ohmygame/local/references/狗大王.png")}` });
     expect(removed.statusCode, removed.body).toBe(204);
@@ -1033,9 +878,6 @@ describe("daemon", () => {
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.stringContaining("hero.png"), {
       images: [{ type: "image", mimeType: "image/png", data: image.toString("base64") }],
     }));
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
-      expect.objectContaining({ name: "hero.png", mediaType: "image" }),
-    ]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: ".ohmygame/local/references/hero.png", mediaType: "image", purpose: "reference" }),
     ]));
@@ -1668,7 +1510,6 @@ describe("daemon", () => {
     apps.push(app);
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/doubao-voice" })).statusCode).toBe(404);
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/doubao-voice", payload: { apiKey: "key" } })).statusCode).toBe(404);
-    for (const file of ["audio.audio.json", "audio.srt", "audio.vtt"]) expect((await app.inject({ method: "GET", url: `/library/assets/unused/audio/${file}` })).statusCode).toBe(404);
     for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
       expect((await generateOnCanvas(app, "audio", { prompt: "rain", ...removed })).response.statusCode).toBe(400);
     }
@@ -2119,13 +1960,6 @@ describe("daemon", () => {
     }
   });
 });
-
-/** Copies a Library asset into a new project, which then uses it. */
-async function useLibraryAsset(app: ReturnType<typeof createApp>, assetId: string): Promise<void> {
-  const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "User" } })).json();
-  const used = await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${assetId}` });
-  expect(used.statusCode, used.body).toBe(201);
-}
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
   return JSON.stringify({ type: "message", id, parentId, timestamp, message });

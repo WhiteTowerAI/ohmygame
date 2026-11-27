@@ -706,7 +706,7 @@ async function startGameRecording(projectId: string): Promise<void> {
     const { contents, title } = await webGamePlayers.recordingTarget(projectId);
     // The filter is off before the first frame is captured.
     await webGamePlayers.setRecording(projectId, true);
-    ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
+    ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS, projectId }));
   } catch (cause) {
     void webGamePlayers.setRecording(projectId, false);
     if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
@@ -729,24 +729,20 @@ function publishGameRecording(state: GameRecordingState): void {
   mainWindow?.webContents.send("ohmygame:game-recording-state", state);
 }
 
-/**
- * A person's recording goes to the media of the project it was recorded in,
- * where the trimmer can cut it down. An agent's is stored for its game_use
- * call, which puts it in the agent's project.
- */
-async function saveGameRecording(file: GameRecordingFile, id: string): Promise<GameRecordingSaved> {
+/** A recording goes to the media of the project it was recorded in, where the trimmer can cut it down. */
+async function saveGameRecording(file: GameRecordingFile, projectId: string): Promise<GameRecordingSaved> {
   if (!daemon) throw new Error("The game service is unavailable.");
   const name = gameRecordingFileName(file.title, new Date(), file.extension);
-  const query = new URLSearchParams({ name, mediaType: file.mediaType, duration: file.duration.toFixed(3), ...(id.startsWith("agent:") ? {} : { projectId: id }) });
-  const response = await fetch(`${daemon.runtime.url}/library/assets/upload?${query}`, {
+  const query = new URLSearchParams({ name, mediaType: file.mediaType });
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}/media?${query}`, {
     method: "POST",
     headers: { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/octet-stream" },
     body: Readable.toWeb(createReadStream(file.path)) as ReadableStream,
     duplex: "half",
   } as RequestInit);
-  const asset = await response.json().catch(() => undefined) as { id?: string; error?: string; message?: string } | undefined;
-  if (!response.ok || !asset?.id) throw new Error(asset?.message ?? asset?.error ?? "The recording could not be saved to the project.");
-  return { assetId: asset.id, name, duration: file.duration, bytes: file.bytes };
+  const saved = await response.json().catch(() => undefined) as { path?: string; error?: string; message?: string } | undefined;
+  if (!response.ok || !saved?.path) throw new Error(saved?.message ?? saved?.error ?? "The recording could not be saved to the project.");
+  return { path: saved.path, name: saved.path.split("/").at(-1) ?? name, duration: file.duration, bytes: file.bytes };
 }
 
 function requirePlayerSource(sender: Electron.WebContents, projectId: unknown): asserts projectId is string {

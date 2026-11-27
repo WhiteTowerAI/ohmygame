@@ -109,7 +109,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       case "actTogether": return { operation: "actTogether", ...await this.#actTogether(request.players, request.samples ?? [], signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
       case "captureFrame": throw new Error("The web game runtime captures the current frame; use capture");
-      case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId), request.title);
+      case "recordStart": return await this.#recordStart(this.#activeSession(request.sessionId), request.projectId, request.title);
       case "recordStop": return await this.#recordStop(this.#activeSession(request.sessionId));
       case "close":
         this.#close(request.sessionId);
@@ -560,10 +560,10 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     }
   }
 
-  async #recordStart(state: PlaytestSession, title = "Agent playtest"): Promise<PlaytestResult> {
+  async #recordStart(state: PlaytestSession, projectId: string, title = "Agent playtest"): Promise<PlaytestResult> {
     if (!this.recorder) throw new Error("Recording is not available in this environment");
     if (state.recording) throw new Error("This game session has already recorded; stop it first with recordStop");
-    const { outcome } = await this.recorder.start(recordingId(state.id), state.window.webContents, { title: title.slice(0, 120), maxSeconds: AGENT_RECORDING_MAX_SECONDS });
+    const { outcome } = await this.recorder.start(recordingId(state.id), state.window.webContents, { title: title.slice(0, 120), maxSeconds: AGENT_RECORDING_MAX_SECONDS, projectId });
     state.recording = outcome;
     // Asked for or not, a failure must not end the process; recordStop reports it.
     outcome.catch(() => undefined);

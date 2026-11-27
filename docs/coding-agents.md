@@ -300,7 +300,7 @@ aspect-ratio controls for this provider. Built-in Codex chat generation remains
 a separate native path; the image provider does not force a Codex chat to stop
 using its own tools.
 
-Validation includes simulated canvas-to-Library generation, image-toggle
+Validation includes simulated canvas generation, image-toggle
 persistence, failure/cancellation fixtures, and a real image generation with
 Codex 0.163.0-alpha.10.2 on macOS while its conversation agent was disabled.
 

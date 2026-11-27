@@ -85,10 +85,6 @@ vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   saveCanvasBoard: api.saveBoard,
   listCanvasJobs: async () => [],
 }));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: async () => [],
-}));
 
 const { createCanvasBoardStorage } =
   await import("../src/renderer/canvas-board-storage.js");

@@ -99,7 +99,7 @@ export function canvasNodeInputs<T extends { type: string }>(
   return checked;
 }
 
-/** What a preset file holds: nodes and the edges between them, no outputs and nothing from a Library. */
+/** What a preset file holds: nodes and the edges between them, no outputs and no project media. */
 export interface CanvasPresetBoard {
   nodes: AssetCanvasNode[];
   edges: AssetCanvasEdge[];
@@ -121,7 +121,7 @@ export function canvasPresetIssue(value: unknown): string | undefined {
   if (!Array.isArray(edges)) return "edges must be a list";
   const type = nodes.map((node: { type?: unknown } | null) => node?.type).find((type) => typeof type !== "string" || !PRESET_NODE_TYPES.has(type));
   if (type !== undefined) return `can't hold ${typeof type === "string" ? `${type} nodes` : "a node without a type"}`;
-  if (JSON.stringify(nodes).includes('"assetId"')) return "can't hold outputs or Library assets";
+  if (JSON.stringify(nodes).includes('"assetId"')) return "can't hold outputs or project media";
   const canvas = createAssetCanvasDocument();
   canvas.nodes = nodes as AssetCanvasNode[];
   canvas.edges = edges as AssetCanvasEdge[];

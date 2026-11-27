@@ -57,10 +57,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
 }));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: async () => [],
-}));
 const generateText = vi.fn();
 vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/canvas-api.js")>()),

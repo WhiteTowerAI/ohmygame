@@ -2,7 +2,6 @@ import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -194,9 +193,7 @@ describe("prepared ElevenLabs references", () => {
 
   it("loads and saves project defaults and canvas selections while keeping options and refusing unknown board data", async () => {
     await fixture(async (directory) => {
-      const library = new AssetLibrary(directory);
-      const original = new ProjectManager(directory, library);
-      await library.load();
+      const original = new ProjectManager(directory);
       await original.load();
       const project = await original.create("Saved audio", "asset-canvas");
       const defaults = {
@@ -209,7 +206,7 @@ describe("prepared ElevenLabs references", () => {
       };
       await original.setMediaModelDefaults(project.id, defaults);
       const tools = new ToolRunner(directory, { generate: vi.fn() });
-      const before = new CanvasStore(original, library, tools);
+      const before = new CanvasStore(original, tools);
       const boardId = (await before.workspace(project.id)).boards[0]!.id;
       const {
         future: _future,
@@ -230,11 +227,10 @@ describe("prepared ElevenLabs references", () => {
       detail.board.editorLayout.nodes.audio = { x: 10, y: 20 };
       await before.saveBoard(project.id, detail.board, detail.revision);
       await before.close();
-      const projects = new ProjectManager(directory, library, undefined, state);
+      const projects = new ProjectManager(directory, undefined, state);
       await projects.load();
       const canvas = new CanvasStore(
         projects,
-        library,
         tools,
         undefined,
         state,
@@ -443,14 +439,12 @@ describe("prepared ElevenLabs application ownership", () => {
 
   it("uses the installed Beta for generation, voices and transcription while retiring native settings", async () => {
     await fixture(async (directory) => {
-      const library = new AssetLibrary(directory),
-        projects = new ProjectManager(directory, library);
-      await library.load();
+      const projects = new ProjectManager(directory);
       await projects.load();
       const project = await projects.create("Audio ownership", "asset-canvas");
       await projects.setMediaModelDefaults(project.id, { speech: nativeRef });
       const oldTools = new ToolRunner(directory, { generate: vi.fn() });
-      const oldCanvas = new CanvasStore(projects, library, oldTools);
+      const oldCanvas = new CanvasStore(projects, oldTools);
       const boardId = (await oldCanvas.workspace(project.id)).boards[0]!.id;
       const originalBoard = await oldCanvas.board(project.id, boardId);
       originalBoard.board.nodes.push({

@@ -6,9 +6,10 @@ import { ToolRunError } from "./tools.js";
 
 // Plugins making images and audio with the person's models
 // (`capabilities.media`). Each request runs the way the app's own generation
-// does, through the same tool runner, so plugins' image hooks, recovery and
-// the Library all apply; it costs the person, so a plugin gets a few at a
-// time, and each one is written in its log.
+// does, through the same tool runner, so plugins' image hooks and recovery
+// apply; it costs the person, so a plugin gets a few at a time, and each one
+// is written in its log. What it makes goes to the plugin, which keeps it with
+// `assets.add`.
 
 export class PluginGenerationError extends Error {
   constructor(message: string, readonly statusCode: number) {
@@ -18,8 +19,8 @@ export class PluginGenerationError extends Error {
 
 export interface PluginGenerationOptions {
   tools: {
-    run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string, options?: { addedBy?: string }): Promise<ToolRun>;
-    file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string } | undefined>;
+    run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun>;
+    file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string } | undefined>;
     removeRun(runId: string): Promise<void>;
   };
   /** The project's connected models of a kind, and the one a request without a model uses. */
@@ -40,7 +41,7 @@ export class PluginGeneration {
     return this.options.models(projectId, media, kind);
   }
 
-  /** Makes what a request asks for in a project; the Library shows it as added by the plugin. */
+  /** Makes what a request asks for in a project. */
   async generate(plugin: string, projectId: string, request: PluginGenerationRequest, signal: AbortSignal): Promise<PluginGenerationResult> {
     const taken = this.#limits.take(plugin);
     if (!taken.ok) throw new PluginGenerationError(taken.reached === "concurrent"
@@ -49,7 +50,7 @@ export class PluginGeneration {
     const toolId = request.media === "image" ? "generate-image" : "generate-audio";
     let run: ToolRun | undefined;
     try {
-      run = await this.options.tools.run(toolId, toolInput(request), signal, projectId, { addedBy: plugin });
+      run = await this.options.tools.run(toolId, toolInput(request), signal, projectId);
       const made = run.model ? ` with ${run.model.provider}/${run.model.id}` : "";
       // An audio run keeps subtitles and metadata beside the sound; the plugin gets the sound.
       const outputs = run.files.filter((file) => !file.role || file.role === "audio");
@@ -58,7 +59,7 @@ export class PluginGeneration {
       for (const output of outputs) {
         const file = await this.options.tools.file(run.id, output.name);
         if (!file) throw new PluginGenerationError("What the model made couldn't be read", 502);
-        files.push({ name: output.name, type: file.mediaType, data: file.bytes.toString("base64"), ...(file.assetId ? { assetId: file.assetId } : {}) });
+        files.push({ name: output.name, type: file.mediaType, data: file.bytes.toString("base64") });
       }
       return { ...(run.model ? { model: { provider: run.model.provider, id: run.model.id } } : {}), files };
     } catch (cause) {
@@ -67,7 +68,7 @@ export class PluginGeneration {
       if (cause instanceof ToolRunError) throw new PluginGenerationError(cause.message, cause.statusCode);
       throw cause;
     } finally {
-      // What it made stays in the Library; the run's own copy isn't needed.
+      // The plugin has what it made; the run's own copy isn't needed.
       if (run) await this.options.tools.removeRun(run.id).catch(() => undefined);
       taken.release();
     }

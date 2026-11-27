@@ -28,7 +28,7 @@ Not in scope, and why:
   hides progress, and bills two models for one task. It can be added later as
   another tool on the same server.
 - **A record of external calls in the app.** Generated files already appear in
-  the workspace, the Asset Library and the canvas; a conversation record would
+  the workspace and the canvas; a conversation record would
   change the conversation model for little gain.
 - **Claude Code and Codex plugin packages.** Settings shows the command that
   adds the server and the Skill folder to copy; packages would be a second
@@ -249,7 +249,7 @@ Not offered: Pi's file and shell tools (`read`, `write`, `edit`, `bash`,
 and `update_plan`, since the client asks and plans itself; `install_plugin`,
 `web_search`, and the plugin `mcp` passthrough.
 
-Generated files are saved in the project workspace and its Asset Library.
+Generated files are saved in the project workspace.
 Results name each file's workspace-relative path; the agent reads it with its
 own tools. Files the agent edits with its own tools bypass OhMyGame
 checkpoints and cannot be undone from the app. A session's playtest windows

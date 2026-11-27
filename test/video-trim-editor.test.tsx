@@ -5,17 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const trimVideo = vi.fn();
 const videoFilmstrip = vi.fn();
-const uploadLibraryAsset = vi.fn();
 vi.doMock(path.resolve("src/renderer/video-trim.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/video-trim.js")>()),
   trimVideo,
   videoFilmstrip,
 }));
-vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/api.js")>()),
-  uploadLibraryAsset,
-}));
-const { VideoTrimmer, saveTrimmedVideo } =
+const { VideoTrimmer, trimmedVideoFile } =
   await import("../src/renderer/video-trimmer.js");
 
 let root: Root;
@@ -212,20 +207,9 @@ it("reports encode failures and preserves the range for retry", async () => {
   expect(save).not.toHaveBeenCalled();
 });
 
-it("uploads a new asset with derivation, leaving the original untouched", async () => {
+it("names the kept part after the video it was cut from, as a new file", () => {
   const video = new Blob(["trimmed"], { type: "video/mp4" });
-  await saveTrimmedVideo(
-    video,
-    { start: 2.2, end: 5.4 },
-    { name: "opening.mp4", libraryAssetId: "original" },
-    { projectId: "project" },
-  );
-  expect(uploadLibraryAsset).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({
-      name: "opening (trimmed).mp4",
-      type: "video/mp4",
-    }),
-    "video/mp4",
-    { duration: 3.2, derivedFrom: { assetId: "original", trim: { start: 2.2, end: 5.4 } }, projectId: "project" },
-  );
+  const { file, mediaType } = trimmedVideoFile(video, "opening.mp4");
+  expect(file).toMatchObject({ name: "opening (trimmed).mp4", type: "video/mp4" });
+  expect(mediaType).toBe("video/mp4");
 });

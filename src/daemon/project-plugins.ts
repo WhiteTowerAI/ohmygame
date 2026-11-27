@@ -21,9 +21,8 @@ import {
   type ProjectFileResult,
 } from "../shared/project-file.js";
 import { PROJECT_SETTINGS_FILE, PROJECT_SETTINGS_VERSION } from "../shared/project-layout.js";
-import type { AssetLibrary } from "./asset-library.js";
 import { realFolders } from "./project-layout.js";
-import { localizeStoryAssets } from "./legacy-story-assets.js";
+import { localizeStoryAssets, type LegacyLibrary } from "./legacy-story-assets.js";
 import { refreshStoryGuides } from "./story-guides.js";
 import type {
   PluginIndex,
@@ -94,7 +93,7 @@ export async function readProjectFile(
 /** compat: since beta.5.12, remove local Story migration from beta.7 and 2026-12-27.
  * Archives opt in independently. Only opening a local project may copy its Library assets.
  */
-export async function migrateStoryProjectFile(folder: string, library?: AssetLibrary): Promise<void> {
+export async function migrateStoryProjectFile(folder: string, library?: LegacyLibrary): Promise<void> {
   const key = await projectFolderKey(folder);
   await withProjectFileWrite(key, async () => {
     const current = await readProjectFile(key, true);
@@ -110,7 +109,7 @@ export async function migrateStoryProjectFile(folder: string, library?: AssetLib
  * say it is a web game. The guides OhMyGame wrote stop describing the Story
  * editor, and outstanding Library references become project files.
  */
-async function migrateStoryFolder(folder: string, file: ProjectFile, library?: AssetLibrary): Promise<void> {
+async function migrateStoryFolder(folder: string, file: ProjectFile, library?: LegacyLibrary): Promise<void> {
   const settingsFile = path.join(folder, ...PROJECT_SETTINGS_FILE.split("/"));
   let settings: Record<string, unknown> | undefined;
   try {

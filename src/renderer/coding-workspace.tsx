@@ -47,7 +47,7 @@ import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { LibrarySource, PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { AssetSourceBrowser } from "./asset-source-browser.js";
-import { saveTrimmedVideo } from "./video-trimmer.js";
+import { trimmedVideoFile } from "./video-trimmer.js";
 import { forgetSourceSearches } from "./library-source-searches.js";
 import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
@@ -58,7 +58,7 @@ import { buildsWebPreview, projectEngaged, supportsWebPreview } from "../shared/
 import { isProjectDataPath, isProjectMediaPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, setProjectCover, listLibrarySources, getWorkspaceAsset } from "./api.js";
+import { uploadProjectMedia, createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, setProjectCover, listLibrarySources, getWorkspaceAsset } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, assetSortDetail, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { sortAssets, type AssetSort } from "./asset-sort.js";
@@ -1833,7 +1833,7 @@ function ProjectAssets({
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
   const [sort, setSort] = useAssetSort("ohmygame:project-assets-sort");
   // Of OhMyGame's own folder, only its media and the images sent in conversations are assets; the project's panels show in Code.
-  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path) || isProjectMediaPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  const assets = useMemo(() => files.filter(hasMediaType).filter((file) => !isProjectDataPath(file.path) || isProjectMediaPath(file.path)).map((file) => ({ ...file, projectId: projectId ?? "", revision })), [files, projectId, revision]);
   // Laid out as the Library page: kind tabs with counts, the source and use
   // filters beside them, and tiles below.
   const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);
@@ -1883,10 +1883,11 @@ function ProjectAssets({
         // A recording, or any video, is cut down here; the kept part is a new video beside it.
         trimmer={selectedAsset.mediaType === "video" && projectId ? {
           loadSource: () => getWorkspaceAsset(projectId, selectedAsset.path),
-          onSave: async (video, trim) => {
-            const saved = await saveTrimmedVideo(video, trim, { name: fileName(selectedAsset.path), ...(selectedAsset.libraryAssetId ? { libraryAssetId: selectedAsset.libraryAssetId } : {}) }, { projectId });
+          onSave: async (video) => {
+            const { file, mediaType } = trimmedVideoFile(video, fileName(selectedAsset.path));
+            const saved = await uploadProjectMedia(projectId, file, mediaType);
             onFilesChanged?.();
-            if (saved.projectPath) setSelectedPath(saved.projectPath);
+            setSelectedPath(saved.path);
           },
         } : undefined}
       /> : null}
@@ -1907,7 +1908,7 @@ function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen 
   const meta = [
     assetSortDetail(asset, sort),
     showKind ? mediaTypeLabel(asset.mediaType) : undefined,
-    asset.referenceOnly ? t("assets.reference") : showOrigin ? libraryAssetOriginLabel(asset.origin) : undefined,
+    asset.purpose === "reference" ? t("assets.reference") : showOrigin ? libraryAssetOriginLabel(asset.origin) : undefined,
   ].filter(Boolean).join(" · ");
   return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
     meta={meta || undefined}

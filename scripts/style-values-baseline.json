@@ -31,8 +31,7 @@
     "radius": 1
   },
   "src/renderer/library.css": {
-    "shadow": 1,
-    "zIndex": 1
+    "shadow": 1
   },
   "src/renderer/model-selector.css": {
     "radius": 1,
@@ -83,12 +82,12 @@
     "shadow": 13
   },
   "src/renderer/styles.css": {
-    "color": 144,
+    "color": 143,
     "fontSize": 20,
     "fontWeight": 9,
-    "radius": 75,
-    "shadow": 24,
-    "zIndex": 57
+    "radius": 73,
+    "shadow": 23,
+    "zIndex": 56
   },
   "src/renderer/ui/chip.css": {
     "shadow": 1

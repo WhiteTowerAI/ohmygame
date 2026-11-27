@@ -18,11 +18,12 @@ export interface CanvasGeneration {
 /**
  * Generates once on a canvas node, the way a person or the Agent does: adds a
  * node with `data` to a project's board and asks the canvas to generate it.
+ * `data` may be made for the project, such as with references on its canvas.
  */
 export async function generateOnCanvas<T extends AssetCanvasStarter>(
   app: FastifyInstance,
   type: T,
-  data: NodeData<T>,
+  data: NodeData<T> | ((projectId: string) => Promise<NodeData<T>>),
   options: { projectId?: string; headers?: Record<string, string> } = {},
 ): Promise<CanvasGeneration> {
   const headers = options.headers ?? {};
@@ -33,7 +34,7 @@ export async function generateOnCanvas<T extends AssetCanvasStarter>(
   const boardUrl = `${base}/boards/${workspace.boards[0]!.id}`;
   const board = (await app.inject({ method: "GET", url: boardUrl, headers })).json<CanvasBoardDetail>();
   const node = createAssetGenerationNode(type, { x: 0, y: 0 });
-  Object.assign(node.data, data);
+  Object.assign(node.data, typeof data === "function" ? await data(projectId) : data);
   board.board.nodes.push(node);
   board.board.editorLayout.nodes[node.id] = node.position;
   const saved = await app.inject({ method: "PUT", url: boardUrl, headers, payload: board });
@@ -64,9 +65,10 @@ export async function generateOnCanvas<T extends AssetCanvasStarter>(
 /** A 1×1 PNG, for nodes that only need some reference image. */
 export const TINY_PNG = { mediaType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" } as const;
 
-/** Adds an image to the Library as a reference a canvas node can use. */
-export async function libraryReference(app: FastifyInstance, image: { mediaType: string; data: string } = TINY_PNG, headers: Record<string, string> = {}): Promise<AssetCanvasReference> {
-  const uploaded = await app.inject({ method: "POST", url: "/library/assets", headers, payload: { name: "reference", purpose: "reference", image } });
+/** Puts an image on a project's canvas, as a reference its nodes can use. */
+export async function canvasReference(app: FastifyInstance, projectId: string, image: { mediaType: string; data: string } = TINY_PNG, headers: Record<string, string> = {}): Promise<AssetCanvasReference> {
+  const query = new URLSearchParams({ name: `reference.${image.mediaType.split("/")[1]}`, mediaType: image.mediaType });
+  const uploaded = await app.inject({ method: "POST", url: `/projects/${projectId}/canvas/assets?${query}`, headers: { ...headers, "content-type": "application/octet-stream" }, payload: Buffer.from(image.data, "base64") });
   expect(uploaded.statusCode, uploaded.body).toBe(201);
   return { type: "library", assetId: uploaded.json<{ id: string }>().id };
 }
