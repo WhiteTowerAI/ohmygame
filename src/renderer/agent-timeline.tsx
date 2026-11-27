@@ -613,7 +613,7 @@ type ToolIcon = IconComponent | typeof GodotIcon;
 function ToolGlyph({ presentation }: { presentation: { icon: ToolIcon; plugin?: PluginToolPlugin } }) {
   const Icon = presentation.icon;
   return presentation.plugin
-    ? <span className="tool-brand-icon tool-plugin-glyph" aria-hidden="true"><PluginGlyph plugin={presentation.plugin} name={presentation.plugin.displayName} size={13} /></span>
+    ? <span className="tool-brand-icon tool-plugin-glyph" aria-hidden="true"><PluginGlyph plugin={presentation.plugin} size={13} /></span>
     : <Icon size={13} aria-hidden="true" />;
 }
 
