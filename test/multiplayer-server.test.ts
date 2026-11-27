@@ -1595,7 +1595,9 @@ export default defineRealtimeGame({
     const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
       onCommandResult: (result) => results.push(result),
     });
-    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+      onCommandResult: (result) => results.push(result),
+    });
     try {
       await owner.createRoom();
       await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
@@ -1617,9 +1619,19 @@ export default defineRealtimeGame({
       expect(second).toEqual(first);
       expect(guest.snapshot!.state.game).toMatchObject({ turns: 1 });
 
-      // The room still passes commands to the hosting player.
       guest.moves.pass();
       await wait(() => expect(owner.snapshot?.state.game).toMatchObject({ turns: 2 }));
+      await wait(() => expect(guest.snapshot?.state.game).toMatchObject({ turns: 2 }));
+
+      // A refusal from the hosting player's rules is one answer too.
+      const refused: TurnCommand = { ...resent, commandId: randomUUID(), expectedSequence: guest.snapshot!.sequence };
+      const guestRoom = (guest as unknown as { room: Room }).room;
+      guestRoom.send("command", refused);
+      guestRoom.send("command", refused);
+      await wait(() => expect(results.filter((result) => result.commandId === refused.commandId)).toHaveLength(2));
+      const [refusal, again] = results.filter((result) => result.commandId === refused.commandId);
+      expect(refusal).toMatchObject({ accepted: false, error: { code: "not_your_turn" } });
+      expect(again).toEqual(refusal);
 
       // A command the room cannot save, nor save a refusal for, fails alone: the next one is applied.
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});

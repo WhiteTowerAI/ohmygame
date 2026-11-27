@@ -610,15 +610,13 @@ export class GameRoom extends Room {
       reject("invalid_command", "The command is invalid.");
       return;
     }
-    const previous = this.services.store.result(
-      this.roomId,
-      id,
-      value.commandId,
-    );
-    if (previous) {
-      client.send("command.result", previous);
-      return;
-    }
+    /** Sends the result this command already has, if any: a retry gets the first answer. */
+    const answered = () => {
+      const previous = this.services.store.result(this.roomId, id, value.commandId);
+      if (previous) client.send("command.result", previous);
+      return Boolean(previous);
+    };
+    if (answered()) return;
     if (value.expectedSequence !== this.record.snapshot.sequence) {
       reject("sequence_conflict", "The room state changed. Try again.");
       client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
@@ -629,12 +627,8 @@ export class GameRoom extends Room {
       const base = this.record.snapshot.state;
       this.queueHost(async () => {
         try {
-          // A copy sent again while the first waited here gets the first one's answer.
-          const settled = this.services.store.result(this.roomId, id, value.commandId);
-          if (settled) {
-            client.send("command.result", settled);
-            return;
-          }
+          // A copy that arrived while the first waited here passed the check above.
+          if (answered()) return;
           if (this.record.snapshot.sequence !== value.expectedSequence) {
             reject("sequence_conflict", "The room state changed. Try again.");
             return;
