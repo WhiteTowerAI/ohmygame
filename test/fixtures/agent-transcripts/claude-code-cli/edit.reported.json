@@ -1,0 +1,43 @@
+{
+  "outcome": {
+    "status": "completed"
+  },
+  "texts": [],
+  "tools": [
+    {
+      "callId": "toolu_01Ne53ZYDozCEPX9F6ezP6N9",
+      "name": "read",
+      "args": {
+        "path": "/private/tmp/ohmygame-transcript/workspace/hello.txt"
+      },
+      "result": {
+        "isError": false,
+        "text": "1\tHello\n2\t"
+      }
+    },
+    {
+      "callId": "toolu_01JymN3LEqz7T4VmhWHRmRt7",
+      "name": "edit",
+      "args": {
+        "path": "/private/tmp/ohmygame-transcript/workspace/hello.txt"
+      },
+      "result": {
+        "isError": false,
+        "text": "The file /private/tmp/ohmygame-transcript/workspace/hello.txt has been updated successfully. (file state is current in your context — no need to Read it back)"
+      }
+    },
+    {
+      "callId": "toolu_01J52eN1dY5qLSUqFqg7Ywfj",
+      "name": "write",
+      "args": {
+        "path": "/private/tmp/ohmygame-transcript/workspace/notes.md"
+      },
+      "result": {
+        "isError": false,
+        "text": "File created successfully at: /private/tmp/ohmygame-transcript/workspace/notes.md (file state is current in your context — no need to Read it back)"
+      }
+    }
+  ],
+  "plans": [],
+  "approvals": []
+}

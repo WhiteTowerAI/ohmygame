@@ -665,6 +665,33 @@ image catalog independently probes Codex when checking image providers.
 
 The Provider, media, canvas, checkpoint and plugin code does not change.
 
+## Recorded turns
+
+`test/agent-transcript-replay.test.ts` plays turns recorded from the real
+Claude Code and Codex CLIs back to their adapters. Each transcript in
+`test/fixtures/agent-transcripts/<agent>/` holds every line between the CLI and
+the adapter. The test fails when the adapter writes a line the CLI did not
+receive or leaves one out, and compares what the adapter reported (text, tool
+calls and results, proposed plans, approvals) with the `.reported.json` file
+beside the transcript. A change to what an adapter reports shows in that file's
+diff; update it with `bunx vitest run test/agent-transcript-replay.test.ts -u`.
+
+Record a turn again after a CLI update or to add a scenario:
+
+```sh
+node --import tsx scripts/record-agent-transcript.ts claude-code-cli edit
+node --import tsx scripts/record-agent-transcript.ts codex-cli plan <model>
+```
+
+The script runs one short turn in `/tmp/ohmygame-transcript` with the installed,
+signed-in CLI, and uses a little of the account's quota. It leaves out the
+person's own setup (commands, agents, plugins, Skills, MCP servers, account
+fields and Codex configuration) and replaces the home folder, user name, host
+name and email addresses. Read a transcript before committing it.
+
+OpenCode talks over HTTP, which the recorder does not capture yet; its adapter
+is tested with the fake server in `test/agent-runtime-drivers.test.ts`.
+
 ## Compatibility and real acceptance
 
 Compatibility follows the capabilities the adapter needs, rather than a CLI

@@ -1,0 +1,28 @@
+{
+  "outcome": {
+    "status": "completed"
+  },
+  "texts": [
+    "I’ll update `hello.txt` and create `notes.md` now.",
+    "Updated `hello.txt` to “Hi” and created `notes.md` with `done`."
+  ],
+  "tools": [
+    {
+      "callId": "exec-f6b67c30-90d7-4d27-803f-1d35b4ba168d",
+      "name": "edit",
+      "args": {
+        "path": "/tmp/ohmygame-transcript/workspace/hello.txt",
+        "files": [
+          "/tmp/ohmygame-transcript/workspace/hello.txt",
+          "/tmp/ohmygame-transcript/workspace/notes.md"
+        ]
+      },
+      "result": {
+        "isError": false,
+        "text": "Updated /tmp/ohmygame-transcript/workspace/hello.txt\nAdded /tmp/ohmygame-transcript/workspace/notes.md"
+      }
+    }
+  ],
+  "plans": [],
+  "approvals": []
+}
