@@ -22,6 +22,7 @@ import {
   registerProjectProcess,
   terminateProjectProcess,
 } from "./process-lifecycle.js";
+import { NativeEngineSessions } from "./native-engine-sessions.js";
 import { projectProcessEnvironment } from "./project-process.js";
 
 // Plugin native code runs here: in extension host processes the daemon
@@ -166,6 +167,7 @@ const REPLIES: Record<HostRequest["type"], HostMessage["type"] | undefined> = {
   stats: "stats",
   cancel: undefined,
   shutdown: undefined,
+  "engine-reply": undefined,
   "game-reply": undefined,
   "sessions-reply": undefined,
   "browser-reply": undefined,
@@ -253,8 +255,8 @@ class ExtensionHost {
   readonly #browserCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #gameCalls = new Map<number, { plugin: string; controller: AbortController }>();
   readonly #modelCalls = new Map<number, { plugin: string; controller: AbortController }>();
-  /** The plugin whose `activate` is running, which may already play the game. */
-  #activating: string | undefined;
+  /** Plugins may call host APIs while their activation is still running. */
+  readonly #activating = new Set<string>();
   /** Last lines of stdout and stderr, for diagnostics. */
   readonly log: string[] = [];
 
@@ -270,6 +272,7 @@ class ExtensionHost {
     private readonly sessions: () => HostSessionService | undefined,
     private readonly browser: () => HostBrowserService | undefined,
     private readonly models: () => HostModelService | undefined,
+    private readonly editors: NativeEngineSessions,
     private readonly onLog?: (plugin: string, level: PluginLogEntry["level"], text: string) => void,
   ) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -370,6 +373,10 @@ class ExtensionHost {
     return plugins;
   }
 
+  #isActive(plugin: string) {
+    return this.#loaded.has(plugin) || this.#activating.has(plugin);
+  }
+
   /**
    * Activates a plugin once. Asked for another version, it lets the running
    * version's calls finish, deactivates it, then activates the new one.
@@ -395,7 +402,7 @@ class ExtensionHost {
       if (this.#activations.get(plugin.id) !== activation) return;
       // Even an import that fails stays in the process's module cache.
       this.#imported.add(plugin.id);
-      this.#activating = plugin.id;
+      this.#activating.add(plugin.id);
       let activated = false;
       try {
         const message = await this.#request(
@@ -415,9 +422,12 @@ class ExtensionHost {
           activated = true;
         }
       } finally {
-        if (this.#activating === plugin.id) this.#activating = undefined;
+        this.#activating.delete(plugin.id);
         // What a failed activation opened ends with it.
-        if (!activated) this.#release(plugin.id);
+        if (!activated) {
+          this.#release(plugin.id);
+          await this.editors.stop(this, plugin.id);
+        }
       }
     });
     // A failed activation can be retried by the next call.
@@ -522,9 +532,13 @@ class ExtensionHost {
    * stops its process and anything it started.
    */
   async stop(): Promise<void> {
-    if (this.#exited) return;
+    if (this.#exited) return this.editors.stop(this);
     this.#stopping = true;
     clearTimeout(this.#idle);
+    await Promise.all([this.editors.stop(this), this.#stopHost()]);
+  }
+
+  async #stopHost() {
     if (this.#child.connected) {
       const exited = new Promise<void>((resolve) =>
         this.#child.once("exit", () => resolve()),
@@ -555,11 +569,10 @@ class ExtensionHost {
   async #unload(plugin: string): Promise<void> {
     if (!this.#loaded.delete(plugin) || !this.alive) return;
     try {
-      await this.#request(
-        { type: "deactivate", plugin },
-        plugin,
-        this.options.activationTimeoutMs,
-      );
+      await Promise.all([
+        this.editors.stop(this, plugin),
+        this.#request({ type: "deactivate", plugin }, plugin, this.options.activationTimeoutMs),
+      ]);
     } finally {
       this.#release(plugin);
     }
@@ -604,7 +617,7 @@ class ExtensionHost {
       this.#gameCalls.delete(id);
       if (this.alive) this.#send({ type: "game-reply", id, ...answer });
     };
-    if (!service || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+    if (!service || !this.#isActive(plugin)) {
       reply({ error: `${plugin} can't play the game here` });
       return;
     }
@@ -625,7 +638,7 @@ class ExtensionHost {
     if (this.#browserCalls.has(id)) return;
     const service = this.browser();
     const folder = this.project;
-    if (!service || !folder || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+    if (!service || !folder || !this.#isActive(plugin)) {
       this.#send({ type: "browser-reply", id, error: request.operation === "panel" ? "Panels can't be opened here" : "Browser access is unavailable here" });
       return;
     }
@@ -654,7 +667,7 @@ class ExtensionHost {
       this.#modelCalls.delete(id);
       if (this.alive) this.#send({ type: "models-reply", id, ...answer });
     };
-    if (!service || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+    if (!service || !this.#isActive(plugin)) {
       reply({ error: "AI models are unavailable here" });
       return;
     }
@@ -678,7 +691,7 @@ class ExtensionHost {
       this.#sessionCalls.delete(id);
       if (this.alive) this.#send({ type: "sessions-reply", id, ...answer });
     };
-    if (!service || this.scope !== "app" || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
+    if (!service || this.scope !== "app" || !this.#isActive(plugin)) {
       reply({ error: "Session access is unavailable here" });
       return;
     }
@@ -704,6 +717,7 @@ class ExtensionHost {
   #gone(reason: string) {
     if (this.#exited) return;
     this.#exited = true;
+    void this.editors.stop(this).catch((error) => this.log.push(String(error)));
     clearTimeout(this.#idle);
     this.#settleReady?.(
       new ExtensionHostError("crashed", `Extension host exited (${reason})`),
@@ -856,6 +870,24 @@ class ExtensionHost {
       );
       return;
     }
+    if (message.type === "engine-start" || message.type === "engine-stop") {
+      const { id, plugin } = message;
+      const reply = (error?: string) => this.#send({ type: "engine-reply", id, error });
+      let done: Promise<void>;
+      if (message.type === "engine-stop") {
+        done = this.editors.stop(this, plugin, message.session);
+      } else if (this.project && this.alive && this.#activations.has(plugin) && this.#isActive(plugin)) {
+        done = this.editors.start(this, this.project, plugin, id, message.options);
+      } else {
+        reply("The native plugin is not active in this project");
+        return;
+      }
+      void done.then(
+        () => reply(),
+        (error: unknown) => reply(error instanceof Error ? error.message : String(error)),
+      );
+      return;
+    }
     if (message.type === "game") {
       this.#serveGame(message.id, message.plugin, message.request);
       return;
@@ -948,6 +980,7 @@ export class ExtensionHosts {
   readonly #entry: string;
   readonly #onLog: ExtensionHostOptions["onLog"];
   #disposed = false;
+  readonly editors = new NativeEngineSessions();
 
   constructor(options: ExtensionHostOptions = {}) {
     const { hostEntry, onLog, ...rest } = options;
@@ -1076,6 +1109,7 @@ export class ExtensionHosts {
   async dispose(): Promise<void> {
     this.#disposed = true;
     await Promise.all([...this.#hosts.values()].map((host) => host.stop()));
+    await this.editors.stop(); // Also drain engines whose host already exited.
     this.#hosts.clear();
   }
 
@@ -1134,6 +1168,7 @@ export class ExtensionHosts {
       () => this.#sessions,
       () => this.#browser,
       () => this.#models,
+      this.editors,
       (plugin, level, text) => this.#onLog?.(plugin, { level, source: "native", text }),
     );
   }

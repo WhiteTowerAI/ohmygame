@@ -258,8 +258,10 @@ export function PluginChanges({ projectId, busy, onUndone }: {
         {change.failed ? <small className="project-plugin-note">{t("pluginChanges.failed", { error: change.failed })}</small> : null}
         {change.unrecorded ? <small className="project-plugin-note">{t("pluginChanges.unrecorded")}</small> : null}
         {change.late ? <small className="project-plugin-note">{t("pluginChanges.late")}</small> : null}
+        {change.cleared ? <small className="project-plugin-note">{t("pluginChanges.cleared")}</small> : null}
       </span>
       {change.undone ? <span className="project-plugins-count">{t("pluginChanges.undone")}</span>
+        : change.cleared ? null
         : change.changed.length ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void undo(change)}>{t("pluginChanges.undo")}</Button> : null}
     </div>)}
   </>;

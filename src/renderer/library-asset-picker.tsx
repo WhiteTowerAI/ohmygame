@@ -91,12 +91,12 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
 
 /** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
 function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset; selected?: boolean; onSelect: () => void }) {
-  const [item, visible] = useNearViewport<HTMLButtonElement>();
+  const [item, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const badge = assetTypeBadge(asset.mediaType);
   const title = asset.prompt ?? asset.name;
   return <button type="button" ref={item} onClick={onSelect} title={title} aria-pressed={selected} className={selected ? "is-selected" : undefined}>
     <span className="canvas-video-picker-thumbnail">
-      <AssetThumbnail asset={asset} visible={visible} />
+      <AssetThumbnail asset={asset} visible={visible} large={false} />
       {badge ? <span className="canvas-video-picker-badge">{badge}</span> : null}
     </span>
     <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? t("assets.reference") : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${t("libraryPicker.projectCount", { count: asset.projects.length })}` : ""}</small> : null}</span>

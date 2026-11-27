@@ -9,7 +9,7 @@ import { LibrarySourceBrowser } from "./library-source-browser.js";
 import { AudioTile, useTileAudio, type TileAudioState } from "./library-tile-audio.js";
 import { forgetSourceSearches } from "./library-source-searches.js";
 import type { LibrarySource } from "../shared/contracts.js";
-import { ModelPreview } from "./model-preview.js";
+import { ModelThumbnail } from "./model-thumbnail.js";
 import { Copy, ExternalLink, Layers3, Spinner, Pencil, Scissors, Trash2, Upload } from "./icons.js";
 import { onGameRecordingSaved } from "./game-recording.js";
 import { hasTransferredFiles } from "./file-transfer.js";
@@ -323,22 +323,23 @@ function assetMeta(asset: LibraryAsset, sort: AssetSort, sourceTitle?: string): 
 }
 
 function LibraryTile({ asset, sort, sourceTitle, selected, onOpen, audio }: { asset: LibraryAsset; sort: AssetSort; sourceTitle?: string | undefined; selected: boolean; onOpen: () => void; audio?: { state?: TileAudioState | undefined; toggle: () => void } }) {
-  const [tile, visible] = useNearViewport<HTMLButtonElement>();
+  const [tile, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const media = <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} meta={assetMeta(asset, sort, sourceTitle)} selected={selected} onClick={onOpen}
-    preview={<TilePreview asset={asset} visible={visible} />}
+    preview={asset.mediaType === "model"
+      ? <ModelThumbnail path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} large />
+      : <TilePreview asset={asset} visible={visible} />}
     badge={(asset.mediaType === "video" || asset.mediaType === "audio") && asset.duration ? clock(asset.duration) : undefined} />;
   if (!audio) return media;
   return <AudioTile name={fileName(asset.path)} state={audio.state} onToggle={audio.toggle}>{media}</AudioTile>;
 }
 
-/** An image, a video's first frame or a still 3D model, loaded once the tile is near the screen; otherwise its kind and file type. */
+/** An image or a video's first frame, loaded once the tile is near the screen; otherwise its kind and file type. */
 function TilePreview({ asset, visible }: { asset: LibraryAsset; visible: boolean }) {
   const [failed, setFailed] = useState(false);
   const load = visible && asset.mediaType !== "audio";
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, load ? asset.assetId : undefined);
   if (preview.url && !failed && asset.mediaType === "image") return <img className={isPixelArt(asset) ? "library-pixel-art" : undefined} src={preview.url} alt="" draggable={false} onError={() => setFailed(true)} />;
   if (preview.url && !failed && asset.mediaType === "video") return <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />;
-  if (preview.url && asset.mediaType === "model") return <span className="library-model-still"><ModelPreview source={preview.url} label={fileName(asset.path)} minHeight={0} interactive={false} controls={false} /></span>;
   return <FileMark asset={asset} />;
 }
 
@@ -348,7 +349,7 @@ function FileMark({ asset }: { asset: LibraryAsset }) {
 }
 
 function LibraryDetails({ asset, trimmedFrom, sourceTitle }: { asset: LibraryAsset; trimmedFrom?: string; sourceTitle?: string }) {
-  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
+  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId, true, asset.mediaType === "model");
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;

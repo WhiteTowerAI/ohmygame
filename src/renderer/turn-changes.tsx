@@ -200,8 +200,10 @@ export function TurnChangesFooter({
   const undone = view.result?.undone ?? Boolean(changes.undone);
   const kept = view.result?.kept ?? changes.kept ?? 0;
   const appliedAgain = listed?.every((item) => item.state === "applied");
-  const offer =
-    !undone || appliedAgain
+  // The file history of the turn was cleared: its files can no longer be shown, undone or reapplied.
+  const offer = changes.cleared
+    ? undefined
+    : !undone || appliedAgain
       ? "undo"
       : kept || listed?.some((item) => item.state === "applied")
         ? "undoRest"
@@ -224,7 +226,7 @@ export function TurnChangesFooter({
 
   useEffect(() => {
     // Older turns need their statistics even while the file list is folded.
-    if ((!view.open && summary) || view.list) return;
+    if (changes.cleared || (!view.open && summary) || view.list) return;
     startLoad(load(checkpointId), (change) =>
       update((current) => {
         const list = change(current.list);
@@ -240,6 +242,7 @@ export function TurnChangesFooter({
       }),
     );
   }, [
+    changes.cleared,
     checkpointId,
     view.open,
     view.list,
@@ -307,7 +310,9 @@ export function TurnChangesFooter({
       </button>
       {view.open ? (
         <div id={detailsId}>
-          {!items && (!view.list || view.list.status === "loading") ? (
+          {changes.cleared ? (
+            <p className="turn-changes-note">{t("checkpoints.cleared")}</p>
+          ) : !items && (!view.list || view.list.status === "loading") ? (
             <p className="turn-changes-note">
               {t("checkpoints.loadingChanges")}
             </p>
@@ -331,33 +336,35 @@ export function TurnChangesFooter({
               ))}
             </ul>
           )}
-          <div className="turn-changes-controls">
-            {offer === "undoRest" ? (
-              <span className="turn-changes-undone">
-                {t("checkpoints.partlyUndone")}
-              </span>
-            ) : null}
-            {offer ? (
-              <button
-                className="turn-changes-undo"
-                type="button"
-                disabled={disabled}
-                onClick={() => void changeFiles("undo")}
-              >
-                {t(`checkpoints.${offer}`)}
-              </button>
-            ) : null}
-            {undone ? (
-              <button
-                className="turn-changes-undo"
-                type="button"
-                disabled={disabled}
-                onClick={() => void changeFiles("reapply")}
-              >
-                {t("checkpoints.reapply")}
-              </button>
-            ) : null}
-          </div>
+          {changes.cleared ? null : (
+            <div className="turn-changes-controls">
+              {offer === "undoRest" ? (
+                <span className="turn-changes-undone">
+                  {t("checkpoints.partlyUndone")}
+                </span>
+              ) : null}
+              {offer ? (
+                <button
+                  className="turn-changes-undo"
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void changeFiles("undo")}
+                >
+                  {t(`checkpoints.${offer}`)}
+                </button>
+              ) : null}
+              {undone ? (
+                <button
+                  className="turn-changes-undo"
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void changeFiles("reapply")}
+                >
+                  {t("checkpoints.reapply")}
+                </button>
+              ) : null}
+            </div>
+          )}
           {view.result ? (
             <p className="turn-changes-result" role="status">
               {resultText(view.result)}

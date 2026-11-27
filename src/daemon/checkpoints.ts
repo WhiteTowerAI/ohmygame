@@ -82,6 +82,12 @@ export interface CheckpointPruneResult {
   bytes: number;
 }
 
+/** What a store holds, and what clearing the history before a time would remove of it. */
+export interface CheckpointUsage extends CheckpointPruneResult {
+  /** The bytes on disk of everything the store holds. */
+  held: number;
+}
+
 /** Two snapshots that enclose the changes to undo, such as one Agent turn. */
 export interface CheckpointRange {
   before: string;
@@ -214,6 +220,8 @@ interface Progress {
 const STAT_CACHE_FILE = "ohmygame-stat-cache.json";
 const UNFINISHED_FILE = "ohmygame-unfinished.json";
 const PRUNED_FILE = "ohmygame-pruned.json";
+// When the user last had the history cleared, the latest such time.
+const CLEARED_FILE = "ohmygame-cleared.json";
 // A snapshot can be taken some time before the entry that names it is written: the snapshot that closes a turn is
 // recorded when the whole run is over. What was written this recently is kept, with everything it needs.
 const PRUNE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -397,12 +405,14 @@ export class CheckpointStore {
   readonly #limit = limiter(FILE_CONCURRENCY);
   readonly #objects = new ObjectVerifier();
   readonly #gitignores = new Map<string, Ignore | undefined>();
-  /** One prune per store, including the snapshots handed out while it runs. */
+  /** One pass per store: a prune, a clear, or finding what a clear would remove. */
   readonly #prunes = new Map<
     string,
     {
       issued: Set<string>;
-      result: Promise<CheckpointPruneResult | undefined>;
+      result: Promise<CheckpointUsage | undefined>;
+      /** Whether this pass is a prune, which a prune due at the same time can join. */
+      prune: boolean;
     }
   >();
 
@@ -574,6 +584,10 @@ export class CheckpointStore {
    * `proceed` is asked once it is their turn, and the prune is left for later
    * when it says no, for example while the project is being removed or changed.
    *
+   * With `before`, the prune also clears the history from before that time,
+   * as `clear` does, for the user's choice to clear it automatically:
+   * `referenced` then names only what is kept by that time.
+   *
    * Concurrent requests share the running prune. Undefined when the last
    * prune was less than `interval` ago.
    */
@@ -583,28 +597,102 @@ export class CheckpointStore {
     options: {
       interval?: number;
       proceed?: () => boolean;
+      before?: number;
     } = {},
   ): Promise<CheckpointPruneResult | undefined> {
+    return withoutHeld(
+      this.#sweep(project, referenced, options, true, options.before, true),
+    );
+  }
+
+  /**
+   * Removes, at the user's request, the history from before `before`, a time
+   * in milliseconds since the epoch: everything that `referenced` does not
+   * need goes, however a conversation names it. `referenced` lists the
+   * snapshots to keep whole, which the caller chooses by that time. The turns
+   * that began before it cannot be undone afterwards. What else is kept is as
+   * `prune` keeps it, and the newest snapshot stays whatever its time.
+   *
+   * `proceed` and the shared running pass are as in `prune`, except that this
+   * waits for a pass under way instead of joining it: it removes what that
+   * one leaves.
+   */
+  clear(
+    project: CheckpointProject,
+    referenced: () => Promise<Iterable<string>>,
+    options: { before: number; proceed?: () => boolean },
+  ): Promise<CheckpointPruneResult | undefined> {
+    return withoutHeld(
+      this.#sweep(project, referenced, options, true, options.before, false),
+    );
+  }
+
+  /**
+   * What the store holds on disk. With `referenced`, also what `clear` would
+   * remove: all that those snapshots do not need. Nothing is removed, and no
+   * store is made.
+   */
+  async usage(
+    project: CheckpointProject,
+    referenced?: () => Promise<Iterable<string>>,
+  ): Promise<CheckpointUsage> {
+    if (referenced)
+      return (await this.#sweep(project, referenced, {}, false, undefined, false)) as CheckpointUsage;
+    // The size alone only reads the folder, so it does not wait for snapshots being taken, nor they for it.
     const gitdir = checkpointDirectory(project);
-    const pending = this.#prunes.get(gitdir);
-    if (pending) return pending.result;
+    if (!(await present(path.join(gitdir, "HEAD"))))
+      return { removed: 0, bytes: 0, held: 0 };
+    let held = 0;
+    // A time of 0 leaves the files of unfinished writes alone: a pass under way may still need them.
+    for (const object of await listObjects(gitdir, 0)) held += object.size;
+    return { removed: 0, bytes: 0, held };
+  }
+
+  async #sweep(
+    project: CheckpointProject,
+    referenced: (() => Promise<Iterable<string>>) | undefined,
+    options: {
+      interval?: number;
+      proceed?: () => boolean;
+    },
+    remove: boolean,
+    cleared: number | undefined,
+    prune: boolean,
+  ): Promise<CheckpointUsage | undefined> {
+    const gitdir = checkpointDirectory(project);
+    // Only a prune comes at most once in an interval, and joins a prune under way. Anything else comes after the pass
+    // under way, and so does a prune that also clears, which removes more than one that does not.
+    const running = this.#prunes.get(gitdir);
+    if (prune && cleared === undefined && running?.prune) return running.result;
+    for (
+      let pending = running;
+      pending;
+      pending = this.#prunes.get(gitdir)
+    )
+      await pending.result.catch(() => {});
     // A snapshot handed out from now on may be named before the removal although nothing named it before.
     const issued = new Set<string>();
-    const run = async (): Promise<CheckpointPruneResult | undefined> => {
+    const run = async (): Promise<CheckpointUsage | undefined> => {
       // A project without checkpoints does not get a store from this.
       if (!(await present(path.join(gitdir, "HEAD"))))
-        return { removed: 0, bytes: 0 };
-      if (!(await due(gitdir, Date.now(), options.interval ?? 0)))
+        return { removed: 0, bytes: 0, held: 0 };
+      if (
+        prune &&
+        !(await due(gitdir, Date.now(), options.interval ?? 0))
+      )
         return undefined;
       const kept = new Set<string>();
-      for (const root of await referenced())
-        if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
+      if (referenced)
+        for (const root of await referenced()) {
+          if (!/^[0-9a-f]{40}$/.test(root)) continue;
+          await this.#keep(gitdir, root, kept);
+        }
       return this.#serialize(project, async () => {
         const started = Date.now();
         if (
           options.proceed?.() === false ||
           !(await present(path.join(gitdir, "HEAD"))) ||
-          !(await due(gitdir, started, options.interval ?? 0))
+          (prune && !(await due(gitdir, started, options.interval ?? 0)))
         )
           return undefined;
         const recent = started - PRUNE_GRACE_MS;
@@ -619,24 +707,79 @@ export class CheckpointStore {
         ];
         for (const root of roots)
           if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
-        const result: CheckpointPruneResult = { removed: 0, bytes: 0 };
+        // The record of a clear comes first: should removing stop partway, the turns of that time still say
+        // they were cleared, instead of naming snapshots that are gone without saying why.
+        if (remove && cleared !== undefined) {
+          const record = path.join(gitdir, CLEARED_FILE);
+          const known = await this.#cleared(gitdir);
+          const existing = await present(record);
+          // Never remove objects while an existing record from an unknown or
+          // newer version cannot be read: after restart there would be no
+          // reliable boundary with which to mark the affected turns cleared.
+          if (existing && known === undefined)
+            throw new Error("The checkpoint clear record is invalid or unsupported");
+          await writeAtomically(
+            gitdir,
+            record,
+            JSON.stringify({
+              version: 1,
+              before: Math.max(cleared, known ?? 0),
+            }),
+          );
+        }
+        const result: CheckpointUsage = { removed: 0, bytes: 0, held: 0 };
         for (const object of objects) {
+          result.held += object.size;
           if (kept.has(object.oid) || object.changedMs >= recent) continue;
-          await removeObject(gitdir, object.oid);
+          // A file another program holds open (on Windows, often a virus scanner) stays for the next pass.
+          if (remove && !(await removeObjectIfFree(gitdir, object.oid))) continue;
           result.removed += 1;
           result.bytes += object.size;
         }
-        await writeAtomically(
-          gitdir,
-          path.join(gitdir, PRUNED_FILE),
-          JSON.stringify({ at: started }),
-        );
+        if (remove)
+          await writeAtomically(
+            gitdir,
+            path.join(gitdir, PRUNED_FILE),
+            JSON.stringify({ at: started }),
+          );
         return result;
       });
     };
     const result = run().finally(() => this.#prunes.delete(gitdir));
-    this.#prunes.set(gitdir, { issued, result });
+    this.#prunes.set(gitdir, { issued, result, prune });
     return result;
+  }
+
+  /**
+   * The time before which the user had the history cleared, in milliseconds
+   * since the epoch, or undefined. A turn that began before it names snapshots
+   * that are gone, so the conversation shows it without Undo.
+   */
+  async cleared(project: CheckpointProject): Promise<number | undefined> {
+    return this.#cleared(checkpointDirectory(project));
+  }
+
+  async #cleared(gitdir: string): Promise<number | undefined> {
+    let record: unknown;
+    try {
+      record = JSON.parse(
+        await readFile(path.join(gitdir, CLEARED_FILE), "utf8"),
+      );
+    } catch {
+      return undefined;
+    }
+    const { version, before } = (record ?? {}) as {
+      version?: unknown;
+      before?: unknown;
+    };
+    return version === 1 && typeof before === "number" && Number.isFinite(before)
+      ? before
+      : undefined;
+  }
+
+  /** Whether the store still holds a snapshot. */
+  held(project: CheckpointProject, commit: string): Promise<boolean> {
+    return hasObjectFile(checkpointDirectory(project), commit);
   }
 
   /** Adds an object to `kept` with everything it needs. Reading goes on beside other reads, a few at a time. */
@@ -1850,6 +1993,35 @@ async function present(target: string): Promise<Stats | undefined> {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
     throw error;
   });
+}
+
+// Errors Windows gives for a file another program has open, such as a virus scanner reading it just then.
+const HELD_FILE = new Set(["EBUSY", "EPERM", "EACCES"]);
+
+/**
+ * Removes an object, trying a few times over a moment while another program
+ * holds it. False when it is still held, or cannot be removed: what the store
+ * needs is not affected, and a later pass removes it.
+ */
+async function removeObjectIfFree(gitdir: string, oid: string): Promise<boolean> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await removeObject(gitdir, oid);
+      return true;
+    } catch (error) {
+      if (!HELD_FILE.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      if (attempt === 2) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+}
+
+/** What a prune or clear removed, without the size of the whole store that the pass also found. */
+async function withoutHeld(
+  sweep: Promise<CheckpointUsage | undefined>,
+): Promise<CheckpointPruneResult | undefined> {
+  const result = await sweep;
+  return result && { removed: result.removed, bytes: result.bytes };
 }
 
 /** Whether the store was last pruned at least `interval` ago, or at a time that is not known or still to come. */

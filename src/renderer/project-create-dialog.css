@@ -57,12 +57,6 @@
   overflow-wrap: anywhere;
 }
 
-/* A plugin's own creation panel (TapTap Maker) brings its header. */
-.new-project-integration {
-  padding: var(--space-4);
-  overflow: auto;
-}
-
 /* With plugins' templates, the type row's label chooses between a type and a template, as two words. */
 .new-project-start {
   display: inline-flex;

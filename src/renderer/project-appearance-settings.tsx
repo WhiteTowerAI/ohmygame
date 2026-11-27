@@ -14,6 +14,7 @@ import { refreshSidebarProject } from "./sidebar-projects.js";
 import { ChevronDown, Spinner, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
+import { ProjectFileHistory } from "./project-file-history.js";
 import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
 import { t } from "./i18n.js";
 
@@ -241,5 +242,6 @@ export function ProjectGeneralSettings({ project, onRename }: {
   return <>
     <Field label={t("common.name")}>{(props) => <Input {...props} value={name} onChange={(event) => setName(event.target.value)} />}</Field>
     <ProjectAppearanceSettings key={project.id} project={project} />
+    <ProjectFileHistory key={`history:${project.id}`} project={project} />
   </>;
 }

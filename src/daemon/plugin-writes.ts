@@ -52,6 +52,11 @@ export interface PluginChange {
   late?: true;
   /** Ran, but not recorded yet, so it can't be undone yet. */
   unrecorded?: true;
+  /**
+   * Made before the time the user cleared the file history from, so its
+   * snapshots are gone. Not stored: the history says it when it is read.
+   */
+  cleared?: true;
 }
 
 /** A plugin write that started and isn't in the history yet. */
@@ -237,11 +242,14 @@ export class PluginWrites {
     if (!running() && (await this.#read(project)).pending && !this.options.busy(project))
       await this.options.writes.exclusive(project.id, () => this.#settle(project)).catch(() => {});
     const { changes, pending } = await this.#read(project);
+    const clearedBefore = await this.options.checkpoints.cleared(project);
     return [
       ...(pending && !running()
         ? [{ ...pending, after: pending.before, changed: [], unrecorded: true as const }]
         : []),
-      ...changes.reverse(),
+      ...changes.reverse().map((change) =>
+        !change.undone && madeBefore(change, clearedBefore) ? { ...change, cleared: true as const } : change,
+      ),
     ];
   }
 
@@ -259,6 +267,8 @@ export class PluginWrites {
       if (!change) throw new PluginChangeError("No such plugin change", 404);
       if (change.undone)
         throw new PluginChangeError("This change was already undone");
+      if (madeBefore(change, await this.options.checkpoints.cleared(project)))
+        throw new PluginChangeError("The file history of this change was cleared, so it can no longer be undone", 404);
       const result = await this.options.checkpoints.undo(project, {
         before: change.before,
         after: change.after,
@@ -279,11 +289,19 @@ export class PluginWrites {
     });
   }
 
-  /** Snapshots the history names, which pruning keeps. */
-  async snapshots(project: Project): Promise<Set<string>> {
+  /**
+   * Snapshots the history names, which pruning keeps. With `since`, only
+   * those of changes made at or after it, as clearing the file history before
+   * that time leaves them. The time of the change is used, not of its
+   * snapshots: a change begins with the snapshot the workspace had, which can
+   * be much older.
+   */
+  async snapshots(project: Project, since?: number): Promise<Set<string>> {
     const { changes, pending } = await this.#read(project);
     return new Set([
-      ...changes.flatMap((entry) => [entry.before, entry.after]),
+      ...changes
+        .filter((entry) => !madeBefore(entry, since))
+        .flatMap((entry) => [entry.before, entry.after]),
       ...(pending ? [pending.before] : []),
     ]);
   }
@@ -347,4 +365,10 @@ export class PluginWrites {
       `${JSON.stringify({ version: 1, ...change(await this.#read(project)) }, null, 2)}\n`,
     );
   }
+}
+
+/** Whether a change was made before `time`. One that does not say when it was made is kept. */
+function madeBefore(change: Pick<PluginChange, "at">, time: number | undefined): boolean {
+  const at = Date.parse(change.at);
+  return time !== undefined && Number.isFinite(at) && at < time;
 }

@@ -36,6 +36,11 @@ export class DaemonSupervisor {
     return this.#daemon.runtime;
   }
 
+  async prepareEditorShutdown(): Promise<string | undefined> {
+    await this.#pending;
+    return this.#daemon?.prepareEditorShutdown();
+  }
+
   state(): DesktopRuntimeState {
     return structuredClone(this.#state);
   }

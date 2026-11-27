@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError } from "../src/renderer/custom-provider-models.js";
+import { applyDiscoveredLanguageFields, initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError } from "../src/renderer/custom-provider-models.js";
 import { AGENT_REASONING_LEVELS, type CustomProviderModel } from "../src/shared/contracts.js";
 import { supportedReasoningLevels } from "../src/shared/reasoning.js";
 import { defaultImageSettings, defaultVideoSettings } from "../src/shared/custom-models.js";
@@ -46,6 +46,26 @@ describe("custom provider model refresh", () => {
     expect(merged[0]).toEqual({ ...row, model: { ...model, reasoningCapabilities: reported } });
     expect(merged[1]).toMatchObject({ model: { id: "new" }, enabled: false });
     expect(row.model).not.toHaveProperty("reasoningCapabilities");
+  });
+
+  it("refreshes reported automatic fields and retains overrides through ID-only fetches", () => {
+    const discovered = { ...model, contextWindow: 65536, maxTokens: 8192, reasoning: true, supportsImages: false };
+    const [imported] = mergeDiscoveredProviderModels([], [discovered]);
+    const customized: CustomProviderModel = { ...imported.model, contextWindow: 4096, automaticFields: ["maxTokens", "reasoning"] };
+    const current = [{ ...imported, model: customized }];
+    const [updated] = mergeDiscoveredProviderModels(current, [{ ...discovered, maxTokens: 10000, reasoning: false, reportedFields: ["contextWindow", "maxTokens", "reasoning"] }]);
+    expect(updated.model).toMatchObject({ contextWindow: 4096, maxTokens: 4096, reasoning: false });
+    const [sparse] = mergeDiscoveredProviderModels([updated], [{ ...discovered, maxTokens: 16_384, reportedFields: [] }]);
+    expect(sparse).toEqual(updated);
+    const override = { ...updated, model: { ...updated.model, baseUrl: "https://other.example" } };
+    expect(mergeDiscoveredProviderModels([override], [discovered], "https://gateway.example")[0]).toBe(override);
+  });
+
+  it("adopts a reported limit without copying fallback values for other fields", () => {
+    const manual: CustomProviderModel = { ...model, automaticFields: ["reasoning", "maxTokens"] };
+    const fetched = { ...model, contextWindow: 128_000, maxTokens: 8192, reasoning: true, supportsImages: false };
+    expect(applyDiscoveredLanguageFields(manual, { ...fetched, reportedFields: ["maxTokens"] })).toEqual({ ...manual, maxTokens: 8192 });
+    expect(applyDiscoveredLanguageFields(manual, { ...fetched, reportedFields: [] })).toEqual(manual);
   });
 
   it("preserves configured media uses and manual aliases when discovery changes or removes a model", () => {

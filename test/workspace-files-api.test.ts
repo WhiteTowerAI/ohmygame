@@ -37,6 +37,32 @@ async function setup() {
 }
 
 describe("project file management", () => {
+  it("caches model frames separately from reference images and rejects captures of replaced models", async () => {
+    const { app, project } = await setup();
+    const file = path.join(project.workspacePath, "knight.glb");
+    await writeFile(file, "first model");
+    const reference = ".ohmygame/asset-previews/knight.jpg";
+    await writeAssetMetadata(project.workspacePath, "knight.glb", { previewPath: reference });
+    const url = `/model-thumbnails?project=${project.id}&path=knight.glb&size=`;
+    const miss = await app.inject(url + "small");
+    expect(miss.statusCode, miss.body).toBe(200);
+    const { version } = miss.json<{ version: string }>();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aexkAAAAASUVORK5CYII=", "base64");
+    const put = (size: string, payload: Buffer) => app.inject({ method: "PUT", url: url + size + "&version=" + version, headers: { "content-type": "application/octet-stream" }, payload });
+    expect((await put("small", Buffer.from("invalid"))).statusCode).toBe(400);
+    expect((await put("small", png)).statusCode).toBe(204);
+    expect((await app.inject(url + "small")).rawPayload).toEqual(png);
+    expect((await app.inject(url + "large")).json()).toEqual({ version });
+    expect((await put("large", png)).statusCode).toBe(204);
+    expect((await app.inject(url + "large")).rawPayload).toEqual(png);
+    await writeFile(file, "other model");
+    expect((await app.inject(url + "small")).json().version).not.toBe(version);
+    expect((await put("small", png)).statusCode).toBe(409);
+    expect((await readAssetMetadata(project.workspacePath)).previews["knight.glb"]).toBe(reference);
+    await rm(file);
+    expect((await app.inject(url + "small")).statusCode).toBe(404);
+  });
+
   it("supports bounded directory listings while preserving the complete asset index and metadata", async () => {
     const { app, project, base } = await setup();
     await mkdir(path.join(project.workspacePath, "场景", "deep"), { recursive: true });

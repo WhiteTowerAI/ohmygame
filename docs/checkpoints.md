@@ -47,7 +47,9 @@ Reapply, Undo is available again. Partial Undo and **Undo the rest** keep a
 separate pre-undo snapshot target for each affected path, so Reapply can restore
 both operations together. Repeating Undo on a file/folder replacement updates
 related paths to the latest pre-undo structure. Targets persist across daemon
-restarts.
+restarts. A turn whose file history was cleared shows a notice in place of its
+file list and has no Undo or Reapply; see
+[Clearing the file history](#clearing-the-file-history).
 
 ## Later edits and running work
 
@@ -168,9 +170,70 @@ cannot be read stops the prune before anything is removed.
 Conversations cannot be deleted, so pruning only frees snapshots that no entry
 ever named, such as those taken to show current file states or left by failed
 runs. Turns stay undoable for as long as their conversation exists, and the
-store keeps every version of every file that a turn boundary recorded. Commits
+store keeps every version of every file that a turn boundary recorded, until
+the user clears the file history. Commits
 keep their parent links, so Git tools reading the store stop at a pruned
 parent.
+
+### Clearing the file history
+
+**Project settings → General → File history** shows how much disk the
+project's file history takes, and **Free up space…** removes the older part of
+it. The project's files and conversations are not changed. The dialog offers
+7 days, 30 days, 90 days, 1 year or a date, and reads what that choice frees
+and how many turns would lose their Undo before the clear button, which
+names the size it frees, can be chosen. It stays off while that is unknown and
+when there is nothing to remove. A custom date can be today at the latest. A clear waits while agents, generation jobs, publishing or a workspace
+operation are under way.
+
+A turn belongs to the cleared time when the entry of its checkpoint was
+written before the chosen time; that entry is written when the message is
+consumed. The time of a turn's own entry is used rather than that of its
+snapshot, because a turn begins with the snapshot the turn before ended with,
+which is older. What an entry from the chosen time on names stays whole, and
+so does what the last 24 hours wrote. A turn that began before the chosen
+time can no longer show its file list, be undone or reapplied, also after a
+restart: the conversation shows **The file history of this turn was cleared**
+in place of the list and its buttons, and the routes answer `404` with
+`checkpoint_cleared`. The count of files it changed stays, and Reapply of an
+earlier Undo is gone with it. A store that lost a snapshot for another reason
+still answers with its own error.
+
+A plugin change is judged the same way, by when it was made: one made from
+the chosen time on stays undoable although it may begin with an older
+snapshot, since a snapshot of an unchanged workspace is reused. One made
+before shows that its file history was cleared in **Plugin changes** and has
+no Undo.
+
+The store records the time of the last clear in `ohmygame-cleared.json`,
+before it removes anything, so a clear that stops partway still shows those
+turns as cleared. A file another program holds open, as a virus scanner can on
+Windows, is tried again a few times and otherwise left for the next clear or
+prune.
+Clearing again for an earlier time removes nothing and leaves the record as it
+is; a time ahead of now is refused. Clearing by hand does not change when the
+automatic prune next runs. What the last 24 hours kept from a clear is removed
+by the next automatic prune, which leaves out what a clear took as well.
+
+### Clearing the file history automatically
+
+**Settings → General → File history → Clear old history automatically** is
+off by default. Set to 7 days, 30 days, 90 days or 1 year, it clears every
+project's file history from before that long ago, as a clear by hand would.
+Turning it on, or choosing a shorter time, asks for confirmation first. The
+choice is kept in `file-history-settings.json` in the data folder, as
+`{ "version": 1, "autoClearDays": n }`; a file that cannot be read clears
+nothing and is left as it is until the user fixes or removes it.
+
+Choosing a time clears each project in turn at once. After that, the clear
+goes with the automatic prune: after a completed run, and for every project
+when the daemon starts, at most once a day each, it removes the history from
+before that many days before now. Like a clear by hand, it records the time
+first, waits while agents, generation jobs, publishing or a workspace
+operation are under way, and tells an open conversation through
+`history.cleared`. The cleared time only moves forward: a later clear by hand
+or a longer setting does not bring cleared turns back. Project settings say
+when a project's history is cleared automatically.
 
 The global asset Library,
 generation history, and conversation session files are preserved. Snapshot
@@ -218,12 +281,21 @@ restoring files.
 - HTTP coordination and recovery: `src/daemon/project-writes.ts`,
   `src/daemon/checkpoint-routes.ts`, `src/daemon/workspace-notice.ts`.
 - UI: `src/renderer/turn-changes.tsx`, `src/renderer/project-shell.tsx`,
-  `src/renderer/workspace-version.ts`.
+  `src/renderer/workspace-version.ts`, and `src/renderer/project-file-history.tsx`
+  for clearing the file history, by hand and automatically;
+  `src/daemon/file-history-settings.ts` keeps the automatic choice.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
   `test/checkpoint-routes.test.ts`, `test/checkpoint-references.test.ts`,
   `test/preview-checkpoints.test.ts`, and the canvas storage suites.
 
 The routes under `/projects/:projectId` are:
+
+- `GET checkpoints/history`, and with `?before=<milliseconds>` also what
+  clearing before that time would free and the turns that lose their Undo
+- `POST checkpoints/history/clear` with `{ before }`
+
+The app setting is `GET /settings/file-history` and `PUT /settings/file-history`
+with `{ autoClearDays }`, which is 0, 7, 30, 90 or 365.
 
 - `GET conversations/:conversationId/checkpoints/:checkpointId/changes`
 - `GET conversations/:conversationId/checkpoints/:checkpointId/file?path=...`

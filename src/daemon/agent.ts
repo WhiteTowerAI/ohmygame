@@ -24,7 +24,7 @@ import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } f
 import type { RuntimeEventBus } from "../shared/events.js";
 import { terminalAgentItemId } from "../shared/turns.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
-import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
+import { NATIVE_REASONING_ENTRY, savedConversationReasoningLevel, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
 import { PROPOSED_PLAN_TOOL } from "./agent-runtimes/driver-context.js";
 import { invokedSkills } from "./agent-runtimes/skills.js";
@@ -137,10 +137,20 @@ export type AgentRunResult = "completed" | "cancelled";
 type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
-export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): ThreadItem[] {
+/**
+ * `clearedBefore`, when given, is the time before which the project's file
+ * history was cleared: a turn that began before it says so, since the
+ * snapshots of its changes are gone.
+ */
+export function conversationItems(
+  entries: readonly SessionEntry[],
+  markInterrupted = true,
+  clearedBefore?: number,
+): ThreadItem[] {
   const items: ThreadItem[] = [];
   const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
   const checkpointIndices = new Map<string, number>();
+  const checkpointTimes = new Map<string, number>();
   const planCalls = new Set<string>();
   const questionnaireCalls = new Map<string, Extract<ThreadItem, { type: "userInputRequest" }>>();
   let turnId: string | undefined;
@@ -183,6 +193,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     if (entry.type === "custom" && entry.customType === CHECKPOINT_ENTRY) {
       // The snapshot was taken just before the user message that follows.
       checkpointId = parseStoredCheckpoint(entry.data) ? entry.id : undefined;
+      if (checkpointId) checkpointTimes.set(checkpointId, Date.parse(entry.timestamp));
       continue;
     }
     if (entry.type === "custom" && entry.customType === CHECKPOINT_RESTORED_ENTRY) {
@@ -195,7 +206,10 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const end = parseStoredTurnEnd(entry.data);
       const index = (end && checkpointIndices.get(end.checkpoint)) ?? -1;
       const item = items[index];
-      if (end && item?.type === "userMessage") items[index] = { ...item, changes: { files: end.files, ...(end.items ? { items: end.items } : {}) } };
+      // The snapshot was written before its entry, so a turn whose entry is older than the clear began before it.
+      const taken = end ? checkpointTimes.get(end.checkpoint) : undefined;
+      const cleared = taken !== undefined && clearedBefore !== undefined && taken < clearedBefore;
+      if (end && item?.type === "userMessage") items[index] = { ...item, changes: { files: end.files, ...(end.items ? { items: end.items } : {}), ...(cleared ? { cleared: true } : {}) } };
       continue;
     }
     if (entry.type === "custom" && entry.customType === CHECKPOINT_UNDONE_ENTRY) {
@@ -205,7 +219,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       // The last undo of a turn says how it stands: one that left files as they are, until a later one puts those back too.
       if (undone && item?.type === "userMessage" && item.changes) {
         const pending = undone.reapply === undefined || Object.keys(undone.reapply).length > 0;
-        items[index] = { ...item, changes: { files: item.changes.files, ...(item.changes.items ? { items: item.changes.items } : {}), ...(pending ? { undone: true, ...(undone.kept > 0 ? { kept: undone.kept } : {}) } : {}) } };
+        items[index] = { ...item, changes: { files: item.changes.files, ...(item.changes.items ? { items: item.changes.items } : {}), ...(item.changes.cleared ? { cleared: true } : {}), ...(pending ? { undone: true, ...(undone.kept > 0 ? { kept: undone.kept } : {}) } : {}) } };
       }
       continue;
     }
@@ -3186,6 +3200,8 @@ export async function createPiSession(
       spawnHook: (context) => ({ ...context, env: projectProcessEnvironment(context.env) }),
     }) as ToolDefinition, images.recallTool as ToolDefinition, ...customTools],
     model: model ? compatibleRuntimeModel(model) : undefined,
+    // Pi only restores the selected effort once the branch contains a message.
+    thinkingLevel: savedConversationReasoningLevel(sessionManager),
     modelRuntime,
     resourceLoader,
     sessionManager,

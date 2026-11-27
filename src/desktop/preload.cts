@@ -60,8 +60,8 @@ if (process.isMainFrame) {
       ipcRenderer.on("ohmygame:prepare-close", callback);
       return () => ipcRenderer.removeListener("ohmygame:prepare-close", callback);
     },
-    onCancelClose: (listener: (error: string) => void) => {
-      const callback = (_event: Electron.IpcRendererEvent, _id: number, error: string) => listener(error);
+    onCancelClose: (listener: (error?: string) => void) => {
+      const callback = (_event: Electron.IpcRendererEvent, _id: number | undefined, error?: string) => listener(error);
       ipcRenderer.on("ohmygame:cancel-close", callback);
       return () => ipcRenderer.removeListener("ohmygame:cancel-close", callback);
     },

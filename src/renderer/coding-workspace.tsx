@@ -1821,7 +1821,7 @@ const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
  * reference always says so.
  */
 function ProjectAssetTile({ asset, sort, showKind, showOrigin, selected, onOpen }: { asset: BrowsableAsset; sort: AssetSort; showKind: boolean; showOrigin: boolean; selected: boolean; onOpen: () => void }) {
-  const [tile, visible] = useNearViewport<HTMLButtonElement>();
+  const [tile, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const extension = fileExtension(asset.path).slice(1).toUpperCase();
   const meta = [
     assetSortDetail(asset, sort),

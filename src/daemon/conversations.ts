@@ -18,6 +18,11 @@ export interface StoredConversation {
 
 export const NATIVE_REASONING_ENTRY = "ohmygame-native-reasoning";
 
+export function savedConversationReasoningLevel(manager: SessionManager): AgentReasoningLevel | undefined {
+  const entry = manager.getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
+  return parseReasoningLevel(entry?.thinkingLevel);
+}
+
 export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
   /** The file operations on each conversation, one after another, so a rename never writes to a file being moved. */
@@ -260,8 +265,7 @@ export class ConversationManager {
   }
 
   async reasoningLevel(project: ProjectState, stored: StoredConversation): Promise<AgentReasoningLevel | undefined> {
-    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
-    return entry?.type === "thinking_level_change" ? parseReasoningLevel(entry.thinkingLevel) : undefined;
+    return savedConversationReasoningLevel(await this.view(project, stored));
   }
 
   setReasoningLevel(project: ProjectState, stored: StoredConversation, level: AgentReasoningLevel): void {

@@ -1,13 +1,23 @@
-import { Spinner, Pause, Play } from "./icons.js";
+import { Box, Spinner, Pause, Play, TriangleAlert } from "./icons.js";
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { Button } from "./ui/button.js";
 import { useSeenOnScreen } from "./use-seen-on-screen.js";
 
-type ModelViewerElement = HTMLElement & {
+export interface ModelFrame {
+  readonly isConnected: boolean;
+  readonly modelIsVisible: boolean;
+  toBlob(options: { mimeType: string }): Promise<Blob>;
+}
+export interface ThumbnailCapture {
+  settled(): void;
+  failed(): void;
+  capture(frame: ModelFrame): void;
+}
+
+type ModelViewerElement = HTMLElement & ModelFrame & {
   loaded: boolean;
   availableAnimations: string[];
-  modelIsVisible: boolean;
   paused: boolean;
   play: () => void;
   pause: () => void;
@@ -31,10 +41,11 @@ let modelLoads = 0;
 const waitingModels: Array<() => void> = [];
 
 /** Calls `start` when this model may load; the returned function ends its turn, or leaves the queue. */
-function takeModelLoadTurn(start: () => void): () => void {
+export function takeModelLoadTurn(start: () => void, priority = false): () => void {
   let state: "waiting" | "loading" | "done" = "waiting";
   const begin = () => { state = "loading"; modelLoads++; start(); };
   if (modelLoads < MODEL_LOADS_AT_ONCE) begin();
+  else if (priority) waitingModels.unshift(begin);
   else waitingModels.push(begin);
   return () => {
     if (state === "waiting") waitingModels.splice(waitingModels.indexOf(begin), 1);
@@ -43,8 +54,15 @@ function takeModelLoadTurn(start: () => void): () => void {
   };
 }
 
+/** The same quiet placeholder while a tile waits for bytes, the viewer, or its first frame. */
+export function ModelPlaceholder({ error }: { error?: string }) {
+  return error
+    ? <span className="model-placeholder" role="img" aria-label={error} title={error}><TriangleAlert size="lg" aria-hidden="true" /></span>
+    : <Box className="model-placeholder" size="lg" aria-hidden="true" />;
+}
+
 /** `autoPlay` starts a model's clip as it loads: for a view of one model, not a board or chat of them. */
-export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true, autoPlay = false }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean; autoPlay?: boolean }) {
+export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true, autoPlay = false, thumbnail }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean; autoPlay?: boolean; thumbnail?: ThumbnailCapture }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -55,10 +73,11 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [clip, setClip] = useState<string>();
   const [playing, setPlaying] = useState(autoPlay);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  const seen = useSeenOnScreen(frame);
+  const compact = !interactive && !controls;
+  const seen = useSeenOnScreen(thumbnail ? null : frame);
   // The source whose turn it is: a new source must wait for its own.
   const [turnSource, setTurnSource] = useState<string>();
-  const turn = turnSource === source;
+  const turn = Boolean(thumbnail) || turnSource === source;
   const endTurn = useRef(() => {});
 
   useEffect(() => {
@@ -83,11 +102,15 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   }, [source, autoPlay]);
 
   useEffect(() => {
-    if (!seen) return;
-    const end = takeModelLoadTurn(() => setTurnSource(source));
+    if (componentError) thumbnail?.failed();
+  }, [componentError, thumbnail]);
+
+  useEffect(() => {
+    if (!seen || thumbnail) return;
+    const end = takeModelLoadTurn(() => setTurnSource(source), autoPlay);
     endTurn.current = end;
     return () => { end(); setTurnSource(undefined); };
-  }, [seen, source]);
+  }, [seen, source, thumbnail, autoPlay]);
 
   // Listen as the viewer is put in the page, before it can fail: a missed
   // error would keep its turn from every other model.
@@ -95,12 +118,17 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     const viewer = viewerRef.current;
     if (!componentReady || !viewer) return;
 
+    const captureVisible = () => {
+      if (viewer.loaded && viewer.modelIsVisible && document.visibilityState !== "hidden") thumbnail?.capture(viewer);
+    };
     const handleLoad = () => {
       endTurn.current();
+      thumbnail?.settled();
+      captureVisible();
       setProgress(1);
       setLoaded(true);
       // Rigged models carry one clip per move; let the person choose which to play.
-      setClips([...(viewer.availableAnimations ?? [])]);
+      if (controls) setClips([...(viewer.availableAnimations ?? [])]);
     };
     const handleProgress = (event: Event) => {
       const nextProgress = (event as ModelViewerProgress).detail?.totalProgress;
@@ -108,6 +136,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     };
     const handleError = (event: Event) => {
       endTurn.current();
+      thumbnail?.failed();
       const detail = (event as ModelViewerError).detail;
       console.error("3D preview failed", detail?.sourceError);
       const type = detail?.type;
@@ -116,17 +145,23 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         : t("modelPreview.displayFailed"));
     };
 
+    if (thumbnail) {
+      viewer.addEventListener("model-visibility", captureVisible);
+      document.addEventListener("visibilitychange", captureVisible);
+    }
     viewer.addEventListener("load", handleLoad);
-    viewer.addEventListener("progress", handleProgress);
+    if (!compact) viewer.addEventListener("progress", handleProgress);
     viewer.addEventListener("error", handleError);
     if (viewer.loaded) handleLoad();
 
     return () => {
+      viewer.removeEventListener("model-visibility", captureVisible);
+      document.removeEventListener("visibilitychange", captureVisible);
       viewer.removeEventListener("load", handleLoad);
       viewer.removeEventListener("progress", handleProgress);
       viewer.removeEventListener("error", handleError);
     };
-  }, [componentReady, source, turn]);
+  }, [componentReady, source, turn, thumbnail, compact, controls]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -134,8 +169,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     // Keep the current camera and frame. Autoplay=false alone does not pause
     // a model that was already playing, so use the viewer's playback API too.
     // Playing never turns the model: the person drags it to see another side.
+    if (!controls) { viewer.pause(); return; }
     const syncPlayback = () => {
-      const active = controls && playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
+      const active = playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
       if (active && viewer.paused) viewer.play();
       else if (!active) viewer.pause();
     };
@@ -152,6 +188,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   }, [componentReady, source, controls, playing, modelError, turn]);
 
   if (!componentReady) {
+    if (compact) return <ModelPlaceholder error={componentError ? t("modelPreview.viewerFailed") : undefined} />;
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
       {!componentError ? <Spinner size="md" /> : null}
       {componentError ? t("modelPreview.viewerFailed") : t("modelPreview.loadingViewer")}
@@ -175,13 +212,14 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         tabIndex: interactive ? undefined : -1,
         "aria-hidden": interactive ? undefined : true,
       }) : null}
-      {!loaded && !modelError ? (
+      {compact && (!loaded || modelError) ? <span className="model-preview-state"><ModelPlaceholder error={modelError} /></span> : null}
+      {!compact && !loaded && !modelError ? (
         <span className="model-preview-state">
           <Spinner size="md" />
           {progress > 0 ? t("modelPreview.loadingProgress", { percent: Math.round(progress * 100) }) : t("modelPreview.loading")}
         </span>
       ) : null}
-      {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
+      {!compact && modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
       {controls && loaded && !modelError && clips.length > 0 ? (
         // A model with nothing to play is a still: it gets no controls.
         // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.

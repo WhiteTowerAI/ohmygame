@@ -1,3 +1,4 @@
+import { on } from "node:events";
 import type { BrowserUseRequest, BrowserUseResult } from "../shared/browser-use.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
@@ -14,6 +15,7 @@ const MAX_STARTUP_OUTPUT_CHARS = 8_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 20_000;
 
 export interface ManagedDaemon {
+  prepareEditorShutdown(): Promise<string | undefined>;
   runtime: DaemonRuntime;
   stop(): Promise<void>;
 }
@@ -173,8 +175,25 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   }
 
   let stopping: Promise<void> | undefined;
+  let nextEditorCheck = 0;
   return {
     runtime,
+    async prepareEditorShutdown() {
+      if (!child.connected) return;
+      const id = ++nextEditorCheck;
+      const replies = on(child, "message", { close: ["disconnect"], signal: AbortSignal.timeout(5_000) });
+      try {
+        child.send({ channel: "ohmygame:prepare-editor-shutdown", id });
+        for await (const [message] of replies) {
+          if (message?.channel === "ohmygame:editor-shutdown-result" && message.id === id) return message.editor;
+        }
+      } catch (error) {
+        if (child.connected) child.send({ channel: "ohmygame:cancel-editor-shutdown" }, () => {});
+        throw error;
+      } finally {
+        await replies.return?.();
+      }
+    },
     stop() {
       if (stopping) return stopping;
       stopped = true;
