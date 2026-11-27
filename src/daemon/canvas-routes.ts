@@ -136,8 +136,8 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
   });
-  for (const action of ["cancel", "retry"] as const) app.post<{ Params: { projectId: string; jobId: string } }>(`${base}/jobs/:jobId/${action}`, async (request, reply) => {
-    try { return await store[action](request.params.projectId, request.params.jobId); } catch (cause) { return failure(cause, reply); }
+  app.post<{ Params: { projectId: string; jobId: string } }>(`${base}/jobs/:jobId/cancel`, async (request, reply) => {
+    try { return await store.cancel(request.params.projectId, request.params.jobId); } catch (cause) { return failure(cause, reply); }
   });
   return store;
 }

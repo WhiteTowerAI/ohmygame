@@ -1,4 +1,4 @@
-import { mediaJobNotice, retiredMediaRetry, migratedMediaBoard, type MediaMigrationState } from "./media-model-migration.js";
+import { mediaJobNotice, migratedMediaBoard, type MediaMigrationState } from "./media-model-migration.js";
 import { Compile } from "typebox/schema";
 import { canvasChainHasCycle, canvasChainTextStep, canvasDownstream, canvasNodeSourceIds, canvasUpstreamKeys } from "../shared/canvas-chains.js";
 import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
@@ -323,12 +323,14 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
     }
   });
 }
-type StoredJob = ToolJob & { input?: RunToolRequest; recoveryId?: string; resuming?: true; inputRevision?: string; pluginOutput?: string };
+type StoredJob = ToolJob & { recoveryId?: string; inputRevision?: string; pluginOutput?: string };
+/** A job as history files may hold it: earlier versions also kept an unfinished job's input for retry. */
+type HistoricalJob = StoredJob & { input?: RunToolRequest; resuming?: true };
 
 /** Read history without creating a canvas, interrupting running jobs or saving it.
  * Without projectId this checks file shape only, not project registration.
  */
-export async function readCanvasJobHistory(workspace: string, projectId?: string): Promise<StoredJob[]> {
+export async function readCanvasJobHistory(workspace: string, projectId?: string): Promise<HistoricalJob[]> {
   try {
     const value: unknown = JSON.parse(await readFile(await canvasPath(workspace, "jobs.json"), "utf8"));
     if (!Array.isArray(value) || value.length > 1000 || value.some((job) => !job || typeof job.id !== "string" ||
@@ -356,7 +358,7 @@ export interface CanvasPluginRunner {
   /** The package the node would run from now, part of what a reused result must match, and the inputs it declares. */
   describe?(project: ProjectState, node: string): Promise<{ package: string; inputs: string[] } | undefined>;
 }
-const publicJob = ({ input: _input, recoveryId: _recoveryId, resuming: _resuming, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
+const publicJob = ({ recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
 export type CanvasGenerationReuse = "running" | "output";
 /** The nodes the daemon runs, and the tool each runs as. */
@@ -550,7 +552,9 @@ export class CanvasStore {
     if (this.#jobs.has(id)) return this.#jobs.get(id)!;
     const project = this.#project(id);
     await ensureCanvasIndex(project.workspacePath);
-    const jobs = (await readCanvasJobHistory(project.workspacePath, id)).map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation interrupted. Retry can resume a saved provider task." } : job);
+    // compat: since beta.5.12, remove from beta.7 and 2026-12-26. History kept each unfinished job's input, reference images inline, for a retry the canvas no longer offers.
+    const stored = (await readCanvasJobHistory(project.workspacePath, id)).map(({ input: _input, resuming: _resuming, ...job }): StoredJob => job);
+    const jobs = stored.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation interrupted. Generate again to start a new request." } : job);
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
@@ -560,7 +564,7 @@ export class CanvasStore {
     try { await this.#saveJobs(id); } catch (cause) { this.#jobs.set(id, jobs); throw cause; }
   }
   async jobs(id: string): Promise<ToolJob[]> { return withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).map(job => publicJob(mediaJobNotice(job, this.mediaMigrations)))); }
-  async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, recoveryId?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
+  async start(id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest, expectedReads?: string, reuse = false): Promise<ToolJob & { reused?: CanvasGenerationReuse }> {
     const workspace = this.#project(id).workspacePath;
     const read = await this.board(id, boardId), reading = read.board.nodes.find((node) => node.id === nodeId);
     const upstream = reading ? await this.#upstream(id, read.board, reading) : {};
@@ -578,8 +582,7 @@ export class CanvasStore {
       const running = nodeJobs.find((job) => job.status === "running");
       if (running && reuse) return { reused: "running" as const, job: running };
       if (running) throw new CanvasError("This node is already generating", 409);
-      // Only a retry passes a recovery id; its input was prepared, and plugins changed it, the first time.
-      const resolved = await this.tools.prepare(toolId, input, id, { hooksApplied: recoveryId !== undefined });
+      const resolved = await this.tools.prepare(toolId, input, id);
       const inputRevision = revision(resolved), latest = nodeJobs.find((job) => job.status !== "cancelled");
       const currentAssetId = (node.data as { assetId?: string }).assetId;
       if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && currentAssetId && latest.run?.files[0]?.assetId === currentAssetId) return { reused: "output" as const, job: await this.#reused(id, latest, upstream) };
@@ -588,8 +591,7 @@ export class CanvasStore {
       if (toolId === "generate-video" && "references" in prepared) for (const reference of prepared.references ?? []) reference.assetId = await canvasLibraryAsset(this.#project(id), this.library, reference.assetId);
       if (toolId === "animate-3d" && "assetId" in prepared) prepared.assetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.assetId);
       if (toolId === "image-to-3d" && "sourceAssetId" in prepared && prepared.sourceAssetId) prepared.sourceAssetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.sourceAssetId);
-      const job: StoredJob = { recoveryId: recoveryId ?? randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}), input: structuredClone(resolved) };
-      if (toolId === "generate-image" && recoveryId !== undefined) job.resuming = true;
+      const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? (input.prompt ?? "Model 3D").slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, upstream, ...(model ? { model } : {}) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       await this.#record(id, jobs, job); return { job, prepared };
     });
@@ -626,11 +628,11 @@ export class CanvasStore {
     };
     if (node.type === "image" && node.data.backgroundRemoval) {
       if (node.data.images.length !== 1 || !node.data.model) throw new CanvasError("Choose one source image and a background removal provider");
-      return this.start(id, boardId, nodeId, "remove-image-background", { model: node.data.model, image: await image(node.data.images[0]!) }, revision, undefined, reuse);
+      return this.start(id, boardId, nodeId, "remove-image-background", { model: node.data.model, image: await image(node.data.images[0]!) }, revision, reuse);
     }
     if (node.type === "animate-3d") {
       if (!node.data.source || !node.data.actionIds.length) throw new CanvasError("Choose a source model and animation actions first");
-      return this.start(id, boardId, nodeId, "animate-3d", { model: node.data.model, options: node.data.options, assetId: assetId(node.data.source), actionIds: node.data.actionIds, heightMeters: node.data.heightMeters }, revision, undefined, reuse);
+      return this.start(id, boardId, nodeId, "animate-3d", { model: node.data.model, options: node.data.options, assetId: assetId(node.data.source), actionIds: node.data.actionIds, heightMeters: node.data.heightMeters }, revision, reuse);
     }
     if (node.type === "model-3d") {
       const operation = node.data.operation ?? "image";
@@ -648,7 +650,7 @@ export class CanvasStore {
         if (source.mediaType !== "image/png" && source.mediaType !== "image/jpeg") throw new CanvasError("3D generation requires PNG, JPEG or WebP reference images");
         return source;
       }));
-      return this.start(id, boardId, nodeId, "image-to-3d", { ...buildModel3DToolRequest(node.data, images, operation), operation, ...(prompt ? { prompt } : {}), ...(node.data.source ? { sourceAssetId: assetId(node.data.source) } : {}), ...(node.data.options ? { options: node.data.options } : {}) }, revision, undefined, reuse);
+      return this.start(id, boardId, nodeId, "image-to-3d", { ...buildModel3DToolRequest(node.data, images, operation), operation, ...(prompt ? { prompt } : {}), ...(node.data.source ? { sourceAssetId: assetId(node.data.source) } : {}), ...(node.data.options ? { options: node.data.options } : {}) }, revision, reuse);
     }
     if (node.type === "audio") {
       const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
@@ -662,7 +664,7 @@ export class CanvasStore {
         ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}),
         ...(node.data.loop !== undefined ? { loop: node.data.loop } : {}),
         ...(node.data.instrumental !== undefined ? { instrumental: node.data.instrumental } : {}),
-      }, revision, undefined, reuse);
+      }, revision, reuse);
     }
     if (node.type !== "image" && node.type !== "video") throw new CanvasError("Unsupported generation node");
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
@@ -683,7 +685,7 @@ export class CanvasStore {
       if (node.data.quickReskinMode === "person-clothing" && node.data.images.length !== 2) throw new CanvasError("Quick reskin requires a person image and a clothing image");
       if (node.data.presetId === "quick-reskin" && !node.data.quickReskinMode && node.data.images.length !== 1) throw new CanvasError("Quick reskin requires one source image");
       const generatedPrompt = imagePrompt ? ((effect || node.data.promptExpanded) ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length)) : "";
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.model && node.data.modelParams && Object.keys(node.data.modelParams).length ? { params: node.data.modelParams } : {}), ...(effect ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, undefined, reuse);
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: generatedPrompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), ...(node.data.model && node.data.modelParams && Object.keys(node.data.modelParams).length ? { params: node.data.modelParams } : {}), ...(effect ? { transparentBackground: true } : {}), images: await Promise.all(node.data.images.map(image)) }, revision, reuse);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
@@ -695,7 +697,7 @@ export class CanvasStore {
     let resolvedPrompt: string;
     try { resolvedPrompt = resolveVideoMentions(prompt, node.data.references, node.data.referenceMentions); }
     catch (cause) { throw new CanvasError(cause instanceof Error ? cause.message : String(cause)); }
-    return this.start(id, boardId, nodeId, "generate-video", { prompt: resolvedPrompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references, ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}) }, revision, undefined, reuse);
+    return this.start(id, boardId, nodeId, "generate-video", { prompt: resolvedPrompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references, ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}) }, revision, reuse);
   }
   /**
    * Runs a node again, then each node after it that makes something, in
@@ -856,7 +858,7 @@ export class CanvasStore {
     try {
       const toolId = job.toolId;
       if (toolId === "plugin-node") throw new CanvasError("Plugin nodes run with their own execution");
-      const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id, resuming: job.resuming }); controller.signal.throwIfAborted();
+      const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
       await this.#saveOutput(id, controller.signal, async () => {
@@ -868,7 +870,7 @@ export class CanvasStore {
           const expectedType = ({ "generate-image": "image", "remove-image-background": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d", "generate-audio": "audio" } as Partial<Record<ToolId, string>>)[toolId];
           if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
         }
-        job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
+        job.run = run; job.status = "succeeded"; await this.#saveJobs(id);
       });
       await this.tools.removeRun(run.id).catch(() => {});
     } catch (cause) {
@@ -881,18 +883,9 @@ export class CanvasStore {
     return withCanvasLock(this.#project(id).workspacePath, async () => {
       const job = (await this.#loadJobs(id)).find((job) => job.id === jobId);
       if (!job) throw new CanvasError("Generation job not found", 404);
-      if (job.status === "running") { job.status = "cancelled"; job.error = job.toolId === "image-to-3d" || job.toolId === "animate-3d" || job.toolId === "remove-image-background" ? "Stopped waiting locally. Retry to resume; the provider task may still be running." : "Generation cancelled"; this.#controllers.get(job.id)?.abort(); await this.#saveJobs(id); }
+      if (job.status === "running") { job.status = "cancelled"; job.error = job.toolId === "image-to-3d" || job.toolId === "animate-3d" || job.toolId === "remove-image-background" ? "Stopped waiting locally. The provider task may still be running." : "Generation cancelled"; this.#controllers.get(job.id)?.abort(); await this.#saveJobs(id); }
       return publicJob(job);
     });
-  }
-  async retry(id: string, jobId: string): Promise<ToolJob> {
-    const job = await withCanvasLock(this.#project(id).workspacePath, async () => (await this.#loadJobs(id)).find((job) => job.id === jobId));
-    // A plugin node runs again from its current settings and inputs.
-    if (job?.toolId === "plugin-node" && ["failed", "cancelled"].includes(job.status)) return this.#startPlugin(id, job.context!.boardId!, job.context!.nodeId, false);
-    if (!job || !job.input || job.toolId === "plugin-node" || !["failed", "cancelled"].includes(job.status)) throw new CanvasError("This job cannot be retried", 409);
-    const retired = retiredMediaRetry(job, this.mediaMigrations);
-    if (retired) throw new CanvasError(retired, 409);
-    return this.start(id, job.context!.boardId!, job.context!.nodeId, job.toolId, job.input, undefined, job.recoveryId ?? job.id);
   }
   async cancelProject(id: string) { for (const job of this.#jobs.get(id) ?? []) if (job.status === "running") await this.cancel(id, job.id); this.#jobs.delete(id); }
   async close() { this.#closed = true; for (const controller of this.#controllers.values()) controller.abort(new GenerationShutdown()); await Promise.allSettled([...this.#executions.values()].flatMap((executions) => [...executions])); }

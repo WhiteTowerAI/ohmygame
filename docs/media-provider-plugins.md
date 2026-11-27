@@ -44,11 +44,11 @@ Canvas **Image tools → Remove background** creates an image node with
 `backgroundRemoval: true`, an empty prompt and one reference. Choose its processing
 model and generate explicitly. It uses the existing shared canvas history and
 recovery ID; `remove_image_background` offers the same processing for direct agent
-calls. Canvas jobs snapshot source bytes and keep them for retry. Small task
-receipts remain under `tools/media-tasks` after output storage, until profile
-removal, because later canvas import or job persistence can fail. Retrying the
-same job resumes that receipt; a new direct agent call is a new task and must
-not replace an uncertain submission. No generation defaults are changed.
+calls. Canvas history keeps no job input: generating again reads the node's
+current settings and starts a new task. Small task receipts remain under
+`tools/media-tasks` after output storage, until profile removal, because later
+canvas import or job persistence can fail. A new direct agent call is a new task
+and must not replace an uncertain submission. No generation defaults are changed.
 
 Existing image nodes retain their behavior; existing AI image cutout remains a
 prompted redraw. Older canvas readers reject the new field instead of silently

@@ -539,42 +539,6 @@ describe("opted-in image recovery", () => {
     expect(first.requests).toHaveLength(0); expect(unsafe.requests).toHaveLength(0);
   });
 
-  it("recreates the canvas and tool runner after import failure without another image submission", async () => {
-    const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).png().toBuffer();
-    const { media, requests } = await setup(IMAGE_START, { media: recoverable, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(image)) : undefined });
-    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
-    let tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
-    await Promise.all([library.load(), projects.load(), tools.load()]);
-    const project = await projects.create("Recover image", "asset-canvas");
-    let store = new CanvasStore(projects, library, tools);
-    try {
-      const boardId = (await store.workspace(project.id)).boards[0]!.id;
-      const detail = await store.board(project.id, boardId);
-      const node = createAssetGenerationNode("image", { x: 0, y: 0 });
-      if (node.type !== "image") throw new Error("Expected image");
-      const { provider, id } = await firstModel(media);
-      Object.assign(node.data, { prompt: "fox", model: { provider, id }, resolution: "1K", aspectRatio: "1:1" });
-      detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
-      await store.saveBoard(project.id, detail.board, detail.revision);
-      const materialize = vi.spyOn(projects, "materializeLibraryAsset").mockRejectedValueOnce(new Error("Import disk unavailable"));
-      const first = await store.generateNode(project.id, boardId, node.id);
-      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("failed");
-      expect((await store.jobs(project.id))[0]?.error).toContain("Import disk unavailable");
-      materialize.mockRestore();
-      await store.close(); await tools.close();
-      tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
-      await tools.load(); store = new CanvasStore(projects, library, tools);
-      await store.retry(project.id, first.id);
-      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("succeeded");
-      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
-      expect((await store.jobs(project.id))[0]).not.toHaveProperty("resuming");
-      const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
-      expect(history[0].resuming).toBe(true);
-      expect(history[0].recoveryId).toBe(history[1].recoveryId);
-      expect(await inspectMediaTaskJournal(path.join(root, "tools/media-tasks"), history[0].recoveryId)).toBe("result-recorded");
-    } finally { await store.close(); await tools.close(); await media.close(); }
-  });
-
   it("saves a GIF result on the canvas and passes its first frame on as a scaled PNG reference", async () => {
     const frames = await sharp({ create: { width: 300, height: 300, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).gif().toBuffer();
     const adapter = `export default { image: { async start(input, host) {
@@ -3244,44 +3208,6 @@ describe("plugin background removal", () => {
     const reply = await host.fetch("https://api.flow.example/cutout", { method: "POST", auth: true, json: { image: { $mediaFile: input.image.file } } });
     return { outputs: [{ url: (await reply.json()).url }] };
   } } };`;
-
-  it("retries a canvas import failure after restart with the same paid receipt and source snapshot", async () => {
-    const source = await png();
-    const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.startsWith("https://cdn.") ? new Response(new Uint8Array(source)) : undefined });
-    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
-    const generator = { generate: vi.fn().mockRejectedValue(new Error("Wrong generation route")), removeBackground: media.removeBackground.bind(media) };
-    const tools = new ToolRunner(root, generator, undefined, undefined, library);
-    await Promise.all([library.load(), projects.load(), tools.load()]);
-    const project = await projects.create("Cutout", "asset-canvas");
-    let store = new CanvasStore(projects, library, tools);
-    try {
-      const boardId = (await store.workspace(project.id)).boards[0]!.id;
-      const detail = await store.board(project.id, boardId);
-      const input = await library.add("source.png", source);
-      const node = createAssetGenerationNode("image", { x: 0, y: 0 });
-      if (node.type !== "image") throw new Error("Expected image");
-      Object.assign(node.data, { backgroundRemoval: true, prompt: "", model, images: [{ type: "library", assetId: input.id }] });
-      detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
-      await store.saveBoard(project.id, detail.board, detail.revision);
-      const importAsset = vi.spyOn(projects, "materializeLibraryAsset").mockRejectedValueOnce(new Error("Import disk unavailable"));
-      const job = await store.generateNode(project.id, boardId, node.id);
-      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("failed");
-      expect((await store.jobs(project.id))[0]?.error).toContain("Import disk unavailable");
-      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
-      const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
-      expect(history[0].input.image.data).toBe(source.toString("base64"));
-      importAsset.mockRestore();
-      await store.close();
-      store = new CanvasStore(projects, library, tools);
-      await store.retry(project.id, job.id);
-      await expect.poll(async () => (await store.jobs(project.id))[0]?.status).toBe("succeeded");
-      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
-      expect(generator.generate).not.toHaveBeenCalled();
-      expect((await store.board(project.id, boardId)).board.nodes.find(candidate => candidate.id === node.id)?.data).toMatchObject({ backgroundRemoval: true, model, assetId: expect.any(String) });
-      const receiptId = history[0].recoveryId ?? history[0].id;
-      expect(await inspectMediaTaskJournal(path.join(root, "tools/media-tasks"), receiptId)).toBe("result-recorded");
-    } finally { await store.close(); }
-  });
 
   it("rejects malformed, oversized, animated and fully transparent inputs before any submission", async () => {
     const { media, requests } = await setup(adapter, { media: processingMedia });
