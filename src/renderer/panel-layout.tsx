@@ -247,18 +247,28 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const sides = (has("left") ? 1 : 0) + (has("right") ? 1 : 0);
   // A width of 0 means it isn't laid out yet.
   const stacked = !!width && width < CENTER_MIN + sides * (SIDE_MIN + GAP);
-  const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${layout.left.size}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
+  const startArea: AreaId = max ?? (has("left") ? "left" : "center");
+  const endArea: AreaId = max ?? (has("right") ? "right" : "center");
+  // With the title bar along the areas, the left area shows at least the chat's
+  // room beside the window's controls and leaves the center the room for the
+  // project's actions, whatever size was kept, so an older size or a narrower
+  // window doesn't move them to a row of their own. Only a window too narrow
+  // for both keeps the kept size.
+  const chatLeft = startArea === "left" && (layout.left.active ?? shown("left")[0]) === "chat";
+  const leftLow = Math.max(SIDE_MIN, titlebar && chatLeft ? CHAT_TITLEBAR_MIN : 0);
+  const leftHigh = titlebar && !max && !stacked && width && endArea === "center"
+    ? width - GAP - TITLEBAR_END_MIN - (has("right") ? layout.right.size + GAP : 0) : Infinity;
+  const leftSize = leftLow <= leftHigh ? Math.min(leftHigh, Math.max(leftLow, layout.left.size)) : layout.left.size;
+  const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${leftSize}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
   const order = (["left", "center", "right", "bottom"] as const).filter(has);
   // Side by side, the areas along the top are the title bar: the leftmost
   // starts it, the rightmost ends it with the project's actions. Stacked, or
   // with too little room at the end for a panel's toolbar and those actions,
   // the frame keeps a title bar row of its own.
-  const startArea: AreaId = max ?? (has("left") ? "left" : "center");
-  const endArea: AreaId = max ?? (has("right") ? "right" : "center");
   const endWidth = max ? width ?? 0 : endArea === "right" ? layout.right.size
-    : (width ?? 0) - (has("left") ? layout.left.size + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
-  const narrowChat = !max && startArea === "left" && (layout.left.active ?? shown("left")[0]) === "chat" && layout.left.size < CHAT_TITLEBAR_MIN;
+    : (width ?? 0) - (has("left") ? leftSize + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
+  const narrowChat = !max && chatLeft && leftSize < CHAT_TITLEBAR_MIN;
   const inTitlebar = !!titlebar && !stacked && !narrowChat && (!width || endWidth >= TITLEBAR_END_MIN);
   useLayoutEffect(() => {
     if (!titlebar || !titleStart || !titleEnd) return;
@@ -321,9 +331,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   function sizeRange(area: (typeof SIDES)[number]): [number, number] {
     let low = MIN_SIZE, high = Infinity;
     if (inTitlebar && area !== "bottom") {
-      if (area === "left" && (layout.left.active ?? shown("left")[0]) === "chat") low = Math.max(low, CHAT_TITLEBAR_MIN);
+      if (area === "left" && chatLeft) low = Math.max(low, CHAT_TITLEBAR_MIN);
       if (area === endArea) low = Math.max(low, TITLEBAR_END_MIN);
-      else if (endArea === "center") high = layout[area].size + endWidth - TITLEBAR_END_MIN;
+      else if (endArea === "center") high = (area === "left" ? leftSize : layout[area].size) + endWidth - TITLEBAR_END_MIN;
       if (low > high) return [MIN_SIZE, Infinity];
     }
     return [low, high];

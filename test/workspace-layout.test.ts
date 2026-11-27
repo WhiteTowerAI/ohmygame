@@ -305,6 +305,15 @@ describe("the panel layout", () => {
     await show(288);
     await press("ArrowLeft");
     expect(onChange.mock.lastCall![0].left.size).toBe(280);
+    // A size kept before, or a window narrowed since, shows within the same
+    // limits and keeps the title bar.
+    const dock = () => container.querySelector<HTMLElement>(".dock")!;
+    await show(170);
+    expect(dock().style.gridTemplateColumns).toContain("var(--drag-left, 280px)");
+    expect(container.querySelector(".dock-title-end")).not.toBeNull();
+    await show(700);
+    expect(dock().style.gridTemplateColumns).toContain("var(--drag-left, 439px)");
+    expect(container.querySelector(".dock-title-end")).not.toBeNull();
   });
 
   it("gives a maximized side area the whole layout", async () => {
