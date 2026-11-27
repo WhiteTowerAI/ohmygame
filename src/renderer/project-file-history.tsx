@@ -92,7 +92,7 @@ function DateCalendar({
           aria-label={t("projectFileHistory.previousMonth")}
           onClick={() => move(-1)}
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft size="sm" />
         </button>
         <strong>
           {new Intl.DateTimeFormat(language, {
@@ -106,7 +106,7 @@ function DateCalendar({
           disabled={shownMonth >= maxMonth}
           onClick={() => move(1)}
         >
-          <ChevronRight size={14} />
+          <ChevronRight size="sm" />
         </button>
       </div>
       <div className="project-file-history-calendar-grid">
@@ -321,7 +321,7 @@ export function ProjectFileHistory({ project }: { project: ProjectState }) {
       </span>
       <Button
         size="sm"
-        icon={<Trash2 size={14} />}
+        icon={<Trash2 size="sm" />}
         disabled={!known || bytes === 0}
         onClick={() => setDialog(true)}
       >
@@ -531,7 +531,7 @@ function ClearHistoryDialog({
             </p>
           ) : (
             <p className="project-file-history-cutoff">
-              <Clock size={13} aria-hidden="true" />
+              <Clock size="sm" aria-hidden="true" />
               <span>
                 {t("projectFileHistory.before", {
                   date: format(cutoff, period !== "Custom"),
