@@ -15,8 +15,8 @@ import type {
   PlaytestViewport,
 } from "./playtest.js";
 
-/** 4: project hosts can request the desktop Browser API. */
-export const EXTENSION_HOST_PROTOCOL_VERSION = 4;
+/** 5: a project host can start and stop native engine sessions. */
+export const EXTENSION_HOST_PROTOCOL_VERSION = 5;
 
 /** Results larger than this, serialized, fail instead of being sent. */
 export const HOST_RESULT_MAX_BYTES = 8 * 1024 * 1024;
@@ -113,7 +113,28 @@ export type PluginGameRequest =
  */
 export type PluginBrowserRequest = { operation: "open"; url: string } | { operation: "panel"; panel: string; state?: unknown };
 
+export interface NativeEngineStart {
+  executable: string;
+  args: string[];
+  cwd?: string;
+  label?: string;
+}
+
+export interface NativeEngineSession {
+  stop(): Promise<void>;
+}
+
+export function validEngineStart(value: unknown): value is NativeEngineStart {
+  const text = (s: unknown) => typeof s === "string" && s.length <= 4096 && !s.includes("\0");
+  const options = value as Partial<NativeEngineStart> | null;
+  return !!options && text(options.executable) && !!options.executable?.trim() &&
+    Array.isArray(options.args) && options.args.length <= 64 && options.args.every(text) &&
+    (options.cwd === undefined || text(options.cwd)) &&
+    (options.label === undefined || (text(options.label) && options.label.length <= 120));
+}
+
 export type HostRequest =
+  | { type: "engine-reply"; id: number; error?: string }
   | { type: "activate"; id: number; plugin: ExtensionHostPlugin }
   | {
       type: "invoke";
@@ -141,6 +162,8 @@ export interface HostStats {
 }
 
 export type HostMessage =
+  | { type: "engine-start"; id: number; plugin: string; options: NativeEngineStart }
+  | { type: "engine-stop"; id: number; plugin: string; session: number }
   | { type: "ready"; protocol: number }
   | { type: "result"; id: number; value: unknown }
   | { type: "error"; id: number; message: string; cancelled?: boolean }
@@ -207,6 +230,7 @@ export interface Disposable {
 }
 
 export interface PluginContext {
+  nativeSessions?: { start(options: NativeEngineStart): Promise<NativeEngineSession> };
   pluginId: string;
   version: string;
   /** The project this host serves; undefined in the app host. */
@@ -343,6 +367,10 @@ export function isHostMessage(value: unknown): value is HostMessage {
     return typeof message.plugin === "string" && typeof message.text === "string" && (message.level === "info" || message.level === "warn" || message.level === "error");
   if (typeof message.id !== "number") return false;
   switch (message.type) {
+    case "engine-start":
+      return typeof message.plugin === "string" && validEngineStart(message.options);
+    case "engine-stop":
+      return typeof message.plugin === "string" && typeof message.session === "number";
     case "result":
       return true;
     case "error":

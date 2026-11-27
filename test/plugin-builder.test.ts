@@ -652,6 +652,38 @@ describe("Plugin Builder", () => {
     expect(await setup.draft(state.id)).toEqual({ files: [], errors: [] });
   });
 
+  it("keeps a draft workspace until the editor in its playground closes", async () => {
+    const { setup, directory, app, projects } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    await writeFile(path.join(root, "index.mjs"), `
+      export function activate(context) {
+        let session;
+        context.registerCommand("open", async () => {
+          session = await context.nativeSessions.start({ label: "Draft editor", executable: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"] });
+          return true;
+        });
+        context.registerCommand("close", async () => { await session.stop(); return true; });
+      }`);
+    await setManifest(root, (manifest) => {
+      manifest.entrypoints = { native: "./index.mjs" };
+      manifest.capabilities = { native: true };
+      manifest.contributes = { commands: ["open", "close"].map((id) => ({ id, title: id, run: { native: id } })) };
+    });
+    const draft = await setup.prepare(state.id, root);
+    await setup.allowRun(state.id, draft.plugin!.native!.key);
+    const run = (command: string) => setup.runDraft(state.id, { command }, undefined);
+    const remove = () => app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` });
+    const opened = await run("open");
+    expect(opened.ok, opened.error).toBe(true);
+    const blocked = await remove();
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error).toContain("Draft editor");
+    expect(projects.get(state.projectId)).toBeDefined();
+    expect(await run("close")).toMatchObject({ ok: true });
+    expect((await remove()).statusCode).toBe(204);
+  });
+
   it("deletes a draft workspace and only that one", async () => {
     const { setup, directory, app, manager } = await environment();
     const first = await setup.create(), second = await setup.create();

@@ -3,7 +3,6 @@ import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
 import { sendsMessage } from "./general-preferences.js";
 import {
-  Box,
   Check,
   ChatSquare,
   Film,
@@ -39,7 +38,8 @@ import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.j
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
-import { ModelPreview } from "./model-preview.js";
+import { ModelThumbnail } from "./model-thumbnail.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { collectArtifacts, mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
@@ -78,6 +78,7 @@ interface AgentTimelineProps {
   onLimitResumeChange?: (on: boolean) => void;
 }
 
+const ModelRevision = createContext(0);
 const WorkspaceLinkContext = createContext<Pick<AgentTimelineProps, "workspacePath" | "onOpenWorkspaceFile" | "onOpenInBrowser"> & { projectId: string }>({ projectId: "" });
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
@@ -94,7 +95,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
 }
 
 export const AgentTimeline = memo(function AgentTimeline(props: AgentTimelineProps) {
-  return <ConversationTimeline key={props.turns[0]?.conversationId} {...props} />;
+  return <ModelRevision.Provider value={props.workspaceRevision ?? 0}><ConversationTimeline key={props.turns[0]?.conversationId} {...props} /></ModelRevision.Provider>;
 });
 
 const HISTORY_PAGE = 40;
@@ -1031,11 +1032,34 @@ function formatToolValue(value: unknown): string {
 function ArtifactStrip({ projectId, artifacts, pending }: { projectId?: string; artifacts: ToolArtifact[]; pending: number }) {
   if (!projectId || artifacts.length + pending === 0) return null;
   return <div className="tool-artifact-strip">
-    {artifacts.map((artifact) => <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
+    {artifacts.map((artifact) => artifact.type === "model"
+      ? <ModelResult key={artifact.path} projectId={projectId} path={artifact.path} />
+      : <ArtifactThumbnail key={artifact.path} projectId={projectId} artifact={artifact} />)}
     {Array.from({ length: pending }, (_, index) => <span key={index} className="tool-artifact-tile tool-artifact-pending" role="status" aria-label={t("timeline.generating")}>
       <Spinner size="md" aria-hidden="true" />
     </span>)}
   </div>;
+}
+
+function ModelResult({ projectId, path }: { projectId: string; path: string }) {
+  const [open, setOpen] = useState(false);
+  const revision = useContext(ModelRevision);
+
+  const name = path.split("/").at(-1) ?? path;
+  const titleId = useId();
+  return <div className="tool-artifact-tile" title={name}>
+    <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name })} onClick={() => setOpen(true)}>
+      <ModelThumbnail project={projectId} path={path} revision={revision} label={name} />
+    </button>
+    {open ? createPortal(<AssetDialogShell title={name} labelledBy={titleId} footer={null} onClose={() => setOpen(false)}
+      preview={<ResultModelPreview projectId={projectId} path={path} revision={revision} label={name} />} />, document.body) : null}
+  </div>;
+}
+
+function ResultModelPreview({ projectId, path, revision, label }: { projectId: string; path: string; revision: number; label: string }) {
+  const preview = useWorkspaceAssetUrl(projectId, path, revision, undefined, true, true);
+  if (preview.url) return <AssetMedia type="model" url={preview.url} label={label} />;
+  return preview.error ? <span role="alert">{preview.error}</span> : <span role="status">{t("modelPreview.loading")}</span>;
 }
 
 function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
@@ -1043,7 +1067,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
   const [open, setOpen] = useState(false);
   const [target, visible] = useNearViewport<HTMLDivElement>();
   const titleId = useId();
-  // For now a model's tile is the model itself, held still; ModelPreview loads a row of them two at a time.
+
   useEffect(() => {
     if (!visible) return;
     let disposed = false;
@@ -1065,11 +1089,9 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
       ? <ImageGallery className="tool-generated-image-gallery" images={[{ ...preview, name }]} alt={() => t("timeline.generatedImage")} />
       : null}</div>;
   }
-  const label = artifact.type === "model" ? t("timeline.generated3d") : t("timeline.generatedVideo");
+  const label = t("timeline.generatedVideo");
   return <div ref={target} className="tool-artifact-tile" title={name}>
-    {artifact.type === "model" ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
-      {preview ? <ModelPreview source={preview.url} label={label} minHeight={96} interactive={false} controls={false} /> : <Box size={28} aria-hidden="true" />}
-    </button> : preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
+    {preview ? <button type="button" className="tool-artifact-open" aria-label={t("imageViewer.open", { name: label })} onClick={() => setOpen(true)}>
       <video src={preview.url} muted playsInline preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />
       <span className="tool-artifact-badge" aria-hidden="true"><Film size="xs" /></span>
     </button> : null}

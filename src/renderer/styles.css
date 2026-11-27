@@ -27,7 +27,6 @@
   --danger: var(--color-danger);
   --warning: var(--color-warning);
   --radius: 6px;
-  --radius-panel: 8px;
   /* The chat column: one left line for messages, cards and the composer, and
      the corner its bubble and composer share. */
   --chat-inset: calc(var(--space-4) + var(--space-1));
@@ -959,20 +958,6 @@ body {
   background: var(--danger);
 }
 
-.coding-agent-permission {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.coding-agent-warning {
-  margin: 0;
-  color: var(--warning);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
-
 .coding-agent-diagnostic {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
@@ -1882,17 +1867,6 @@ select.settings-search-input {
   user-select: none;
 }
 
-.desktop-macos .window-drag-handle {
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-macos
-  .window-drag-handle
-  :is(a, button, input, label, select, textarea) {
-  app-region: no-drag;
-}
-
 .sidebar-page {
   min-width: 0;
   min-height: 0;
@@ -2742,6 +2716,215 @@ select.settings-search-input {
   gap: var(--space-1);
 }
 
+/* File history: how much the project's undo history takes, and a way to free the older part of it. */
+.project-file-history {
+  margin-top: var(--space-2);
+}
+
+.project-file-history .project-appearance-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-file-history-size {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.project-file-history-size .ui-spinner {
+  vertical-align: middle;
+}
+
+.project-file-history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.project-file-history-period {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.project-file-history-label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-period .ui-segmented {
+  display: flex;
+}
+
+.project-file-history-period .ui-segmented button {
+  flex: 1;
+  justify-content: center;
+}
+
+.project-file-history-popover {
+  padding: var(--space-2);
+}
+
+.project-file-history-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 252px;
+}
+
+.project-file-history-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project-file-history-calendar-header strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.project-file-history-calendar-header button,
+.project-file-history-calendar-grid button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.project-file-history-calendar-header button {
+  width: 26px;
+  height: 26px;
+  color: var(--color-text-secondary);
+}
+
+.project-file-history-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.project-file-history-calendar-weekday {
+  padding-bottom: var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.project-file-history-calendar-grid button {
+  height: 30px;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-file-history-calendar-header button:hover:not(:disabled),
+.project-file-history-calendar-grid button:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.project-file-history-calendar-grid button.is-today {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: -1px;
+}
+
+.project-file-history-calendar-grid button.is-selected,
+.project-file-history-calendar-grid button.is-selected:hover {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  font-weight: var(--weight-medium);
+}
+
+.project-file-history-calendar button:disabled {
+  color: var(--color-text-tertiary);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.project-file-history-calendar button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.project-file-history-summary {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+}
+
+.project-file-history-spinner {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+}
+
+.project-file-history-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  transition: opacity var(--duration-fast);
+}
+
+.project-file-history-summary.is-loading .project-file-history-stats,
+.project-file-history-summary.is-empty .project-file-history-stats {
+  opacity: 0.5;
+}
+
+.project-file-history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-file-history-stat strong {
+  color: var(--color-text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.project-file-history-stat span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-cutoff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-cutoff span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-file-history-cutoff.is-error {
+  color: var(--color-danger);
+}
 .project-settings-group h3,
 .project-settings .project-settings-section legend {
   margin: 0;
@@ -3946,17 +4129,6 @@ select.settings-search-input {
   max-height: 100%;
 }
 
-.plugins-installed {
-  container: plugins / inline-size;
-  margin-top: 28px;
-}
-.plugins-installed h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 650;
-}
-
 .plugin-row-icon-large {
   width: 96px;
   height: 96px;
@@ -4060,6 +4232,32 @@ select.settings-search-input {
   opacity: 0.55;
 }
 
+.model-thumbnail {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-surface);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.model-placeholder {
+  display: inline-flex;
+  color: var(--color-text-tertiary);
+}
+
+.model-placeholder[title] {
+  pointer-events: auto;
+}
+
+.model-thumbnail > :is(img, .model-preview) {
+  width: 100%;
+  object-fit: contain;
+  height: 100%;
+  min-height: 0;
+}
+
 .model-preview {
   position: relative;
   display: flex;
@@ -4126,6 +4324,10 @@ select.settings-search-input {
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
   text-align: center;
+}
+
+.model-thumbnail .model-preview-state {
+  padding: 0;
 }
 
 .model-preview-error {
@@ -4379,11 +4581,6 @@ button {
     opacity 140ms ease,
     filter 140ms ease;
 }
-.canvas-media-empty {
-  margin: 0;
-  color: var(--text-faint);
-  font-size: var(--text-xs);
-}
 .canvas-media-preview-example {
   width: 100%;
   height: 100%;
@@ -4552,7 +4749,6 @@ button {
 }
 
 .canvas-text-node {
-  width: 300px;
   overflow: visible;
   border: 0;
   background: transparent;
@@ -4588,7 +4784,6 @@ button {
 .canvas-text-output > textarea {
   display: block;
   width: calc(100% - 20px);
-  min-height: 96px;
   margin: 0 10px 10px;
   padding: 9px 10px;
   resize: none;
@@ -4605,10 +4800,6 @@ button {
 .canvas-text-output > textarea::placeholder,
 .canvas-text-composer textarea::placeholder {
   color: var(--text-faint);
-}
-
-.canvas-node > .canvas-text-output-handle {
-  top: 78px;
 }
 
 .canvas-text-composer {
@@ -5060,7 +5251,9 @@ button {
   align-items: center;
   flex-direction: column;
   gap: 7px;
+  margin: 0;
   color: var(--text-faint);
+  font-size: var(--text-xs);
   text-align: center;
 }
 
@@ -6795,15 +6988,6 @@ button {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.viewer-title {
-  overflow: hidden;
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-switcher-popover {
@@ -10412,24 +10596,19 @@ summary.work-summary:hover {
 }
 
 .composer-image button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
   display: inline-grid;
   width: 20px;
   height: 20px;
   place-items: center;
   padding: 0;
   border: 0;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-
-.composer-image button {
-  position: absolute;
-  top: -5px;
-  right: -5px;
   border-radius: 50%;
   background: #2b2d33;
   color: var(--text);
+  cursor: pointer;
 }
 
 .composer-image button:hover {
@@ -10619,18 +10798,6 @@ summary.work-summary:hover {
   color: var(--danger);
 }
 
-.quiet-button {
-  border-color: var(--border);
-  background: var(--surface-raised);
-  color: #cdd0d5;
-}
-
-.quiet-button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .model-selector {
   display: inline-flex;
   min-width: 0;
@@ -10779,25 +10946,21 @@ summary.work-summary:hover {
 }
 
 .preview-location-trigger {
-  height: 22px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.preview-location-trigger {
   display: flex;
   flex: 1;
   min-width: 0;
+  height: 22px;
   align-items: center;
   gap: 4px;
   padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 16px;
   text-align: left;
+  cursor: pointer;
 }
 
 .preview-location-trigger:hover:not(:disabled),
@@ -11918,9 +12081,6 @@ summary.work-summary:hover {
   .icon-button {
     transition: none;
   }
-  .home-project-skeleton {
-    animation: none;
-  }
 }
 
 .library-dialog-footer > div:first-child {
@@ -12034,7 +12194,6 @@ summary.work-summary:hover {
 
 :root[data-appearance="light"]
   :is(
-    .quiet-button,
     .preview-location-trigger,
     .preview-location-option,
     .file-tree-node
@@ -12059,11 +12218,9 @@ summary.work-summary:hover {
 }
 
 :is(
-  .home-sidebar-account-popover,
   .project-switcher-popover,
   .conversation-popover,
   .project-settings-dialog,
-  .library-delete-dialog,
   .library-dialog,
   .plugin-install-dialog
 ) {

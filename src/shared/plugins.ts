@@ -538,6 +538,8 @@ export interface ProjectPluginChange {
   late?: boolean;
   /** Ran, but not recorded yet, so it can't be undone yet. */
   unrecorded?: boolean;
+  /** Made before the time the user cleared the project's file history from, so it can no longer be undone. */
+  cleared?: boolean;
 }
 
 /** A newer package where an installed plugin came from: the market's newest version, or a new commit on its GitHub branch or tag. */

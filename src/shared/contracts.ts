@@ -261,8 +261,12 @@ export interface CustomProviderDetails extends CustomProviderSettings {
 
 export type DiscoverProviderModelsRequest = Pick<SaveCustomProviderRequest, "baseUrl" | "api" | "authentication" | "apiKey" | "preset"> & { providerId?: string };
 
+export interface DiscoveredProviderModel extends CustomProviderModel {
+  /** Fields supplied by the endpoint itself. ID-only refreshes must preserve previous limits. */
+  reportedFields?: DiscoveredLanguageField[];
+}
 export interface DiscoveredProviderModels {
-  models: CustomProviderModel[];
+  models: DiscoveredProviderModel[];
   truncated?: boolean;
   warnings?: string[];
   source?: "provider" | "presets";
@@ -317,6 +321,9 @@ export interface CustomReasoningCapabilities {
   catalogThinkingLevelMap?: CustomThinkingLevelMap;
 }
 
+export const DISCOVERED_LANGUAGE_FIELDS = ["contextWindow", "maxTokens", "reasoning", "supportsImages"] as const;
+export type DiscoveredLanguageField = typeof DISCOVERED_LANGUAGE_FIELDS[number];
+
 export interface CustomProviderModel {
   id: string;
   name: string;
@@ -328,6 +335,12 @@ export interface CustomProviderModel {
   /** Only explicit user overrides are written to the SDK model definition. */
   thinkingLevelMap?: CustomThinkingLevelMap;
   reasoningCapabilities?: CustomReasoningCapabilities;
+  /** Explicit Anthropic wire format. Automatic removes a previously saved override. */
+  thinkingMode?: "automatic" | "adaptive" | "budget";
+  /** Anthropic capability reported by the configured endpoint. */
+  reportedAdaptiveThinking?: boolean;
+  /** Omitted for manually configured models. Fetch updates only the named fields. */
+  automaticFields?: DiscoveredLanguageField[];
   supportsImages: boolean;
   // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Custom providers before modelConfigurationVersion 2.
   /** Undefined is a legacy language model; an empty object is explicitly unassigned. */
@@ -1323,6 +1336,8 @@ export interface TurnChanges {
   undone?: boolean;
   /** How many of the files that undo left as they are, because they were changed again after the turn. */
   kept?: number;
+  /** The project's file history from before this turn was cleared, so its files can no longer be shown, undone or reapplied. */
+  cleared?: boolean;
 }
 
 export interface CheckpointChangeItem {
@@ -1336,6 +1351,17 @@ export interface CheckpointChangeItem {
    * or changed again afterwards. Left out while the Agent is working.
    */
   state?: "applied" | "undone" | "changed";
+}
+
+/**
+ * What a project's file history takes on disk. `removableBytes` and `turns`
+ * come with a time: what clearing the history before it frees, and how many
+ * turns can no longer be undone afterwards.
+ */
+export interface CheckpointHistory {
+  bytes: number;
+  removableBytes?: number;
+  turns?: number;
 }
 
 /** A file as one checkpoint holds it. */
@@ -1604,6 +1630,8 @@ export interface RuntimeEventData {
   "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };
   "workspace.undone": { checkpointId: string; kept: number; undone?: boolean };
   "workspace.reapplied": { checkpointId: string; undone: boolean; kept: number };
+  /** The user cleared the project's file history from before this time, in milliseconds since the epoch. */
+  "history.cleared": { before: number };
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
   "item.completed": { item: ThreadItem };
@@ -1648,6 +1676,7 @@ export const RUNTIME_EVENT_TYPES = [
   "workspace.restored",
   "workspace.undone",
   "workspace.reapplied",
+  "history.cleared",
   "item.started",
   "item.updated",
   "item.completed",

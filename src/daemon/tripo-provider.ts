@@ -93,7 +93,11 @@ export class TripoProvider implements Model3DGenerator {
     if (!key && this.connection?.authentication !== "none") throw new Model3DGenerationError("Tripo API key is not configured", 503);
     const timeout = AbortSignal.timeout(60 * 60_000), combined = AbortSignal.any([timeout, ...(signal ? [signal] : [])]);
     try { combined.throwIfAborted(); return await run(key, combined); }
-    catch (cause) { if (timeout.aborted && !signal?.aborted) throw new Model3DGenerationError("Tripo operation timed out; retry to resume the submitted task", 504); throw cause; }
+    catch (cause) {
+      if (timeout.aborted && !signal?.aborted)
+        throw new Model3DGenerationError("Tripo operation timed out. Check the Tripo dashboard before starting a new generation.", 504);
+      throw cause;
+    }
   }
   private scope(key?: string) { return JSON.stringify([this.connection?.baseUrl ?? BASE_URL, key, this.connection?.headers, this.connection?.authentication]); }
   private async imageUpload(image: Model3DGenerationInput["images"][number], key: string | undefined, signal: AbortSignal, execution: Model3DExecution | undefined, stage: string) {

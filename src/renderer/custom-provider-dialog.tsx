@@ -1,13 +1,13 @@
 import { usesModel3DPresets } from "../shared/model3d-presets.js";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type CustomProviderPreset } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type DiscoveredProviderModels, type DiscoveredProviderModel, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type CustomProviderPreset } from "../shared/contracts.js";
 import { modelUsageList, modelUsages } from "../shared/custom-models.js";
 import { CustomModelUsageFields } from "./custom-model-usage-fields.js";
-import { supportedReasoningLevels } from "../shared/reasoning.js";
+import { automaticThinkingLevelMap, supportedReasoningLevels } from "../shared/reasoning.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
 import { Spinner, Pencil, Plus, RefreshCw, Search, Trash2 } from "./icons.js";
-import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
+import { applyDiscoveredLanguageFields, initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 import { isLocalModelProvider } from "./local-model-providers.js";
 import { t } from "./i18n.js";
 import { Button, Dialog, Disclosure, IconButton, Select } from "./ui/index.js";
@@ -60,12 +60,9 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   });
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string>();
+  const [lastDiscovery, setLastDiscovery] = useState<DiscoveredProviderModels>();
   const [fetching, setFetching] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string>();
-  const [discoveryWarnings, setDiscoveryWarnings] = useState<string[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [fetchedCount, setFetchedCount] = useState<number>();
-  const [discoverySource, setDiscoverySource] = useState<"provider" | "presets">("provider");
   const usesPresets = usesModel3DPresets(form.baseUrl, form.preset);
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState<CustomProviderModel>(() => emptyModel(form));
@@ -98,8 +95,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   }
 
   function field<K extends keyof SaveCustomProviderRequest>(key: K, value: SaveCustomProviderRequest[K]): void {
-    if (key !== "name") { cancelDiscovery(); setDiscoveryError(undefined); setDiscoveryWarnings([]); setFetchedCount(undefined); setTruncated(false); }
-    if (key === "api" || key === "baseUrl") {
+    if (key !== "name") { cancelDiscovery(); setLastDiscovery(undefined); setDiscoveryError(undefined); }
+    if (key === "api" || key === "baseUrl" || key === "apiKey" || key === "authentication") {
       setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, key === "api" && row.model.api === form.api ? String(value) : row.model.api) })));
       setManual((current) => invalidateCustomModelCapabilities(current, key === "api" ? String(value) : current.api));
     }
@@ -113,15 +110,12 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
     discovery.current = controller;
     setFetching(true);
     setDiscoveryError(undefined);
-    setDiscoveryWarnings([]);
+    setLastDiscovery(undefined);
     try {
       const loaded = await discoverCustomProviderModels({ providerId: settings?.id, baseUrl: form.baseUrl, api: form.api, authentication: form.authentication, apiKey: form.authentication === "api_key" ? form.apiKey : undefined, preset: form.preset }, controller.signal);
       if (controller.signal.aborted) return;
-      setRows((current) => mergeDiscoveredProviderModels(current, loaded.models));
-      setDiscoverySource(loaded.source ?? "provider");
-      setFetchedCount(loaded.models.length);
-      setTruncated(loaded.truncated === true);
-      setDiscoveryWarnings(loaded.warnings ?? []);
+      setLastDiscovery(loaded);
+      setRows((current) => mergeDiscoveredProviderModels(current, loaded.models, form.baseUrl));
     } catch (cause) {
       if (!controller.signal.aborted) setDiscoveryError(cause instanceof Error ? cause.message : String(cause));
     } finally { if (!controller.signal.aborted) setFetching(false); }
@@ -210,9 +204,9 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
           <h3>{t("models.title")} <small>{t("customProvider.enabledCount", { count: enabledCount })}</small></h3>
           <Button size="sm" ref={fetchButton} disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <Spinner size="sm" /> : <RefreshCw size="sm" />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</Button>
         </div>
-        {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
+        {lastDiscovery?.warnings?.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
         {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
-        {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? t("customProvider.fetchedFirst", { count: fetchedCount }) : discoverySource === "presets" ? t("customProvider.loadedPresets", { count: fetchedCount }) : t("customProvider.fetchedModels", { count: fetchedCount })}</p> : null}
+        {lastDiscovery ? <p className="custom-provider-hint" role="status">{t(lastDiscovery.truncated ? "customProvider.fetchedFirst" : lastDiscovery.source === "presets" ? "customProvider.loadedPresets" : "customProvider.fetchedModels", { count: lastDiscovery.models.length })}</p> : null}
         {rows.length ? <>
           <label className="custom-provider-model-search"><Search size="sm" /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} disabled={saving} /></label>
           {visibleModels.length ? <>
@@ -224,7 +218,7 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
                   <IconButton size="sm" label={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size="sm" /></IconButton>
                   <IconButton size="sm" label={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size="sm" /></IconButton>
                 </div>
-                {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={t("customProvider.editModel", { id: row.model.id })}><ModelFields model={row.model} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
+                {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={t("customProvider.editModel", { id: row.model.id })}><ModelFields model={row.model} discovered={row.model.baseUrl && row.model.baseUrl !== form.baseUrl ? undefined : lastDiscovery?.models.find((item) => item.id === row.model.id)} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
               </div>)}
             </div>
           </> : <p className="custom-provider-hint">{t("customProvider.noSearchMatch")}</p>}
@@ -255,30 +249,41 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   </section>;
 }
 
-function ModelFields({ model, preset, onChange, disabled }: { model: CustomProviderModel; preset?: CustomProviderPreset; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
+function ModelFields({ model, discovered, preset, onChange, disabled }: { model: CustomProviderModel; discovered?: DiscoveredProviderModel; preset?: CustomProviderPreset; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
   const usages = modelUsages(model);
   return <fieldset className="project-settings-section" disabled={disabled}>
     <label><span>{t("customProvider.modelDisplayName")}</span><input value={model.name} onChange={(event) => onChange({ ...model, name: event.target.value })} placeholder={model.id || t("customProvider.sameAsId")} maxLength={200} /></label>
     <CustomModelUsageFields usages={usages} preset={preset} modelId={model.id} onChange={(usages) => onChange({ ...model, usages })} />
-    {usages.language ? <Disclosure className="custom-provider-advanced" summary={t("customProvider.languageSettings")}><LanguageModelFields model={model} onChange={onChange} disabled={disabled} /></Disclosure> : null}
+    {usages.language ? <Disclosure className="custom-provider-advanced" summary={t("customProvider.languageSettings")}><LanguageModelFields model={model} discovered={discovered} onChange={onChange} disabled={disabled} /></Disclosure> : null}
   </fieldset>;
 }
 
-function LanguageModelFields({ model, onChange, disabled }: { model: CustomProviderModel; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
-  const field = <K extends keyof CustomProviderModel>(key: K, value: CustomProviderModel[K]) => onChange({ ...model, [key]: value });
-  const automaticMap = model.reasoningCapabilities?.thinkingLevelMap;
+function LanguageModelFields({ model, discovered, onChange, disabled }: { model: CustomProviderModel; discovered?: DiscoveredProviderModel; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
+  const field = <K extends keyof CustomProviderModel>(key: K, value: CustomProviderModel[K]) => onChange({
+    ...model, [key]: value, automaticFields: model.automaticFields?.filter((field) => field !== key),
+  });
+  const fieldsToAdopt = discovered?.api === model.api
+    ? discovered.reportedFields?.filter((field) => !model.automaticFields?.includes(field)) : undefined;
+  const automaticMap = automaticThinkingLevelMap(model.reasoningCapabilities);
   const automaticLevels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: automaticMap });
   const effectiveMap = { ...automaticMap, ...model.thinkingLevelMap };
   const levels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: effectiveMap });
   return <fieldset className="project-settings-section" disabled={disabled}>
     <label><span>{t("customProvider.languageProtocol")}</span><select value={model.api} onChange={(event) => onChange(invalidateCustomModelCapabilities(model, event.target.value))}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
-    <label><span>{t("customProvider.languageBaseUrl")}</span><input type="url" value={model.baseUrl ?? ""} onChange={(event) => field("baseUrl", event.target.value || undefined)} placeholder={t("customProvider.useProviderBaseUrl")} /></label>
+    <label><span>{t("customProvider.languageBaseUrl")}</span><input type="url" value={model.baseUrl ?? ""} onChange={(event) => onChange({ ...invalidateCustomModelCapabilities(model), baseUrl: event.target.value || undefined })} placeholder={t("customProvider.useProviderBaseUrl")} /></label>
     <div className="project-settings-field-row">
       <label><span>{t("models.contextWindow")}</span><input type="number" min={1} max={100_000_000} step={1} value={model.contextWindow} onChange={(event) => field("contextWindow", Number(event.target.value))} required /></label>
       <label><span>{t("models.maxOutputTokens")}</span><input type="number" min={1} max={model.contextWindow} step={1} value={model.maxTokens} onChange={(event) => field("maxTokens", Number(event.target.value))} required /></label>
     </div>
     <div className="custom-provider-capabilities"><label><input type="checkbox" checked={model.reasoning} onChange={(event) => field("reasoning", event.target.checked)} />{t("models.reasoning")}</label><label><input type="checkbox" checked={model.supportsImages} onChange={(event) => field("supportsImages", event.target.checked)} />{t("models.imageInput")}</label></div>
+    {discovered && fieldsToAdopt?.length ? <button className="settings-secondary-button" type="button" onClick={() => {
+      const automaticFields = [...(model.automaticFields ?? []), ...fieldsToAdopt];
+      onChange(applyDiscoveredLanguageFields({ ...model, automaticFields }, discovered));
+    }}>{t("customProvider.useFetchedCapabilities")}</button> : null}
     {model.reasoning ? <Disclosure className="custom-provider-advanced" summary={t("customProvider.reasoningSettings")}>
+      {model.api === "anthropic-messages" && <label><span>{t("customProvider.thinkingMode")}</span><select value={model.thinkingMode ?? "automatic"} onChange={(event) => field("thinkingMode", event.target.value as CustomProviderModel["thinkingMode"])}>
+        <option value="automatic">{t("customProvider.automatic")}</option><option value="adaptive">{t("customProvider.adaptiveThinking")}</option><option value="budget">{t("customProvider.budgetThinking")}</option>
+      </select></label>}
       <label><span>{t("customProvider.reasoningLevels")}</span><select value={model.thinkingLevelMap ? "custom" : "automatic"} onChange={(event) => field("thinkingLevelMap", event.target.value === "automatic" ? undefined : initialCustomThinkingLevelMap(model))}><option value="automatic">{t("customProvider.automatic")}</option><option value="custom">{t("models.filter.custom")}</option></select></label>
       {model.thinkingLevelMap ? <>
         <p className="custom-provider-hint">{t("customProvider.levelsHint")}</p>

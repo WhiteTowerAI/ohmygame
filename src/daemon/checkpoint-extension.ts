@@ -148,9 +148,18 @@ export function turnRange(
  * this version does not know. A line that is not JSON is passed over, as Pi
  * passes it over when it reads the conversation, so nothing can use an entry
  * on it: a write that was cut off, and the entry Pi appended to it after.
+ *
+ * With `since`, only what an entry written at or after `since.before` names
+ * is kept, as clearing the history before that time leaves it. The time of an
+ * entry is used, not of the snapshot: a turn begins with the snapshot that
+ * the turn before ended with, and that one is older than the turn. An entry
+ * that does not say when it was written keeps everything it names.
+ * `since.turns` is told when each turn began, for every turn that began
+ * before that time, on every branch as well.
  */
 export async function referencedSnapshots(
   sessionDirectory: string,
+  since?: { before: number; turns?: (taken: number, checkpointId: string) => void },
 ): Promise<Set<string>> {
   const found = new Set<string>();
   let files: string[];
@@ -165,21 +174,54 @@ export async function referencedSnapshots(
     throw error;
   }
   for (const file of files) {
-    const read = (line: string) => {
+    // When each turn began, by the entry of its checkpoint: a turn's end names that entry, which comes before it.
+    const beginnings = new Map<string, { taken: number; checkpointId: string }>();
+    const read = (line: string): { taken: number; checkpointId: string } | undefined => {
       // Only an entry of OhMyGame's names snapshots. Lines of messages, which can hold whole images, are not parsed.
       if (!line.includes('"ohmygame-')) return;
-      let entry: { type?: unknown; customType?: unknown; data?: unknown };
+      let entry: {
+        id?: unknown;
+        timestamp?: unknown;
+        type?: unknown;
+        customType?: unknown;
+        data?: unknown;
+      };
       try {
         entry = JSON.parse(line) as typeof entry;
       } catch {
         return;
       }
       if (
-        entry?.type === "custom" &&
-        typeof entry.customType === "string" &&
-        entry.customType.startsWith("ohmygame-")
+        entry?.type !== "custom" ||
+        typeof entry.customType !== "string" ||
+        !entry.customType.startsWith("ohmygame-")
       )
-        collectCommits(entry.data, found);
+        return;
+      const taken = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
+      // An entry that does not say when it was written keeps all it names.
+      if (!since || !(taken < since.before)) collectCommits(entry.data, found);
+      if (!since) return;
+      const data = entry.data as {
+        commit?: unknown;
+        checkpoint?: unknown;
+      } | null;
+      const began = (id: unknown): { taken: number; checkpointId: string } | undefined => {
+        const at = typeof id === "string" ? beginnings.get(id) : undefined;
+        return at !== undefined && at.taken < since.before ? at : undefined;
+      };
+      if (
+        entry.customType === CHECKPOINT_ENTRY &&
+        typeof entry.id === "string" &&
+        typeof data?.commit === "string"
+      )
+        beginnings.set(entry.id, { taken, checkpointId: entry.id });
+      if (entry.customType === TURN_END_ENTRY) return began(data?.checkpoint);
+      return;
+    };
+    // Only a turn that ended can be undone, so only such a turn counts as one that loses it.
+    const turn = (text: string) => {
+      const taken = read(text);
+      if (taken !== undefined) since?.turns?.(taken.taken, taken.checkpointId);
     };
     // A piece at a time: a conversation with many images can be larger than one string may be.
     const decoder = new StringDecoder("utf8");
@@ -192,11 +234,11 @@ export async function referencedSnapshots(
         pending.push(pieces[0]!);
         continue;
       }
-      read(pending.join("") + pieces[0]);
-      for (const line of pieces.slice(1, -1)) read(line);
+      turn(pending.join("") + pieces[0]);
+      for (const line of pieces.slice(1, -1)) turn(line);
       pending = [pieces.at(-1)!];
     }
-    read(pending.join("") + decoder.end());
+    turn(pending.join("") + decoder.end());
   }
   return found;
 }

@@ -5,11 +5,12 @@ import { t } from "./i18n.js";
 
 export type AssetMediaType = "image" | "video" | "audio" | "model";
 
-export function useNearViewport<T extends Element>(): readonly [RefObject<T | null>, boolean] {
+export function useNearViewport<T extends Element>(enabled = true): readonly [RefObject<T | null>, boolean] {
   const target = useRef<T>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     const node = target.current;
     if (!node || typeof IntersectionObserver === "undefined") {
       setVisible(true);
@@ -22,7 +23,7 @@ export function useNearViewport<T extends Element>(): readonly [RefObject<T | nu
     }, { rootMargin: "160px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [enabled]);
 
   return [target, visible] as const;
 }

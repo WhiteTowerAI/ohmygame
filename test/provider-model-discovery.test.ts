@@ -136,6 +136,25 @@ describe("provider model discovery", () => {
     expect(models.every((model) => model.thinkingLevelMap === undefined)).toBe(true);
   });
 
+  it("reads native Anthropic limits, effort controls and thinking type for an unknown deployment", async () => {
+    const response = { id: "deployment-1", max_input_tokens: 65536, max_tokens: 8192, capabilities: {
+      image_input: { supported: true }, thinking: { supported: true, types: { adaptive: { supported: true }, disabled: { supported: false } } },
+      effort: { supported: true, low: { supported: true }, high: { supported: true }, medium: { supported: false } },
+    } };
+    const { models } = await discoverProviderModels({ ...connection, api: "anthropic-messages" }, async () => Response.json({ data: [response] }));
+    expect(models[0]).toMatchObject({ contextWindow: 65536, maxTokens: 8192, supportsImages: true, reasoning: true,
+      reportedAdaptiveThinking: true, reasoningCapabilities: { source: "provider", thinkingLevelMap: { off: null, low: "low", high: "high", medium: null } } });
+  });
+
+  it("respects OpenRouter mandatory reasoning, supported efforts and route limits", async () => {
+    const data = [true, false].map((mandatory) => ({ id: String(mandatory), context_length: 1_000_000,
+      top_provider: { context_length: 260_000 }, reasoning: { mandatory, supported_efforts: ["low", "high", "xhigh"] } }));
+    const { models } = await discoverProviderModels(connection, async () => Response.json({ data }));
+    expect(models[0]).toMatchObject({ contextWindow: 260_000, reasoning: true, reasoningCapabilities: {
+      thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: "xhigh", max: null } } });
+    expect(models[1].reasoningCapabilities?.thinkingLevelMap.off).toBe("none");
+  });
+
   it("paginates Anthropic models with the correct API key header", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ data: [{ id: "claude-a", display_name: "Claude A" }], has_more: true, last_id: "claude-a" }))
@@ -149,14 +168,14 @@ describe("provider model discovery", () => {
 
   it("normalizes Google model IDs, follows page tokens and leaves embedding models unassigned", async () => {
     const request = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ models: [{ name: "models/gemini-a", displayName: "Gemini A", inputTokenLimit: 100_000, outputTokenLimit: 8_000, supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding", supportedGenerationMethods: ["embedContent"] }], nextPageToken: "next" }))
+      .mockResolvedValueOnce(Response.json({ models: [{ name: "models/gemini-a", displayName: "Gemini A", thinking: true, inputTokenLimit: 100_000, outputTokenLimit: 8_000, supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding", supportedGenerationMethods: ["embedContent"] }], nextPageToken: "next" }))
       .mockResolvedValueOnce(Response.json({ models: [{ name: "models/gemini-b", supportedGenerationMethods: ["generateContent"] }] }));
     const result = await discoverProviderModels({ ...connection, api: "google-generative-ai" }, request);
     expect(request.mock.calls[0]?.[1]?.headers).toMatchObject({ "x-goog-api-key": connection.apiKey });
     expect(request.mock.calls[1]?.[0].toString()).toContain("pageToken=next");
     expect(result.models.map((model) => model.id)).toEqual(["gemini-a", "embedding", "gemini-b"]);
     expect(result.models[1].usages).toEqual({});
-    expect(result.models[0]).toMatchObject({ contextWindow: 100_000, maxTokens: 8_000 });
+    expect(result.models[0]).toMatchObject({ contextWindow: 100_000, maxTokens: 8_000, reasoning: true });
   });
 
   it("rejects invalid connections before fetching and returns usable failures without echoing remote secrets", async () => {

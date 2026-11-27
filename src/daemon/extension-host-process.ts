@@ -5,6 +5,9 @@ import { pathToFileURL } from "node:url";
 import { format } from "node:util";
 import {
   EXTENSION_HOST_PROTOCOL_VERSION,
+  validEngineStart,
+  type NativeEngineSession,
+  type NativeEngineStart,
   PROJECT_TYPE_HOOKS,
   HOST_MESSAGE_MAX_CHARS,
   isProgressLink,
@@ -63,6 +66,32 @@ const project =
 
 function send(message: HostMessage) {
   if (process.connected) process.send?.(message, () => {});
+}
+
+const engineCalls = new Map<number, (error?: string) => void>();
+let nextEngineCall = 1;
+
+function requestEngine(message: Extract<HostMessage, { type: "engine-start" | "engine-stop" }>) {
+  return new Promise<void>((resolve, reject) => {
+    if (!process.connected) return reject(new Error("Extension host disconnected"));
+    engineCalls.set(message.id, (error) => {
+      engineCalls.delete(message.id);
+      if (error !== undefined) reject(new Error(error));
+      else resolve();
+    });
+    process.send?.(message, (error: Error | null) => {
+      if (error) engineCalls.get(message.id)?.(error.message);
+    });
+  });
+}
+
+async function startEngine(plugin: string, options: NativeEngineStart, lifetime: AbortSignal): Promise<NativeEngineSession> {
+  if (leaving || lifetime.aborted) throw new Error("The plugin is stopping");
+  if (!validEngineStart(options)) throw new Error("Invalid native engine start options");
+  const session = nextEngineCall++;
+  const { executable, args, cwd, label } = options;
+  await requestEngine({ type: "engine-start", id: session, plugin, options: { executable, args, cwd, label } });
+  return { stop: () => requestEngine({ type: "engine-stop", id: nextEngineCall++, plugin, session }) };
 }
 
 const browserCalls = new Map<number, { finish(error?: Error): void }>();
@@ -321,7 +350,11 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
   const context: PluginContext = {
     pluginId: plugin.id,
     version: plugin.version,
-    ...(project ? { project, browser: { open: (url: string) => openBrowser(plugin.id, url, lifetime.signal) } } : {}),
+    ...(project ? {
+      project,
+      browser: { open: (url: string) => openBrowser(plugin.id, url, lifetime.signal) },
+      nativeSessions: { start: (options: NativeEngineStart) => startEngine(plugin.id, options, lifetime.signal) },
+    } : {}),
     ...(project && plugin.panels ? { panels: { open: (panel: string, options?: { state?: unknown }) => openPanel(plugin.id, panel, options, lifetime.signal) } } : {}),
     dataFolder: plugin.dataFolder,
     configuration: Object.freeze(plugin.configuration ?? {}),
@@ -457,6 +490,9 @@ async function invoke(
 
 process.on("message", (message: HostRequest) => {
   switch (message.type) {
+    case "engine-reply":
+      engineCalls.get(message.id)?.(message.error);
+      return;
     case "activate":
       if (leaving) {
         send({
@@ -558,7 +594,10 @@ async function leave() {
   await Promise.allSettled([...plugins.keys()].map(deactivate));
   process.exit(0);
 }
-process.on("disconnect", () => void leave());
+process.on("disconnect", () => {
+  for (const finish of engineCalls.values()) finish("Extension host disconnected");
+  void leave();
+});
 
 send({ type: "ready", protocol: EXTENSION_HOST_PROTOCOL_VERSION });
 

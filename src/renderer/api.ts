@@ -24,6 +24,7 @@ import {
   type AgentReasoningLevel,
   type CheckpointChangeItem,
   type CheckpointFileView,
+  type CheckpointHistory,
   type CheckpointUndoRequest,
   type CheckpointUndoResponse,
   type ConversationAgentSettings,
@@ -172,7 +173,7 @@ declare global {
       /** Brings the main window forward, for a notification the person clicked. */
       focusWindow?: () => Promise<void>;
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
-      onCancelClose?: (listener: (error: string) => void) => () => void;
+      onCancelClose?: (listener: (error?: string) => void) => () => void;
       windowMenu?: {
         /** Names the application menu's items, in the app's language. */
         setLabels: (labels: Record<string, string>) => Promise<void>;
@@ -1325,8 +1326,28 @@ export async function createCanvasImportFolder(projectId: string, name: string):
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
 
-export async function getLibraryAsset(assetId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
+export function modelThumbnailQuery(projectId: string | undefined, path: string, assetId: string | undefined, large: boolean): string {
+  const query = new URLSearchParams(assetId ? { asset: assetId } : { project: projectId ?? "", path });
+  query.set("size", large ? "large" : "small");
+  return query.toString();
+}
+
+export async function getModelThumbnail(query: string, signal: AbortSignal): Promise<{ version?: string; image?: Blob }> {
+  const response = await fetch(apiUrl("/model-thumbnails?" + query), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  if (!response.headers.get("content-type")?.startsWith("image/png")) return response.json();
+  return { image: await response.blob(), version: response.headers.get("etag")?.replaceAll('"', "") };
+}
+
+export async function saveModelThumbnail(query: string, version: string, image: Blob): Promise<void> {
+  const response = await fetch(apiUrl("/model-thumbnails?" + query + "&version=" + encodeURIComponent(version)), {
+    method: "PUT", headers: { ...runtimeHeaders(), "content-type": "application/octet-stream" }, body: image,
+  });
+  if (!response.ok) throw await responseError(response);
+}
+
+export async function getLibraryAsset(assetId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
@@ -1585,6 +1606,24 @@ export async function getUnfinishedChanges(projectId: string): Promise<Checkpoin
 /** Puts the files back as they were before the restore or undo that was cut off. */
 export async function restoreUnfinished(projectId: string): Promise<void> {
   return request(`/projects/${projectId}/checkpoints/unfinished/restore`, { method: "POST" });
+}
+
+/** What the project's file history takes on disk. With a time, also what clearing the history before it frees, and how many turns can no longer be undone. */
+export async function getCheckpointHistory(projectId: string, before?: number): Promise<CheckpointHistory> {
+  return request(`/projects/${projectId}/checkpoints/history${before === undefined ? "" : `?before=${before}`}`);
+}
+
+/** After how many days every project's file history is cleared automatically; 0 keeps it. */
+export function getFileHistorySettings(): Promise<{ autoClearDays: number; problem?: string }> {
+  return request("/settings/file-history");
+}
+export function setFileHistorySettings(autoClearDays: number): Promise<{ autoClearDays: number }> {
+  return request("/settings/file-history", { method: "PUT", body: JSON.stringify({ autoClearDays }) });
+}
+
+/** Removes the project's file history from before a time. The turns of that time can no longer be undone. */
+export async function clearCheckpointHistory(projectId: string, before: number): Promise<void> {
+  await request(`/projects/${projectId}/checkpoints/history/clear`, { method: "POST", body: JSON.stringify({ before }) });
 }
 
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
