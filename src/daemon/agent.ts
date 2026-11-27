@@ -894,6 +894,8 @@ export class AgentManager {
     conversation: StoredConversation,
     prompt: string,
     validateReference: (reference: PromptReference) => Promise<PromptReference>,
+    // The mode the input box is in, so an edit or a retry runs the way the plan switch shows.
+    mode: PromptMode = "normal",
   ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
     if (!prompt.trim()) throw new Error("Prompt must not be empty");
     const key = conversationKey(project.id, conversation.summary.id);
@@ -932,7 +934,7 @@ export class AgentManager {
           previous.images,
           turnId,
           "last-turn",
-          "normal",
+          mode,
           previous.mentions.filter((mention) => hasPluginMentionToken(prompt, mention)),
           previous.attachmentContext,
           previous.attachments,

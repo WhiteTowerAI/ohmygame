@@ -483,7 +483,7 @@ const reviseLastPromptSchema = {
     type: "object",
     additionalProperties: false,
     required: ["prompt"],
-    properties: { prompt: { type: "string", minLength: 1 } },
+    properties: { prompt: { type: "string", minLength: 1 }, mode: { enum: ["normal", "planning"] } },
   },
 } as const;
 
@@ -5493,7 +5493,7 @@ export function createApp(options: AppOptions = {}) {
         const turn = await agents.reviseLast(project, conversation, request.body.prompt, async (reference) => ({
           type: reference.type,
           path: await validateWorkspaceFile(project.workspacePath, reference.path),
-        }));
+        }), request.body.mode);
         await projects.touch(project.id);
         return reply.code(202).send({ turnId: turn.turnId, queued: false });
       } catch (cause) {

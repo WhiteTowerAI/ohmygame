@@ -1150,7 +1150,7 @@ export interface PromptRequest {
   mode?: PromptMode;
 }
 
-export interface ReviseLastPromptRequest { prompt: string }
+export interface ReviseLastPromptRequest { prompt: string; mode?: PromptMode }
 export interface ScheduleMessageRequest { prompt: string; at: number }
 
 export interface PromptResponse {

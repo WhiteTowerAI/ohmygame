@@ -2221,6 +2221,27 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("edits a message in the mode the plan switch is in", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-revise-plan-"));
+    const workspacePath = path.join(root, "workspace");
+    await mkdir(workspacePath);
+    const stored = SessionManager.create(workspacePath, path.join(root, "session"));
+    stored.appendMessage({ role: "user", content: [{ type: "text", text: "Plan a refactor" }], timestamp: Date.now() });
+    const project = { ...createProject(), workspacePath };
+    const conversation = { ...createConversation(project), sessionPath: stored.getSessionFile()! };
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      activeToolNames: (_project, mode) => mode === "planning" ? ["read"] : ["read", "write", "edit", "bash"],
+    });
+
+    await (await manager.reviseLast(project, conversation, "Plan a smaller refactor", async (reference) => reference, "planning")).result;
+
+    expect(session.setActiveToolsByName).toHaveBeenLastCalledWith(["read"]);
+    expect(session.prompt).toHaveBeenLastCalledWith("Plan a smaller refactor", expect.objectContaining({ context: expect.stringContaining("[PLAN MODE]") }));
+    await manager.close();
+  });
+
   it("shows only the user's words for plan-mode messages saved with the instructions wrapped around them", () => {
     const header = "[PLAN MODE]\nExplore the project and produce a concrete implementation plan. You may only read files and update the structured plan.\nAsk up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.\nPlan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.\nDo not modify files, run commands, or begin implementation. End after the plan is ready for user approval.\n\n";
     const saved = [

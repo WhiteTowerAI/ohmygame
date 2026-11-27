@@ -995,7 +995,9 @@ export function ProjectShell({
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await reviseLastPrompt(project.id, conversation.id, nextPrompt);
+      // Plan is a switch on the input box; an edit or a retry runs in the mode it shows.
+      const planning = composerDrafts.peek({ projectId: project.id, conversationId: conversation.id })?.planning;
+      await reviseLastPrompt(project.id, conversation.id, nextPrompt, planning ? "planning" : "normal");
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });

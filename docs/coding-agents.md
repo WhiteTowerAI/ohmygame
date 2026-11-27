@@ -481,6 +481,7 @@ approval step: the plan stays in the conversation, and the person carries it
 out, or asks for changes, with an ordinary message. Plan is a switch on the
 message, kept with the draft until the person turns it off. A new project's
 first message sent in plan mode from Home leaves it on in that conversation.
+Editing or retrying the latest message runs it in the mode the switch shows.
 
 Each agent plans in its own plan mode: Claude Code in its `plan` permission
 mode, Codex in its native Plan mode and `:read-only` profile, OpenCode with its
