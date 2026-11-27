@@ -22,8 +22,7 @@
           "anyOf": [
             {
               "type": "string",
-              "deprecated": true,
-              "description": "A version saved by an older OhMyGame. Read as enabled.",
+              "description": "An exact version, read as enabled. Written for the plugin that provides the type, which older OhMyGame releases require.",
               "minLength": 5,
               "maxLength": 256
             },

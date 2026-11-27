@@ -84,14 +84,18 @@ export async function writeProjectFile(
   return writeProjectFileAt(await projectFolderKey(folder), update, initial);
 }
 
-/** Like `writeProjectFile`, for a folder that is already a real path. */
+/**
+ * Like `writeProjectFile`, for a folder that is already a real path. With an
+ * `index`, the type's plugin is written as its installed version.
+ */
 function writeProjectFileAt(
   folder: string,
   update: (file: ProjectFile) => ProjectFile,
   initial?: ProjectFile,
+  index?: PluginIndex,
 ): Promise<ProjectFile> {
   const run = (projectWrites.get(folder) ?? Promise.resolve()).then(() =>
-    updateProjectFile(folder, update, initial),
+    updateProjectFile(folder, update, initial, index),
   );
   const settled = run.catch(() => {});
   projectWrites.set(folder, settled);
@@ -105,6 +109,7 @@ async function updateProjectFile(
   folder: string,
   update: (file: ProjectFile) => ProjectFile,
   initial?: ProjectFile,
+  index?: PluginIndex,
 ): Promise<ProjectFile> {
   const current = await readProjectFile(folder);
   if (current && !current.ok)
@@ -117,6 +122,15 @@ async function updateProjectFile(
   if (next.plugins && !Object.keys(next.plugins).length) delete next.plugins;
   const checked = validateProjectFile(next);
   if (!checked.ok) throw new Error(checked.issues.join("; "));
+  // compat: since beta.5.12, remove from beta.7 and 2026-12-28. Releases up to
+  // beta.5.11 can't open a project whose type's plugin isn't an exact version,
+  // so it stays one: the installed version, else the one the file had.
+  const owner = projectTypePlugin(checked.file.type);
+  if (owner && checked.file.plugins?.[owner]) {
+    const previous = base.plugins?.[owner];
+    checked.file.plugins[owner] = index?.get(owner)?.version
+      ?? (typeof previous === "string" ? previous : true);
+  }
   // The schema URL is the current one, also over one an older OhMyGame wrote.
   const { $schema: _schema, ...rest } = checked.file;
   const ordered = { $schema: PROJECT_FILE_SCHEMA_URL, ...rest };
@@ -608,6 +622,7 @@ export async function createProjectPlugins({
     key,
     (current) => ({ ...current, type, plugins: enabled }),
     { type, plugins: enabled },
+    index,
   );
   // Choosing a plugin is turning it on, which allows what it asks for.
   for (const entry of selected) await grants.consent(entry.id, capabilityGrants(entry.manifest));
@@ -646,7 +661,7 @@ export async function setProjectPlugin({
         throw new Error(`${id} provides the project's type and can't be turned off`);
       const { [id]: _previous, ...rest } = current.plugins ?? {};
       return { ...current, plugins: on && projectTypePlugin(current.type) !== id ? rest : { ...rest, [id]: on } };
-    }, initial);
+    }, initial, scope.index);
   }
   // On by itself here, as `resolveProjectPlugins` detects it, until the file says `false`.
   const current = scope.index.get(id);
@@ -661,7 +676,7 @@ export async function setProjectPlugin({
         throw new Error(`${id} provides the project's type and can't be turned off`);
       const { [id]: _removed, ...rest } = current.plugins ?? {};
       return { ...current, plugins: everywhere || detected ? { ...rest, [id]: false } : rest };
-    }, initial);
+    }, initial, scope.index);
     return file;
   }
   const read = await readProjectFile(key);
@@ -681,5 +696,5 @@ export async function setProjectPlugin({
   return writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
     return { ...current, plugins: follows ? rest : { ...rest, [id]: true } };
-  }, initial);
+  }, initial, scope.index);
 }

@@ -329,7 +329,8 @@ export async function adoptTypedProject({
     try {
       await writeFile(
         path.join(key, PROJECT_FILE_NAME),
-        `${JSON.stringify({ $schema: PROJECT_FILE_SCHEMA_URL, type, plugins: { [owner]: true } }, null, 2)}\n`,
+        // An exact version, as `writeProjectFile` keeps it for older releases.
+        `${JSON.stringify({ $schema: PROJECT_FILE_SCHEMA_URL, type, plugins: { [owner]: services.index.get(owner)!.version } }, null, 2)}\n`,
         { flag: "wx" },
       );
     } catch (error) {

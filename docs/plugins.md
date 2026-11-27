@@ -143,8 +143,11 @@ the project it starts in and mentions it.
   its plugins differ from the person's choice for every project
   (`src/shared/project-file.ts`): `true` enables the installed version and
   `false` turns the plugin off here. A plugin that provides the project's type
-  must be enabled and must still provide that type. Old version strings are
-  read as `true` and saved as booleans the next time the project file is edited.
+  must be enabled and must still provide that type. OhMyGame writes that plugin
+  as its installed version, since releases up to beta.5.11 require an exact
+  version there; the version doesn't select a package. Other plugins' old
+  version strings are read as `true` and saved as booleans the next time the
+  project file is edited.
   Opening a Git checkout or importing an archive can read this legacy form
   without writing to the project. The file asks for plugins and grants no permissions.
   Every project has one, and its type is the project's: see

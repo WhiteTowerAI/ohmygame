@@ -487,7 +487,8 @@ describe("daemon", () => {
     // The app's Godot kind starts as the Godot plugin's type, with its template and the plugin on.
     expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" } });
     const file = JSON.parse(await readFile(path.join(godot.json().workspacePath, "ohmygame.json"), "utf8"));
-    expect(file).toMatchObject({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": true } });
+    // The type's plugin is written at its installed version, which releases up to beta.5.11 require.
+    expect(file).toMatchObject({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": expect.stringMatching(/^\d+\.\d+\.\d+/) } });
     expect(await readdir(godot.json().workspacePath)).toContain("project.godot");
     expect(general.statusCode).toBe(201);
     expect(general.json()).toMatchObject({ type: "general", webPreviewEnabled: true, preview: { status: "waiting" } });

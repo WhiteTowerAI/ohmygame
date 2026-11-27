@@ -4,9 +4,10 @@ import { isPluginVersion } from "./plugins.js";
 
 // `ohmygame.json` at a project's root: the project's type and how its plugins
 // differ from the person's choice for every project: `true` for on at the
-// installed version, or `false` for off. The file travels with the project
-// in Git and archives. Approvals stay with the local installation. Unrecognized
-// keys are preserved when OhMyGame writes the file.
+// installed version, or `false` for off. The plugin that provides the type is
+// written as its installed version, which also means on. The file travels
+// with the project in Git and archives. Approvals stay with the local
+// installation. Unrecognized keys are preserved when OhMyGame writes the file.
 
 export const PROJECT_FILE_NAME = "ohmygame.json";
 /** The JSON Schema in `schemas/project-1.json`, which the website serves from the repository's `main` branch. */
@@ -30,7 +31,7 @@ export const ProjectFileSchema = Type.Object(
       Type.Record(
         Type.String({ pattern: `^${PLUGIN_ID}$` }),
         Type.Union([
-          Type.String({ deprecated: true, description: "A version saved by an older OhMyGame. Read as enabled.", minLength: 5, maxLength: 256 }),
+          Type.String({ description: "An exact version, read as enabled. Written for the plugin that provides the type, which older OhMyGame releases require.", minLength: 5, maxLength: 256 }),
           Type.Boolean(),
         ]),
         { description: "Per-project plugin switches. An enabled plugin uses the current installation.", additionalProperties: false },
@@ -69,9 +70,10 @@ export function validateProjectFile(value: unknown): ProjectFileResult {
   // compat: Keep reading version strings until the project file and archive
   // formats can drop the legacy form. Old version strings enable the
   // current installation. Persist the booleans on the next project-file edit.
-  if (plugins.some(([, value]) => typeof value === "string"))
+  // The type's plugin keeps its string; writing the file sets its version.
+  if (plugins.some(([id, value]) => id !== owner && typeof value === "string"))
     return { ok: true, file: { ...file, plugins: Object.fromEntries(
-      plugins.map(([id, value]) => [id, value !== false]),
+      plugins.map(([id, value]) => [id, id === owner ? value : value !== false]),
     ) } };
   return { ok: true, file };
 }

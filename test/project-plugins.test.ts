@@ -836,6 +836,9 @@ describe("project plugins", () => {
       index,
       grants,
     });
+    // Releases up to beta.5.11 need the type's plugin at an exact version, so
+    // a write keeps one, at the installed version.
+    await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "0.9.0" } }));
     await setProjectPlugin({
       folder,
       id: "ohmygame/game-studio",
@@ -843,7 +846,8 @@ describe("project plugins", () => {
       index,
       grants,
     });
-    expect((await readProjectFile(folder))?.ok).toBe(true);
+    const enabled = await readProjectFile(folder);
+    expect(enabled?.ok && enabled.file.plugins?.["ohmygame/godot"]).toBe("1.0.0");
 
     await setProjectPlugin({
       folder,
@@ -854,7 +858,7 @@ describe("project plugins", () => {
     });
     const file = await readProjectFile(folder);
     expect(file?.ok && file.file.plugins).toEqual({
-      "ohmygame/godot": true,
+      "ohmygame/godot": "1.0.0",
     });
     await expect(
       setProjectPlugin({

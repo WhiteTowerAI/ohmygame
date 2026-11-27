@@ -1843,7 +1843,7 @@ describe("project types", () => {
         JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")),
       ).toMatchObject({
         type: "acme/board:board",
-        plugins: { "acme/board": true },
+        plugins: { "acme/board": "1.0.0" },
       });
       expect(await readFile(path.join(folder, "levels/one.txt"), "utf8")).toBe(
         "1",
@@ -1900,11 +1900,9 @@ describe("project types", () => {
       const project = (await app.inject({ method: "POST", url: "/projects", payload: { projectType: "acme/board:board", name: "Board" } })).json();
       const file = path.join(project.workspacePath, "ohmygame.json");
       expect(project.pluginType.preview).toBe("web-build");
-      const legacy = JSON.parse(await readFile(file, "utf8"));
-      expect(legacy.plugins["acme/board"]).toBe(true);
+      // The file names 1.0.0, which no longer selects a package after the update.
+      expect(JSON.parse(await readFile(file, "utf8")).plugins["acme/board"]).toBe("1.0.0");
       await app.close();
-      legacy.plugins["acme/board"] = "1.0.0";
-      await writeFile(file, JSON.stringify(legacy));
       await install(update);
       await expect(readFile(path.join(first.root, ".ohmygame-plugin/plugin.json"))).rejects.toMatchObject({ code: "ENOENT" });
 
@@ -1998,7 +1996,7 @@ describe("project types", () => {
       );
       expect(
         JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")),
-      ).toMatchObject({ type: "acme/board:board" });
+      ).toMatchObject({ type: "acme/board:board", plugins: { "acme/board": "1.0.0" } });
       expect(await buildWebPreview({ folder, services })).toMatchObject({
         entry: "index.html",
       });
