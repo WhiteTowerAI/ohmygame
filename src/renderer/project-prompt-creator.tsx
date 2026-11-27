@@ -16,7 +16,7 @@ import type { FirstMessage } from "./project-create-dialog.js";
 import { newProjectKind } from "./project-type-choices.js";
 import { Button } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
-import { activePluginMentions, insertMention, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { activePluginMentions, insertMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
 import { t } from "./i18n.js";
 
@@ -264,9 +264,9 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery): void {
-    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
-    if (mention.type === "plugin") {
-      const selected = toPluginMention(mention.value);
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention, capabilities.plugins);
+    const selected = inserted.plugin;
+    if (selected) {
       changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
     } else {
       changePrompt(inserted.value);

@@ -165,6 +165,8 @@ export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
+// A mention ends at whitespace or closing punctuation, ASCII or full-width.
+const MENTION_END = "(?=$|[\\s.,!?;:)}\\]，。！？；：、）】》」』”’…])";
 const PLUGIN_MENTION_PATTERN = /\[(@[^\]]+)\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;
 
 export function pluginMentionToken(mention: Pick<PluginMention, "displayName">): string {
@@ -210,7 +212,7 @@ function pluginMentionTokens(mentions: readonly PluginMention[]): { pattern: Reg
     .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
   if (ordered.length === 0) return undefined;
   const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
-  return { pattern: new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g"), byToken };
+  return { pattern: new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})${MENTION_END}`, "g"), byToken };
 }
 
 export function hasPluginMentionToken(prompt: string, mention: Pick<PluginMention, "displayName">): boolean {
@@ -237,7 +239,7 @@ function uniquePluginMentions(mentions: readonly PluginMention[]): PluginMention
 }
 
 function pluginTokenPattern(token: string): RegExp {
-  return new RegExp(`${escapeRegExp(token)}(?=$|[\\s.,!?;:)}\\]])`, "g");
+  return new RegExp(`${escapeRegExp(token)}${MENTION_END}`, "g");
 }
 
 function escapeRegExp(value: string): string {

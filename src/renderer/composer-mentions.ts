@@ -82,7 +82,7 @@ export function slashCommandQuery(value: string, cursor: number): ComposerMentio
 export function matchingMentions(capabilities: ConversationCapabilities, query: ComposerMentionQuery): ComposerMention[] {
   const plugins: ComposerMention[] = query.trigger === "@"
     ? capabilities.plugins
-      .filter((plugin) => `${plugin.displayName} ${plugin.name} ${plugin.description}`.toLowerCase().includes(query.query))
+      .filter((plugin) => `${plugin.displayName} ${plugin.id} ${plugin.description}`.toLowerCase().includes(query.query))
       .map((value) => ({ type: "plugin" as const, value }))
     : [];
   return [...plugins, ...capabilities.skills
@@ -90,20 +90,34 @@ export function matchingMentions(capabilities: ConversationCapabilities, query: 
     .map((value) => ({ type: "skill" as const, value }))];
 }
 
-export function insertMention(value: string, query: ComposerMentionQuery, mention: ComposerMention): { value: string; cursor: number } {
-  const token = mention.type === "plugin" ? pluginMentionToken(mention.value) : `$${mention.value.name}`;
+/** `plugins` are the ones the picker offers, so a plugin's label tells it apart from them; `plugin` is the mention to keep. */
+export function insertMention(value: string, query: ComposerMentionQuery, mention: ComposerMention, plugins: readonly MentionablePlugin[] = []): { value: string; cursor: number; plugin?: PluginMention } {
+  const plugin = mention.type === "plugin" ? toPluginMention(mention.value, plugins) : undefined;
+  const token = plugin ? pluginMentionToken(plugin) : `$${mention.value.name}`;
   const suffix = value.slice(query.end);
   const separator = suffix.startsWith(" ") ? "" : " ";
   const next = `${value.slice(0, query.start)}${token}${separator}${suffix}`;
-  return { value: next, cursor: query.start + token.length + separator.length };
+  return { value: next, cursor: query.start + token.length + separator.length, plugin };
 }
 
-export function toPluginMention(plugin: ConversationCapabilities["plugins"][number]): PluginMention {
+type MentionablePlugin = ConversationCapabilities["plugins"][number];
+
+/** A name another of `plugins` shares gets the publisher, or the ID, so its token stays unique. */
+export function toPluginMention(plugin: MentionablePlugin, plugins: readonly MentionablePlugin[] = []): PluginMention {
   return {
     name: plugin.name,
-    displayName: plugin.displayName,
+    displayName: pluginMentionLabel(plugin, plugins),
     marketplaceId: plugin.marketplaceId,
   };
+}
+
+function pluginMentionLabel(plugin: MentionablePlugin, plugins: readonly MentionablePlugin[]): string {
+  const name = plugin.displayName.replace(/^@/, "");
+  const others = new Set(plugins.filter((other) => other.id !== plugin.id).map((other) => other.displayName.replace(/^@/, "")));
+  if (!others.has(name)) return name;
+  const publisher = `${name} (${plugin.marketplaceId})`;
+  const shared = plugins.some((other) => other.id !== plugin.id && other.marketplaceId === plugin.marketplaceId && other.displayName.replace(/^@/, "") === name);
+  return shared || others.has(publisher) ? `${name} (${plugin.id})` : publisher;
 }
 
 export function activePluginMentions(prompt: string, mentions: readonly PluginMention[]): PluginMention[] {

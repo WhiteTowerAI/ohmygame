@@ -61,7 +61,7 @@ async function pack(folder: string, destination: string): Promise<number> {
   try {
     const archive = npmPack(folder, work);
     const root = await unpackPlugin(archive, work, { published: true, error: (reason) => new Error(`npm's package can't be unpacked (${reason})`) });
-    const errors = report(await checkPlugin(root, options));
+    const errors = report(await checkPlugin(root, { ...options, packing: true }));
     if (errors) {
       console.error(`Not packed: fix the errors, then pack again.`);
       return 1;

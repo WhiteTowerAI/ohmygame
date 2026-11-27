@@ -6,7 +6,7 @@ import { manifestHooks } from "../shared/plugin-hooks.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { indexPluginPackage, localizePluginString, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
+import { indexPluginPackage, localizePluginString, pluginDisplayNameIssues, pluginAdds, type PluginIndexEntry } from "./plugin-index.js";
 import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
@@ -22,7 +22,7 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
     Object.assign(draft, await inspectPluginFiles(root));
     const result = await indexPluginPackage(root);
     // A draft is written for this app, so a field it doesn't know is a mistake to fix.
-    const issues = [...(result.ok ? [] : result.issues), ...(result.ignored ?? [])];
+    const issues = [...(result.ok ? pluginDisplayNameIssues(result.entry) : result.issues), ...(result.ignored ?? [])];
     if (issues.length) {
       draft.errors.push(...issues.map((issue) => `${issue.path} ${issue.message}`));
       return draft;
