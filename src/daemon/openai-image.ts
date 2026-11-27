@@ -27,11 +27,7 @@ export interface ImageGenerationInput {
 
 export interface ImageGenerationRecovery {
   journal: MediaTaskJournal;
-  /** A retry must have an existing receipt, including after a plugin upgrade. */
-  resuming?: boolean;
   outputs?: number;
-  /** Host inspection prevents a saved task from falling back to a non-recoverable adapter. */
-  receiptRecorded?: boolean;
 }
 
 export interface ImageGenerator {

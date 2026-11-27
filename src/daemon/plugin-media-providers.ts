@@ -143,10 +143,8 @@ interface RunOptions {
   limitMs: number;
   signal?: AbortSignal | undefined;
   Failure: Failure;
-  /** Where a task is kept so a retry after a restart resumes it. */
+  /** Keeps the task receipt for this recovery ID. */
   journal?: MediaTaskJournal | undefined;
-  /** Do not reinterpret a missing pre-upgrade receipt as a new submission. */
-  resumeOnly?: boolean;
   preserveTaskOnStop?: boolean;
 }
 
@@ -754,8 +752,6 @@ export class PluginMediaProviders {
     const item = (await this.providers()).find((candidate) => candidate.id === model.provider);
     if (!item?.media.image) throw new ImageGenerationError("The selected image provider is unavailable. Check its plugin and key.", 503);
     const recoverable = item.media.image.recoverable;
-    if (!recoverable && recovery?.resuming && recovery.receiptRecorded !== false)
-      throw new ImageGenerationError("This provider no longer supports image recovery. Restore its recovery support to retry the saved task.", 409);
     if (recoverable && !recovery) throw new ImageGenerationError("This provider requires a durable image job", 409);
     if (recoverable && (recovery!.outputs ?? 1) !== 1) throw new ImageGenerationError("Recoverable images take one output per generation", 400);
     const declared = (await this.#models(item, "image")).find((candidate) => candidate.id === model.id);
@@ -770,7 +766,7 @@ export class PluginMediaProviders {
       references: await scaleReferences(input.images ?? [], declared?.maxReferenceImageDimension),
       ...modelData(declared),
     }, { limitMs: item.media.image.maxMinutes ? item.media.image.maxMinutes * 60_000 : IMAGE_LIMIT_MS, signal, Failure: ImageGenerationError,
-      ...(recoverable ? { journal: recovery!.journal, resumeOnly: recovery!.resuming, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}),
+      ...(recoverable ? { journal: recovery!.journal, preserveTaskOnStop: true, configuration: item.media.image.configuration } : {}),
       ...(declared?.animationFrames === true ? { outputLimit: MAX_MEDIA_FRAMES } : {}) }, async (outputs, stopped) => {
       if (declared?.animationFrames === true && outputs.length > 1) {
         if (!this.#dataDirectory) throw new ImageGenerationError("Animation frame output needs an application data directory", 500);
@@ -1141,11 +1137,6 @@ export class PluginMediaProviders {
           ? `${name}: the provider, its key or the request changed since this ${kind} started. Check the provider before starting a new generation.`
           : `${name} may have started this ${kind} already, but its answer was lost. Check ${name}'s own site before starting a new generation.`, 409);
       }
-      // A staged start also returns "new", but must replay its saved submit responses.
-      if (options.resumeOnly && begun.state === "new" && !journal.hasSubmissions()) {
-        try { await journal.clear(); } finally { journal.release(); }
-        throw new Failure(`${name}: no saved image task can be resumed. Check the provider's result before explicitly starting a new generation.`, 409);
-      }
     }
     let task = begun.state === "resume" ? begun.task : undefined;
     let saved = task === undefined ? undefined : JSON.stringify(task);
@@ -1153,7 +1144,7 @@ export class PluginMediaProviders {
     let settled = false;
     // Whether the vendor has the result ready, so only fetching it is left.
     let ready = false;
-    // Whether the journal keeps the request after this run, for a retry to resume.
+    // Whether the journal keeps the receipt after this run.
     let keep = false;
     try {
       let answer: Answer;
@@ -1229,7 +1220,7 @@ export class PluginMediaProviders {
     } catch (cause) {
       const shutdown = signal?.aborted && signal.reason instanceof GenerationShutdown;
       if (shutdown) {
-        // The app is closing: keep the task for a retry to resume, and let the vendor go on.
+        // The app is closing: keep the receipt and let the vendor go on.
         if (task !== undefined || ready) keep = true;
       } else if (ready) {
         // A failed or stopped download must not discard an already-paid result.

@@ -481,7 +481,7 @@ describe("agent tools", () => {
       prompt: "A wide fantasy landscape",
       resolution: "2K",
       aspectRatio: "16:9",
-    }, undefined, { journal: expect.any(Object), resuming: false, outputs: 1 });
+    }, undefined, { journal: expect.any(Object), outputs: 1 });
   });
 
   it("publishes a validated structured plan", async () => {

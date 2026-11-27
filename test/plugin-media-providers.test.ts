@@ -494,7 +494,7 @@ describe("opted-in image recovery", () => {
     await values.update(first.entry, { workflow: null, promptNode: "other" });
     const restored = new PluginValues(file); await restored.load();
     const next = await setup(WORKFLOW_START, { media: workflowMedia, configuration: workflowConfiguration, values: restored });
-    expect((await next.media.generateImage(model, { prompt: "fox", resolution: "4K", aspectRatio: "21:9" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect((await next.media.generateImage(model, { prompt: "fox", resolution: "4K", aspectRatio: "21:9" }, undefined, { journal: await journalAt() })).bytes).toEqual(PNG);
     expect(first.requests.map(request => request.method)).toEqual(["POST"]);
     expect(next.requests.map(request => request.method)).toEqual(["GET", "GET"]);
     // A new job uses current settings and fails before any request if the required workflow is absent.
@@ -515,7 +515,7 @@ describe("opted-in image recovery", () => {
     const next = await setup(WORKFLOW_START, { media: changed === "binding" ? { image: { ...workflowMedia.image!, configuration: ["workflow"] } } : workflowMedia,
       configuration: workflowConfiguration, values, ...(changed === "package" ? { digest: "d2" } : {}),
     });
-    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow(/changed|uncertain|confirm|lost/);
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow(/changed|uncertain|confirm|lost/);
     expect(first.requests).toHaveLength(1); expect(next.requests).toHaveLength(0);
     expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(saved);
   });
@@ -569,37 +569,16 @@ describe("opted-in image recovery", () => {
     } finally { await store.close(); await media.close(); }
   });
 
-  it("retains a paid result after download failure and rejects changed input on retry", async () => {
+  it("retains a paid result after download failure and rejects changed input when resuming it", async () => {
     const first = await setup(IMAGE_START, { media: recoverable, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
     const model = await firstModel(first.media);
     await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("downloaded");
     const next = await setup(IMAGE_START, { media: recoverable });
-    await expect(next.media.generateImage(model, { prompt: "changed" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("request changed");
+    await expect(next.media.generateImage(model, { prompt: "changed" }, undefined, { journal: await journalAt() })).rejects.toThrow("request changed");
     expect(next.requests).toHaveLength(0);
-    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).bytes).toEqual(PNG);
     expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
     expect(next.requests.map(request => request.method)).toEqual(["GET"]);
-  });
-
-  it("does not turn a formerly non-recoverable image into a new paid task after a plugin upgrade", async () => {
-    const previous = await setup(IMAGE_START);
-    const model = await firstModel(previous.media);
-    await previous.media.generateImage(model, { prompt: "fox" });
-    const next = await setup(IMAGE_START, { media: recoverable });
-    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("no saved image task");
-    expect(next.requests).toHaveLength(0);
-    expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("missing");
-  });
-
-  it("does not discard a durable image receipt when the plugin loses recovery support", async () => {
-    const first = await setup(IMAGE_START, { media: recoverable, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
-    const model = await firstModel(first.media);
-    await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("downloaded");
-    const before = await readFile(path.join(root, "media-tasks/job-1.json"), "utf8");
-    const older = await setup(IMAGE_START);
-    await expect(older.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("no longer supports image recovery");
-    expect(older.requests).toHaveLength(0);
-    expect(await readFile(path.join(root, "media-tasks/job-1.json"), "utf8")).toBe(before);
   });
 
   it("requires one output and a durable owner before an opted-in image can be submitted", async () => {
@@ -615,7 +594,7 @@ describe("opted-in image recovery", () => {
     const model = await firstModel(first.media);
     await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("could not be reached");
     const next = await setup(IMAGE_START, { media: recoverable });
-    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).rejects.toThrow("answer was lost");
+    await expect(next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).rejects.toThrow("answer was lost");
     expect(first.requests).toHaveLength(1);
     expect(next.requests).toHaveLength(0);
   });
@@ -636,7 +615,7 @@ describe("opted-in image recovery", () => {
     vi.spyOn(journal, "save").mockRejectedValueOnce(new Error("Task receipt disk unavailable"));
     await expect(first.media.generateImage(model, { prompt: "fox" }, undefined, { journal })).rejects.toThrow("Task receipt disk unavailable");
     const next = await setup(adapter, { media: recoverable });
-    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+    expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).bytes).toEqual(PNG);
     expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
     expect(next.requests.map(request => request.method)).toEqual(["GET", "GET"]);
     expect(await inspectMediaTaskJournal(path.join(root, "media-tasks"), "job-1")).toBe("task-recorded");
@@ -668,7 +647,7 @@ describe("opted-in image recovery", () => {
     await rejected; await first.media.close();
     const next = await setup(adapter, options);
     try {
-      expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt(), resuming: true })).bytes).toEqual(PNG);
+      expect((await next.media.generateImage(model, { prompt: "fox" }, undefined, { journal: await journalAt() })).bytes).toEqual(PNG);
       expect(first.requests.filter(request => request.method === "POST").map(request => request.url)).toEqual(["http://127.0.0.1:8188/prompt"]);
       expect(first.requests.every(request => ["POST", "GET"].includes(request.method))).toBe(true);
       expect(next.requests.map(request => request.url)).toEqual(["http://127.0.0.1:8188/history/prompt-1", "http://127.0.0.1:8188/view"]);
