@@ -4299,6 +4299,10 @@ const en = {
   // Sent whole to the main process. Item keys are Electron's lowercase menu
   // item roles; a role that is worded differently on macOS has its own key.
   windowMenu: {
+    cancel: "Cancel",
+    closeNativeEditor: "Save your changes in the editor and close it, then try again.",
+    editorCheckFailed: "The background service did not respond. Stopping it may discard unsaved editor changes.",
+    stopService: "Stop service",
     openApp: "Open OhMyGame",
     file: "File",
     edit: "Edit",

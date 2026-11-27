@@ -247,7 +247,9 @@ export class PluginSetupManager {
   async remove(id: string): Promise<void> {
     const state = await this.#loadState(id);
     this.#hold(state, "Wait for the builder to finish before deleting its workspace");
+    let releaseEditors: (() => void) | undefined;
     try {
+      releaseEditors = await this.services.hosts.editors.guardRemoval(this.#directory(id));
       await this.#writes.get(id);
       // Its draft's host may be writing in the workspace's folder; it stops before the folder goes.
       await this.services.native.stopScope(draftScope(id)).catch(() => {});
@@ -262,7 +264,10 @@ export class PluginSetupManager {
       this.services.logs.forget(draftPlugin(id));
       this.#hostDigests.delete(id);
       await rm(removed, { recursive: true, force: true });
-    } finally { state.busy = false; }
+    } finally {
+      releaseEditors?.();
+      state.busy = false;
+    }
   }
   /** Keeps others off the workspace, and waits for its agent to finish. */
   #hold(state: SetupRuntimeState, busy: string): void {

@@ -181,6 +181,7 @@ import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage
 import { PluginPageFetchError, pluginPageFetch, recordProjectPluginError } from "./plugin-pages.js";
 import { DRAFT_PLUGIN_PUBLISHER, draftPlugin, draftSetupId, type PluginDraftRun } from "../shared/plugin-setup.js";
 import { PLUGIN_UI_HISTORY_MAX, PLUGIN_UI_LIBRARY_PROMPT_MAX, PLUGIN_UI_MESSAGE_MAX_BYTES, PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { OpenEditorError } from "./native-engine-sessions.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTemplates, availableProjectTypes, buildWebPreview, copyTemplate, createTypedProject, projectTemplate, projectGameHooks, projectGameUse, projectKind, projectKindAt, recognizeProjectTypes } from "./project-types.js";
 import { PluginGameRuntime } from "./plugin-game-runtime.js";
@@ -1602,7 +1603,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
     get: (projectId) => projects.get(projectId),
-    remove: (project) => removeProject(project),
+    remove: async (project) => { await removeProject(project); },
     busy: (projectId) => agents.isProjectBusy(projectId),
     exclusive: (projectId, operation) => projectWrites.exclusive(projectId, operation),
   });
@@ -4023,12 +4024,14 @@ export function createApp(options: AppOptions = {}) {
     // A project reads as idle from the end of a run, a little before its turn is closed; what is asked of it then waits.
     await agents.turnsClosed(project.id);
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
-    if (request.query.keep === "1") return projectWrites.exclusive(project.id, async () => {
-      await forgetProject(project);
-      return reply.send({ movedTo: await projects.remove(project.id) });
-    });
-    await removeProject(project);
-    return reply.code(204).send();
+    const keep = request.query.keep === "1";
+    try {
+      const movedTo = await removeProject(project, keep);
+      return keep ? reply.send({ movedTo }) : reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof OpenEditorError) return reply.code(409).send({ error: cause.message, editor: cause.editor });
+      throw cause;
+    }
   });
   /** Lets go of everything the app holds for a project, before its files go. */
   async function forgetProject(project: ProjectState): Promise<void> {
@@ -4050,10 +4053,16 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.closeProject(project.workspacePath).catch(() => {});
     fileWatches.close(project.workspacePath);
   }
-  function removeProject(project: ProjectState): Promise<void> {
+  function removeProject(project: ProjectState, keep = false) {
     return projectWrites.exclusive(project.id, async () => {
-      await forgetProject(project);
-      await projects.delete(project.id);
+      const release = await pluginServices.hosts.editors.guardRemoval(project.workspacePath);
+      try {
+        await forgetProject(project);
+        if (keep) return await projects.remove(project.id);
+        await projects.delete(project.id);
+      } finally {
+        release();
+      }
     });
   }
 
@@ -5729,7 +5738,10 @@ export function createApp(options: AppOptions = {}) {
     await examples.close();
     await localPublisher?.close();
   });
-  return app;
+  return Object.assign(app, {
+    prepareEditorShutdown: () => pluginServices.hosts.editors.prepareShutdown(),
+    cancelEditorShutdown: () => pluginServices.hosts.editors.cancelShutdown(),
+  });
 }
 
 /**

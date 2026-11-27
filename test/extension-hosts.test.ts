@@ -1,3 +1,4 @@
+import * as lifecycle from "../src/daemon/process-lifecycle.js";
 import { SettingsWrites } from "../src/daemon/settings-writes.js";
 import {
   cp,
@@ -57,6 +58,17 @@ const SOURCES: Record<string, string> = {
       context.registerCommand("list", () => context.models.list());
       context.registerCommand("ask", (input, call) => context.models.complete(input, { signal: call.signal }));
       context.registerCommand("askLoose", (input) => context.models.complete(input));
+    }
+  `,
+  editor: `
+    export function activate(context) {
+      const sessions = [];
+      context.registerTool("launch", async ({ executable, args }) => {
+        const session = await context.nativeSessions.start({ executable, args });
+        sessions.push(session);
+        return sessions.length;
+      });
+      context.registerTool("stop", (number) => sessions[number - 1].stop());
     }
   `,
   browser: `
@@ -224,6 +236,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const TOOLS: Record<string, string[]> = {
+  editor: ["launch", "stop"],
   chatty: ["later", "fail", "offline", "forge"],
   tools: [
     "echo",
@@ -1254,6 +1267,61 @@ describe("extension hosts", () => {
     expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
     await extensionHosts.stop(project);
     expect(released).toContainEqual({ scope: project, generation });
+  });
+
+  it("keeps one native editor across idle and host replacement until its process exits", async () => {
+    const extensionHosts = hosts({ idleMs: 100 });
+    const project = await realpath(await mkdtemp(path.join(root, "editor-project-")));
+    const request = { scope: project, project, plugin: plugin("editor") };
+    const marker = path.join(project, "editor.pid");
+    const args = ["-e", "require('node:fs').writeFileSync('editor.pid', String(process.pid)); setInterval(() => {}, 1000)"];
+    const launch = () => extensionHosts.invoke({ ...request, tool: "launch", input: { executable: process.execPath, args } });
+    const launches = await Promise.allSettled([launch(), launch()]);
+    expect(launches.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(launches.find((result) => result.status === "rejected")?.reason.message).toMatch(/already running/);
+    await vi.waitFor(async () => expect(Number(await readFile(marker, "utf8"))).toBeGreaterThan(0));
+    const pid = Number(await readFile(marker, "utf8"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await extensionHosts.status()).toHaveLength(1);
+    // Keep the old editor alive while a new generation takes over the same scope.
+    const terminate = lifecycle.terminateProjectProcess;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const spy = vi.spyOn(lifecycle, "terminateProjectProcess").mockImplementation(async (child) => {
+      if (child.pid === pid) await gate;
+      await terminate(child);
+    });
+    const stopping = extensionHosts.stop(project);
+    try {
+      await expect(launch()).rejects.toThrow(/already running/);
+      await expect(extensionHosts.editors.guardRemoval(project)).rejects.toThrow(/close A native engine/);
+      expect(extensionHosts.editors.prepareShutdown()).toBe("A native engine");
+      expect(() => process.kill(pid, 0)).not.toThrow();
+    } finally {
+      finish();
+      await stopping;
+      spy.mockRestore();
+    }
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
+  });
+
+  it("releases failed and finished starts and keeps an old stop handle scoped to its launch", async () => {
+    const extensionHosts = hosts({ idleMs: 1000 });
+    const project = await realpath(await mkdtemp(path.join(root, "editor-restart-")));
+    const request = { scope: project, project, plugin: plugin("editor") };
+    const launch = (executable: string, args: string[]) =>
+      extensionHosts.invoke({ ...request, tool: "launch", input: { executable, args } });
+    await expect(launch(path.join(project, "missing"), [])).rejects.toThrow(/missing/i);
+    await launch(process.execPath, ["-e", ""]);
+    await vi.waitFor(() => launch(process.execPath, ["-e", "setInterval(() => {}, 1000)"]));
+    await extensionHosts.invoke({ ...request, tool: "stop", input: 1 });
+    await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/already running/);
+    await extensionHosts.invoke({ ...request, tool: "stop", input: 2 });
+    const release = await extensionHosts.editors.guardRemoval(project);
+    await expect(launch(process.execPath, ["-e", ""])).rejects.toThrow(/project is closing/);
+    release();
+    await launch(process.execPath, ["-e", ""]);
+    await vi.waitFor(async () => expect(await extensionHosts.status()).toEqual([]), { timeout: 4000 });
   });
 
   it("stops an idle host", async () => {
