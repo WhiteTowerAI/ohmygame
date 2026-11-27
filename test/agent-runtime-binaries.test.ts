@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import {
   chmod,
   copyFile,
@@ -15,6 +16,11 @@ import { AGENT_RUNTIME_DEFINITIONS } from "../src/daemon/agent-runtimes/definiti
 import { resolveBinary, runCli } from "../src/daemon/agent-runtimes/discovery.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
+
+vi.mock("node:child_process", async (original) => {
+  const actual = await original<typeof import("node:child_process")>();
+  return { ...actual, execFile: vi.fn(actual.execFile) };
+});
 
 let root: string;
 let shellPathFile: string;
@@ -43,6 +49,7 @@ printf '__OHMYGAME_PATH__%s__OHMYGAME_PATH__' "$(/bin/cat '${shellPathFile}')"
   vi.stubEnv("SHELL", shell);
   vi.spyOn(os, "homedir").mockReturnValue(home);
   vi.spyOn(environment, "commonBinaryDirectories").mockReturnValue([]);
+  vi.spyOn(environment, "windowsStorePackageRoots").mockResolvedValue([]);
   // Keep the real app-relative paths, but never inspect the developer's installs.
   bundled = AGENT_RUNTIME_DEFINITIONS["codex-cli"].bundledPaths!.darwin!.map(
     (entry) => ({
@@ -450,6 +457,62 @@ it.skipIf(process.platform !== "win32")(
       path: binary,
       source: "codex-app",
     });
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
+  "discovers the Codex inside the Store package, which cannot be listed",
+  async () => {
+    AGENT_RUNTIME_DEFINITIONS["codex-cli"].bundledPaths = {};
+    vi.stubEnv("LOCALAPPDATA", path.join(root, "local"));
+    vi.mocked(environment.windowsStorePackageRoots).mockResolvedValue([
+      path.join(root, "WindowsApps", "OpenAI.Codex_1.2.3.0_x64__abc"),
+    ]);
+    const binary = path.join(
+      root,
+      "WindowsApps",
+      "OpenAI.Codex_1.2.3.0_x64__abc",
+      "app",
+      "resources",
+      "codex.exe",
+    );
+    await mkdir(path.dirname(binary), { recursive: true });
+    await copyFile(process.execPath, binary);
+    expect(await resolveBinary("codex-cli")).toMatchObject({
+      path: binary,
+      source: "codex-app",
+    });
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
+  "reads only the matching Store packages' folders from the registry",
+  async () => {
+    const sep = path.sep;
+    const base = `HKEY_CURRENT_USER${sep}Packages`;
+    const key = (name: string) => `${base}${sep}${name}`;
+    vi.mocked(execFile).mockImplementation(((
+      _command: unknown,
+      args: string[],
+      _options: unknown,
+      callback: (error: null, stdout: string) => void,
+    ) => {
+      const lines = args.includes("/v")
+        ? [
+            `    PackageRootFolder    REG_SZ    C:${sep}Apps${sep}${args[1]!.split(sep).at(-1)}`,
+          ]
+        : [
+            key("OpenAI.Codex_1.0.0_x64__abc"),
+            key("OpenAI.CodexPrimaryRuntime.v1_x64__def"),
+            key("Microsoft.App_x64__ghi"),
+          ];
+      setImmediate(() => callback(null, lines.join("\r\n")));
+      return { stdin: null } as never;
+    }) as unknown as typeof execFile);
+    vi.mocked(environment.windowsStorePackageRoots).mockRestore();
+    expect(await environment.windowsStorePackageRoots("OpenAI.Codex_", true)).toEqual([
+      `C:${sep}Apps${sep}OpenAI.Codex_1.0.0_x64__abc`,
+    ]);
   },
 );
 

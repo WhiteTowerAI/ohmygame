@@ -27,6 +27,7 @@ import {
   agentEnvironment,
   commonBinaryDirectories,
   loginShellPath,
+  windowsStorePackageRoots,
 } from "./environment.js";
 import { leaseAgentDirectory } from "./process-recovery.js";
 import { AgentProcess } from "./process.js";
@@ -143,6 +144,15 @@ export async function resolveBinary(
               source: "codex-app",
             });
       }
+      // The copy inside the Store package is the one the Codex app runs.
+      for (const directory of await windowsStorePackageRoots(
+        "OpenAI.Codex_",
+        recheck,
+      ))
+        candidates.push({
+          path: path.join(directory, "app", "resources", "codex.exe"),
+          source: "codex-app",
+        });
     }
   }
   // OpenCode's npm package likewise keeps its native CLI inside the package,
