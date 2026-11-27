@@ -1110,6 +1110,8 @@ const en = {
   },
   examples: {
     loadingName: "Loading {{name}}",
+    downloadFailed: "Could not download this example.",
+    preparingRemix: "Preparing Remix…",
     play: "Play",
     playName: "Play {{name}}",
     example: "Example",

@@ -23,6 +23,8 @@ loadEnvironmentFiles(repositoryRoot, mode);
 const accessToken = await takeAccessToken(process.env, process.stdin);
 const host = process.env.DAEMON_HOST ?? "127.0.0.1";
 const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
+const localExamplesDirectory = path.join(repositoryRoot, "resources", "examples");
+const examplesDirectory = process.env.OHMYGAME_EXAMPLES_DIR ?? localExamplesDirectory;
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
 process.env.PI_CODING_AGENT_DIR = piAgentDirectory;
 let app: ReturnType<typeof createApp> | undefined;
@@ -93,7 +95,10 @@ try {
     ...(process.env.OHMYGAME_PLUGIN_UI_PORT ? { pluginUiPort: Number(process.env.OHMYGAME_PLUGIN_UI_PORT) } : {}),
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
-    examplesDirectory: process.env.OHMYGAME_EXAMPLES_DIR ?? path.join(repositoryRoot, ".runtime", "examples"),
+    examplesDirectory,
+    ...(examplesDirectory === localExamplesDirectory
+      ? { preparedExamplesDirectory: path.join(repositoryRoot, ".runtime", "examples") }
+      : {}),
     accessToken,
     allowedOrigins: (process.env.OHMYGAME_ALLOWED_ORIGINS ?? "")
       .split(",")

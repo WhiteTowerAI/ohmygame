@@ -91,17 +91,19 @@ choices. See [runtime.md](docs/runtime.md) for these boundaries.
 
 ### First-start preparation and common problems
 
-- The development commands prepare pinned plugins and examples under `.runtime/`.
-  First startup needs network access to GitHub and package registries; prepared
-  resources are reused on later starts.
+- The development commands prepare pinned plugins under `.runtime/`.
+  First plugin preparation needs network access; prepared archives are reused
+  on later starts.
 - Plugin preparation is required, including before running tests. It also extracts
   the locked npm packages to `.runtime/preinstalled-plugin-sources/` for integration
   tests; edit plugins in `ohmygame-plugins`, not in this generated directory.
   If its download or checksum check fails,
   check the connection and run `bun run prepare:preinstalled-plugins` again.
-- Example preparation clones and builds a separate repository using npm. A
-  failed preparation reports unavailable examples; retry with
-  `bun run prepare:examples` when the connection or npm setup is fixed.
+- Explore has its catalog and covers in `resources/examples/`. The first
+  Play or Remix downloads the files it needs. To preview a new example pin
+  before the downloads have been published, run `bun run prepare:examples`
+  to build the pinned example repository locally. Both dev modes can use
+  those prepared files.
 - Browser development uses fixed ports. Stop another local instance if either
   port is occupied. Desktop development chooses a free daemon port.
 - Browser development does not provide Electron's `game_use` playtest tool.

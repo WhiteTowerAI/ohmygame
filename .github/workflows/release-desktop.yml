@@ -5,8 +5,14 @@ on:
     tags:
       - "v*"
   # Builds both packages from any branch without publishing, to install them
-  # before tagging a release.
+  # before tagging a release. The examples-only mode publishes a new pin
+  # independently so the matching development checkout can play online.
   workflow_dispatch:
+    inputs:
+      examples_only:
+        description: Publish the pinned example downloads only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,6 +24,7 @@ concurrency:
 
 jobs:
   release-notes:
+    if: github.event_name == 'push' || !inputs.examples_only
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,8 +54,6 @@ jobs:
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      # Fail the release instead of shipping without examples; the build step reuses this output.
-      - run: bun run prepare:examples --require
       - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -151,8 +156,6 @@ jobs:
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      # Fail the release instead of shipping without examples; the build step reuses this output.
-      - run: bun run prepare:examples --require
       - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -209,11 +212,56 @@ jobs:
             release/*.blockmap
             release/latest-mac.yml
 
+  example-downloads:
+    if: github.event_name == 'push' || inputs.examples_only
+    concurrency:
+      group: desktop-example-downloads
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:example-downloads
+      - name: Publish pinned example archives
+        env:
+          DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_DESKTOP_UPDATE_PREFIX: ${{ vars.R2_DESKTOP_UPDATE_PREFIX }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -u
+          pin=$(node -p 'require("./resources/examples/catalog.json").source.commit')
+          folder=".runtime/example-downloads/$pin"
+          endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+          destination="s3://$R2_BUCKET/$R2_DESKTOP_UPDATE_PREFIX/examples-v1/$pin"
+          public_url="${DESKTOP_UPDATE_URL%/}/examples-v1/$pin"
+          aws s3 cp "$folder" "$destination/" --recursive --exclude "*" --include "*.zip" \
+            --content-type application/zip --cache-control "public,max-age=31536000,immutable" \
+            --endpoint-url "$endpoint" --no-progress
+          for archive in "$folder"/*.zip; do
+            curl --fail --silent --show-error --head --retry 3 "$public_url/$(basename "$archive")" >/dev/null
+          done
+          aws s3 cp "$folder/manifest.json" "$destination/manifest.json" \
+            --content-type application/json --cache-control "no-cache, no-store, must-revalidate" \
+            --endpoint-url "$endpoint" --no-progress
+          curl --fail --silent --show-error --retry 3 "$public_url/manifest.json" -o "$RUNNER_TEMP/examples-manifest.json"
+          cmp "$folder/manifest.json" "$RUNNER_TEMP/examples-manifest.json"
+
   release:
     if: github.event_name == 'push'
     needs:
       - windows
       - macos
+      - example-downloads
     runs-on: ubuntu-latest
     permissions:
       contents: write

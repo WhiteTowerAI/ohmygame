@@ -265,8 +265,10 @@ export interface AppOptions {
   preinstalledPluginsDirectory?: string;
   /** Safe mode: every plugin is off, its own choices kept for when the app starts normally. */
   pluginSafeMode?: boolean;
-  /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
+  /** Catalog and covers bundled with the app; omitted means no examples. */
   examplesDirectory?: string;
+  /** Full example folders already prepared in a development checkout. */
+  preparedExamplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   browserDriver?: BrowserDriver;
   webSearchFetch?: typeof fetch;
@@ -741,7 +743,7 @@ export function createApp(options: AppOptions = {}) {
       await moveLocalGameServices(project, () => localMultiplayer.gameServices(project.id));
     } catch {}
   };
-  const examples = new ExampleStore(options.examplesDirectory);
+  const examples = new ExampleStore(options.examplesDirectory, dataDirectory, options.preparedExamplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
   const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
   const publisher = localPublisher ?? new RemotePublisher({
@@ -1768,8 +1770,7 @@ export function createApp(options: AppOptions = {}) {
       pluginUpdates.last = undefined;
       app.log.info({ plugins: updated.map((entry) => `${entry.id}@${entry.version}`) }, "Updated plugins that ask for nothing new");
     }).catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins"));
-    const examplesWarning = await examples.load();
-    if (examplesWarning) app.log.warn(examplesWarning);
+    await examples.load((message) => app.log.warn(message));
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
     await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
     pluginModelProvidersReady = syncPluginModelProviders()
@@ -3641,6 +3642,12 @@ export function createApp(options: AppOptions = {}) {
     return { type: Object.keys(kinds).find((kind) => kinds[kind] === recognized[0]!.id) ?? recognized[0]!.id };
   });
 
+  const exampleErrorReply = (request: FastifyRequest, reply: FastifyReply, cause: unknown) => {
+    if (!(cause instanceof ExampleError)) throw cause;
+    if (cause.code) request.log.warn({ err: cause }, "Could not prepare example");
+    return reply.code(cause.statusCode).send({ error: cause.message, code: cause.code });
+  };
+
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
       if (request.body?.template) {
@@ -3711,8 +3718,7 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof ProjectWorkspaceError) {
         return reply.code(400).send({ error: cause.message });
       }
-      if (cause instanceof ExampleError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
+      return exampleErrorReply(request, reply, cause);
     }
   });
 
@@ -3753,7 +3759,10 @@ export function createApp(options: AppOptions = {}) {
       request.raw.once("close", close);
     };
   };
-  app.addHook("preClose", async () => { for (const close of [...eventStreams]) close(); });
+  app.addHook("preClose", async () => {
+    examples.stopDownloads();
+    for (const close of [...eventStreams]) close();
+  });
 
   const watchCanvas = createCanvasWatches();
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/canvas/events", async (request, reply) => {
@@ -3791,8 +3800,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       return { url: await examples.playUrl(request.params.exampleId) };
     } catch (cause) {
-      if (cause instanceof ExampleError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
+      return exampleErrorReply(request, reply, cause);
     }
   });
 

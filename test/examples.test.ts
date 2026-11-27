@@ -1,17 +1,20 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ZipFile } from "yazl";
 import { createApp } from "../src/daemon/app.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
-import { isPreparedExampleCatalog } from "../src/shared/examples.js";
+import { EXAMPLE_DOWNLOAD_UNAVAILABLE, isPreparedExampleCatalog } from "../src/shared/examples.js";
 import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
-const apps: Array<ReturnType<typeof createApp>> = [];
+const apps: Array<Pick<ReturnType<typeof createApp>, "close">> = [];
 
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
+  vi.restoreAllMocks();
 });
 
 async function writeExamples(): Promise<string> {
@@ -63,6 +66,55 @@ async function startApp(examplesDirectory?: string, dataDirectory?: string) {
   apps.push(app);
   await app.ready();
   return app;
+}
+
+async function writeDownloadCatalog(): Promise<string> {
+  const directory = await writeExamples();
+  const file = path.join(directory, "catalog.json");
+  const catalog = JSON.parse(await readFile(file, "utf8")) as PreparedExampleCatalog;
+  for (const example of catalog.examples) {
+    await rm(path.join(directory, example.directory), { recursive: true });
+    if (example.play) await rm(path.join(directory, example.play), { recursive: true });
+  }
+  await writeFile(file, JSON.stringify({ ...catalog, version: 2 }));
+  return directory;
+}
+
+async function exampleZip(files: Record<string, string>) {
+  const zip = new ZipFile();
+  for (const [name, contents] of Object.entries(files)) zip.addBuffer(Buffer.from(contents), name);
+  const received = new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    zip.outputStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    zip.outputStream.once("error", reject);
+    zip.outputStream.once("end", () => resolve(Buffer.concat(chunks)));
+  });
+  zip.end();
+  const body = await received;
+  return { sha256: createHash("sha256").update(body).digest("hex"), bytes: body.length, body: Uint8Array.from(body) };
+}
+
+function mockExampleDownloads(archives: Record<string, Awaited<ReturnType<typeof exampleZip>>>) {
+  const commit = "0".repeat(40);
+  const calls: string[] = [];
+  const manifest = {
+    version: 1, commit,
+    archives: Object.fromEntries(Object.entries(archives).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }])),
+  };
+  const byName = new Map(Object.values(archives).map((item) => [`${item.sha256}.zip`, item.body]));
+  const delegate = globalThis.fetch;
+  const serve = vi.fn((name: string, _init?: RequestInit) => {
+    if (name === "manifest.json") return Promise.resolve(Response.json(manifest));
+    return Promise.resolve(new Response(byName.get(name), { status: byName.has(name) ? 200 : 404 }));
+  });
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    const url = new URL(String(input));
+    if (url.origin !== "https://updates.ohmygame.ai") return delegate(input, init);
+    const name = url.pathname.replace(`/desktop/examples-v1/${commit}/`, "");
+    calls.push(name);
+    return serve(name, init);
+  });
+  return { calls, serve };
 }
 
 describe("examples", () => {
@@ -149,6 +201,107 @@ describe("examples", () => {
     expect(cover.headers["content-type"]).toBe("image/webp");
     expect(cover.body).toBe("RIFF-cover");
     expect((await app.inject({ method: "GET", url: "/examples/missing/cover" })).statusCode).toBe(404);
+  });
+
+  it("loads covers offline and downloads only the requested action, once per cached archive", async () => {
+    const play = await exampleZip({ "index.html": "<title>Downloaded Pond</title>" });
+    const files = await exampleZip({ "package.json": "{}", "src/main.ts": "source" });
+    const { calls, serve } = mockExampleDownloads({ "pond/play": play, "pond/files": files });
+    const directory = await writeDownloadCatalog();
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-"));
+    const app = await startApp(directory, data);
+    expect((await app.inject({ method: "GET", url: "/examples" })).json()).toHaveLength(2);
+    expect((await app.inject({ method: "GET", url: "/examples/pond/cover" })).body).toBe("RIFF-cover");
+    expect(calls).toEqual([]);
+
+    const startPlay = () => app.inject({ method: "POST", url: "/examples/pond/play" });
+    const [first, second] = await Promise.all([startPlay(), startPlay()]);
+    expect(first.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
+    expect(await (await fetch(first.json().url)).text()).toBe("<title>Downloaded Pond</title>");
+    expect(calls).toEqual(["manifest.json", `${play.sha256}.zip`]);
+
+    const remix = { method: "POST" as const, url: "/projects", payload: { exampleId: "pond" } };
+    const result = await app.inject(remix);
+    expect(result.statusCode).toBe(201);
+    expect(await readFile(path.join(result.json().workspacePath, "src/main.ts"), "utf8")).toBe("source");
+    expect(calls).toEqual(["manifest.json", `${play.sha256}.zip`, "manifest.json", `${files.sha256}.zip`]);
+
+    await app.close();
+    apps.splice(apps.indexOf(app), 1);
+    serve.mockRejectedValue(new Error("offline"));
+    calls.length = 0;
+    const restarted = await startApp(directory, data);
+    expect((await restarted.inject({ method: "POST", url: "/examples/pond/play" })).statusCode).toBe(200);
+    expect((await restarted.inject(remix)).statusCode).toBe(201);
+    expect(calls).toEqual([]);
+
+    await restarted.close();
+    apps.splice(apps.indexOf(restarted), 1);
+    const remixedSource = path.join(result.json().workspacePath, "src/main.ts");
+    await writeFile(remixedSource, "edited game");
+    const catalogFile = path.join(directory, "catalog.json");
+    const catalog = JSON.parse(await readFile(catalogFile, "utf8")) as PreparedExampleCatalog;
+    const updated = "1".repeat(40);
+    catalog.source.commit = updated;
+    await writeFile(catalogFile, JSON.stringify(catalog));
+    const cache = path.join(data, "examples-cache-v1");
+    for (const name of [updated, "unrelated"]) await mkdir(path.join(cache, name));
+    const upgraded = await startApp(directory, data);
+    expect((await upgraded.inject({ method: "GET", url: "/examples" })).json()).toHaveLength(2);
+    expect((await upgraded.inject({ method: "GET", url: `/projects/${result.json().id}` })).statusCode).toBe(200);
+    await upgraded.close();
+    apps.splice(apps.indexOf(upgraded), 1);
+    expect((await readdir(cache)).sort()).toEqual([updated, "unrelated"]);
+    expect(await readFile(remixedSource, "utf8")).toBe("edited game");
+    expect(calls).toEqual([]);
+  });
+
+  it("shares the source download between Play and Remix and retries after a bad archive", async () => {
+    const files = await exampleZip({ "index.html": "<title>Train</title>", "graph.json": "{}" });
+    const { calls, serve } = mockExampleDownloads({ "train/files": files });
+    const good = serve.getMockImplementation()!;
+    const archive = `${files.sha256}.zip`;
+    // Same size, wrong digest.
+    serve.mockImplementation((name, init) => name === archive
+      ? Promise.resolve(new Response(new Uint8Array(files.bytes)))
+      : good(name, init));
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-"));
+    const app = await startApp(await writeDownloadCatalog(), data);
+    const remix = () => app.inject({ method: "POST", url: "/projects", payload: { exampleId: "train" } });
+    const play = () => app.inject({ method: "POST", url: "/examples/train/play" });
+    const failed = await remix();
+    expect(failed.statusCode).toBe(502);
+    expect(failed.json()).toMatchObject({ code: EXAMPLE_DOWNLOAD_UNAVAILABLE });
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    expect(await readdir(path.join(data, "examples-cache-v1", "0".repeat(40), "train"))).toEqual([]);
+
+    serve.mockImplementation(good);
+    calls.length = 0;
+    const [played, remixed] = await Promise.all([play(), remix()]);
+    expect(played.statusCode).toBe(200);
+    expect(remixed.statusCode).toBe(201);
+    expect(await (await fetch(played.json().url)).text()).toBe("<title>Train</title>");
+    expect(calls).toEqual(["manifest.json", archive]);
+  });
+
+  it("aborts an outstanding example download and cleans the staging folder when the daemon closes", async () => {
+    const { serve } = mockExampleDownloads({});
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    serve.mockImplementation((_name, init) => new Promise<Response>((_resolve, reject) => {
+      const signal = init!.signal!;
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      markStarted();
+    }));
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-"));
+    const app = await startApp(await writeDownloadCatalog(), data);
+    const playing = Promise.resolve(app.inject({ method: "POST", url: "/examples/train/play" }));
+    await started;
+    await app.close();
+    apps.splice(apps.indexOf(app), 1);
+    expect((await playing).statusCode).toBe(502);
+    expect(await readdir(path.join(data, "examples-cache-v1", "0".repeat(40), "train"))).toEqual([]);
   });
 
   it("serves an example's static build on loopback for playing", async () => {

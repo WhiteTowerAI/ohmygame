@@ -46,8 +46,11 @@ extraResources:
     to: integrations/skills
   - from: .runtime/preinstalled-plugins
     to: preinstalled-plugins
-  - from: .runtime/examples
+  - from: resources/examples
     to: examples
+    filter:
+      - catalog.json
+      - "*/cover.webp"
   # Match from the parent so electron-builder retains Node's root node_modules.
   - from: .runtime
     to: runtime

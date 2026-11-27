@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ExampleSummary } from "../src/shared/examples.js";
+import { EXAMPLE_DOWNLOAD_UNAVAILABLE } from "../src/shared/examples.js";
 
 const examples: ExampleSummary[] = [
   ...["circuit", "tidal", "ember", "wetland"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
@@ -25,6 +26,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,
   getExampleCover: async () => undefined,
+  playExample,
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => ({ plugins: [], skills: [] }),
   getProjectLocation: async () => ({ location: "/tmp/projects" }),
@@ -36,6 +38,7 @@ let projects: typeof created[] = [];
 let projectTypes: import("../src/renderer/api.js").AvailableProjectType[] = [];
 const listTypes = vi.fn(async () => projectTypes);
 const createProject = vi.fn(async (_input: unknown): Promise<typeof created> => created);
+const playExample = vi.fn(async (_id: string) => ({ url: "about:blank#example" }));
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
   PageFrame: ({ children, inert }: { children: React.ReactNode; inert?: boolean }) => <div className="page-frame" inert={inert}>{children}</div>,
 }));
@@ -48,6 +51,7 @@ vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
 }));
 
 const { useLeaveGuard } = await import("../src/renderer/app-navigation.js");
+const { ApiError } = await import("../src/renderer/api.js");
 const { Home } = await import("../src/renderer/home.js");
 const { NewGameHost, openNewGame } = await import("../src/renderer/new-game.js");
 const { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } = await import("../src/renderer/project-type-images.js");
@@ -61,6 +65,7 @@ afterEach(async () => {
   projects = [];
   projectTypes = [];
   listTypes.mockReset();
+  playExample.mockClear();
   localStorage.clear();
 });
 
@@ -105,6 +110,44 @@ it("keeps Last Bus visible when the fifth example starts a partial row", async (
   } finally {
     examples.push(...all);
   }
+});
+
+it("waits for a Play click, shows download failure and retries in place", async () => {
+  let fail!: (error: Error) => void;
+  playExample.mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject; }));
+  await renderHome();
+  expect(playExample).not.toHaveBeenCalled();
+
+  const play = container!.querySelector<HTMLButtonElement>('.home-explore-card button[aria-label="Play Last Bus"]')!;
+  await act(async () => play.click());
+  const player = () => container!.querySelector<HTMLElement>(".example-player")!;
+  expect(playExample).toHaveBeenCalledWith("last-bus");
+  expect(player().querySelector('[role="status"]')?.textContent).toContain("Loading Last Bus");
+
+  await act(async () => fail(new ApiError("details", 502, EXAMPLE_DOWNLOAD_UNAVAILABLE)));
+  expect(player().querySelector('[role="alert"]')?.textContent).toBe("Could not download this example.");
+  const retry = [...player().querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+  await act(async () => retry.click());
+  expect(playExample).toHaveBeenCalledTimes(2);
+  expect(player().querySelector("iframe")?.getAttribute("src")).toBe("about:blank#example");
+  await act(async () => player().querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
+  expect(document.activeElement).toBe(play);
+});
+
+it("shows a pending Remix on its card and enables the action again after completion", async () => {
+  let finish!: (project: typeof created) => void;
+  createProject.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+  const onOpen = vi.fn();
+  await renderHome({ onOpen });
+  const card = container!.querySelector<HTMLElement>(".home-explore-card")!;
+  const remix = card.querySelector<HTMLButtonElement>(".home-explore-remix")!;
+  await act(async () => remix.click());
+  expect(remix.disabled).toBe(true);
+  expect(remix.textContent).toBe("Preparing Remix…");
+  expect(onOpen).not.toHaveBeenCalled();
+  await act(async () => finish(created));
+  expect(onOpen).toHaveBeenCalledWith(created.id);
+  expect(remix.disabled).toBe(false);
 });
 
 it("pictures every type: the app's own, a plugin type's cover, and the plugin picture for the rest", async () => {
