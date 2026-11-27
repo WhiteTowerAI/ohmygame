@@ -323,6 +323,8 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
     }
   });
 }
+/** A job the app stopped by closing or quitting; the canvas has no retry, so the node is generated again. */
+const INTERRUPTED = "Generation interrupted. Generate again to start a new request.";
 type StoredJob = ToolJob & { recoveryId?: string; inputRevision?: string; pluginOutput?: string };
 /** A job as history files may hold it: earlier versions also kept an unfinished job's input for retry. */
 type HistoricalJob = StoredJob & { input?: RunToolRequest; resuming?: true };
@@ -554,7 +556,7 @@ export class CanvasStore {
     await ensureCanvasIndex(project.workspacePath);
     // compat: since beta.5.12, remove from beta.7 and 2026-12-26. History kept each unfinished job's input, reference images inline, for a retry the canvas no longer offers.
     const stored = (await readCanvasJobHistory(project.workspacePath, id)).map(({ input: _input, resuming: _resuming, ...job }): StoredJob => job);
-    const jobs = stored.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: "Generation interrupted. Generate again to start a new request." } : job);
+    const jobs = stored.map(migrateLegacyAudioJob).map((job) => job.status === "running" ? { ...job, status: "cancelled" as const, error: INTERRUPTED } : job);
     this.#jobs.set(id, jobs); await this.#saveJobs(id); return jobs;
   }
   #saveJobs(id: string) { return writeJson(this.#project(id).workspacePath, "jobs.json", this.#jobs.get(id) ?? []); }
@@ -841,7 +843,7 @@ export class CanvasStore {
       });
     } catch (cause) {
       // Output already saved to the node stays a success when only the history couldn't be written.
-      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause); }
+      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = controller.signal.reason instanceof GenerationShutdown ? INTERRUPTED : cause instanceof Error ? cause.message : String(cause); }
       try { await withCanvasLock(this.#project(id).workspacePath, () => this.#saveJobs(id)); } catch { /* Removed projects have no history to update. */ }
     } finally { this.#controllers.delete(job.id); }
   }
@@ -875,7 +877,7 @@ export class CanvasStore {
       await this.tools.removeRun(run.id).catch(() => {});
     } catch (cause) {
       // Output already saved to the node stays a success when only the history couldn't be written.
-      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = cause instanceof Error ? cause.message : String(cause); }
+      if (job.status !== "succeeded") { job.status = controller.signal.aborted ? "cancelled" : "failed"; job.error = controller.signal.reason instanceof GenerationShutdown ? INTERRUPTED : cause instanceof Error ? cause.message : String(cause); }
       try { await withCanvasLock(this.#project(id).workspacePath, () => this.#saveJobs(id)); } catch { /* Removed projects have no history to update. */ }
     } finally { this.#controllers.delete(job.id); }
   }

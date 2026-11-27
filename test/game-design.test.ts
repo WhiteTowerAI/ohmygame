@@ -835,7 +835,11 @@ describe("Markdown design workspace", () => {
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); expect((await waitForJob(store, project.id)).status).toBe("succeeded");
   });
   it("restores interrupted jobs as cancelled without another paid call", async () => {
-    const { store, project, boardId, node } = await runtime();
+    let started = false;
+    const { store, project, boardId, node } = await runtime({ generate: async (_input, signal) => {
+      started = true;
+      return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));
+    } });
     await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), JSON.stringify([{ id: "interrupted", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "running", createdAt: "now", input: { prompt: "Garden" } }]));
     const before = await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8");
     expect((await readCanvasJobHistory(project.workspacePath, project.id))[0].status).toBe("running");
@@ -844,6 +848,10 @@ describe("Markdown design workspace", () => {
     expect((await store.jobs(project.id))[0]).toMatchObject({ status: "cancelled", error: expect.stringContaining("interrupted") });
     // Earlier versions kept the input for a retry the canvas no longer offers.
     expect(JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"))[0]).not.toHaveProperty("input");
+    // Quitting stops a running job the same way, and points to generating again rather than a retry.
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => started).toBe(true);
+    await store.close();
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"))[0]).toMatchObject({ status: "cancelled", error: "Generation interrupted. Generate again to start a new request." });
   });
   it("keeps generation history usable in a duplicated project", async () => {
     const { store, projects, project, boardId, node } = await runtime();
