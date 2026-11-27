@@ -27,6 +27,7 @@
 /* The cards: the words on the left, the picture behind them on the right. */
 .new-game-card {
   position: relative;
+  container: new-game-card / inline-size;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -98,6 +99,19 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* A narrow card keeps its icon and a one-line name; the picture tells the rest. */
+@container new-game-card (max-width: 300px) {
+  .new-game-card-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .new-game-card-hint {
+    display: none;
+  }
 }
 
 /* The dialog: the type's picture as its banner, a type switcher, then the prompt box. */
