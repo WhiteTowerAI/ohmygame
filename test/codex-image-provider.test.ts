@@ -59,6 +59,8 @@ function fakeServer(
   options: {
     noImage?: boolean;
     failed?: boolean;
+    /** The turn never ends after the image, as when the model's closing reply waits on a retry. */
+    endless?: boolean;
     hold?: string;
     onRequest?: (message: Message) => void;
     onTurn?: (message: Message) => Promise<void>;
@@ -126,6 +128,7 @@ function fakeServer(
             send({ method: "item/completed", params });
             send({ method: "item/completed", params });
           }
+          if (options.endless) return;
           send({
             method: "turn/completed",
             params: {
@@ -336,7 +339,7 @@ describe("Codex CLI image provider", () => {
 
   it.each([
     { noImage: true, error: "no image" },
-    { failed: true, error: "Account limit reached" },
+    { noImage: true, failed: true, error: "Account limit reached" },
   ])(
     "reports $error without substituting a text result or retrying",
     async ({ error, ...options }) => {
@@ -368,6 +371,17 @@ describe("Codex CLI image provider", () => {
       "Sign in",
     );
     expect(cli.calls).toEqual([]);
+  });
+
+  it("returns the image without waiting for the turn to end, and stops the app-server", async () => {
+    const cli = fakeServer({ endless: true });
+    const { provider, root } = await setup();
+    expect(await provider.generate({ prompt: "A cat" })).toEqual({
+      bytes: png,
+      mediaType: "image/png",
+    });
+    expect(cli.closed).toHaveBeenCalledOnce();
+    expect(await readdir(path.join(root, "sessions"))).toEqual([]);
   });
 
   it("offers a signed-in connection and reports CLI compatibility errors only when generating", async () => {

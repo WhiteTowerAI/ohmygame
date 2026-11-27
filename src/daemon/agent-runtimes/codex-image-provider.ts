@@ -237,6 +237,10 @@ export class CodexImageProvider {
                     );
               void image.catch(() => {});
               images.set(item.id, image);
+              // The image is the whole result: the model's closing reply after it can wait
+              // minutes on a capacity retry, past the generation timeout, and add nothing.
+              // An image that can't be read leaves the turn's end to report the failure.
+              void image.then(resolve, () => {});
             }
             if (method === "turn/completed") {
               finished = true;
