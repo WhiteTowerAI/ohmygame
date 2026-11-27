@@ -1545,10 +1545,11 @@ export async function reviseLastPrompt(
   projectId: string,
   conversationId: string,
   prompt: string,
+  mode: PromptMode = "normal",
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/revise-last`, {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}) }),
   });
 }
 

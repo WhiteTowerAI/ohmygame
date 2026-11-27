@@ -537,6 +537,12 @@ describe("renderer project API", () => {
       "/api/projects/project-1/conversations/conversation-1/revise-last",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Build a platformer" }) }),
     );
+
+    await reviseLastPrompt("project-1", "conversation-1", "Plan a platformer", "planning");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/projects/project-1/conversations/conversation-1/revise-last",
+      expect.objectContaining({ body: JSON.stringify({ prompt: "Plan a platformer", mode: "planning" }) }),
+    );
   });
 
   it("reads the changes of a turn and one of its files", async () => {
