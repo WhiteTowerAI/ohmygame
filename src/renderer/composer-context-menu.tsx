@@ -213,9 +213,10 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
   const addItems: MenuEntry[] = [
     { label: t("contextMenu.attachFiles"), icon: <Paperclip size="sm" />, onSelect: () => filesInput.current?.click() },
     ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size="sm" />, onSelect: onDesignReference }] : []),
-    ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size="sm" />, checked: planning, onSelect: onTogglePlanning }] : []),
-    "separator",
     ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size="sm" />, onSelect: () => onPluginCommand(command) })) : []),
+    // One line: what to add above it, plan mode and commands below.
+    "separator",
+    ...(canTogglePlanning ? [{ label: t("planMode.mode"), icon: <ClipboardList size="sm" />, checked: planning, onSelect: onTogglePlanning }] : []),
     { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size="sm" />, shortcut: "/", onSelect: () => openList("/") },
     ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size="sm" />, shortcut: "@", onSelect: () => openList("@") }] : []),
   ];
