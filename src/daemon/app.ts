@@ -89,7 +89,7 @@ import { PluginLimits } from "./plugin-limits.js";
 /** How many files a plugin's pages add to the Library a minute. */
 const PLUGIN_LIBRARY_ADDS_PER_MINUTE = 20;
 import { LibrarySources } from "./library-sources.js";
-import { LibraryAgentSearch } from "./library-agent-search.js";
+import { AssetSearch } from "./asset-search.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
@@ -1158,7 +1158,9 @@ export function createApp(options: AppOptions = {}) {
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
   const librarySources = new LibrarySources(pluginServices, library);
-  const libraryAgentSearch = new LibraryAgentSearch(library, librarySources, projects);
+  const assetSearch = new AssetSearch(librarySources, projects);
+  /** Whether a plugin the person turned on offers assets; agents get `asset_search` only then. */
+  const hasAssetSources = async () => (await librarySources.list("en")).length > 0;
   /** Screenshots of a project's plugin panels for its agents, which its open desktop window takes. */
   const panelScreenshots = new PanelScreenshots({
     publish: (projectId, type, data) => events.publish(projectId, type, data),
@@ -1171,6 +1173,7 @@ export function createApp(options: AppOptions = {}) {
   /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
   const projectAgentTools = async (project: ProjectState, conversation: StoredConversation) => {
     const playtest = await ownedPlaytest(project, `${project.id}:${conversation.summary.id}`);
+    const sources = await hasAssetSources();
     return [...createAgentTools(
       project,
       tools,
@@ -1194,14 +1197,14 @@ export function createApp(options: AppOptions = {}) {
       () => localMultiplayer.gameServices(project.id),
       options.browserDriver,
       mediaModelsFor(project.id),
-      (input, signal) => libraryAgentSearch.search(conversation.summary.id, input, signal),
-      (input, toolCallId, signal) => libraryAgentSearch.use(input, {
+      sources ? (input, signal) => assetSearch.search(conversation.summary.id, input, signal) : undefined,
+      sources ? (input, toolCallId, signal) => assetSearch.use(input, {
         conversation: conversation.summary.id,
         projectId: project.id,
         workspacePath: project.workspacePath,
         // A source's result is downloaded only once the person allows it in the conversation.
-        approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `library:${toolCallId}`, request, approvalSignal) !== "deny",
-      }, signal),
+        approve: async (request, approvalSignal) => await agents.askApproval(project.id, conversation.summary.id, `asset:${toolCallId}`, request, approvalSignal) !== "deny",
+      }, signal) : undefined,
       panelScreenshots,
       // Within the turn, whose snapshots Undo uses.
       (id) => pluginServices.forkPlugin(project.workspacePath, id),
@@ -1225,9 +1228,9 @@ export function createApp(options: AppOptions = {}) {
       project, tools, projects, undefined, undefined,
       await ownedPlaytest(project, `${project.id}:external:${sessionId}`),
       undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(project.id),
-      (input, signal) => libraryAgentSearch.search(`external:${sessionId}`, input, signal),
-      // An outside agent has no OhMyGame conversation to ask the person in, so it takes only their own assets.
-      (input, _toolCallId, signal) => libraryAgentSearch.use(input, { conversation: `external:${sessionId}`, projectId: project.id, workspacePath: project.workspacePath }, signal),
+      await hasAssetSources() ? (input, signal) => assetSearch.search(`external:${sessionId}`, input, signal) : undefined,
+      // An outside agent has no OhMyGame conversation to ask the person in, so it can't add a source's result.
+      undefined,
       panelScreenshots,
       // Not part of an OhMyGame turn, so a change of its own.
       async (id) => (await pluginWrites.run(project, { plugin: id, action: "fork", title: "Copy the plugin into the project" },
@@ -1247,7 +1250,7 @@ export function createApp(options: AppOptions = {}) {
       // project's own accepts a subset.
       const placeholder: ProjectState = { id: "", name: "", type: "web-game", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
       return [
-        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => libraryAgentSearch.search("catalog", input, signal), () => Promise.reject(new Error("No project")), panelScreenshots, () => Promise.reject(new Error("No project"))),
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore, undefined, undefined, options.browserDriver, mediaModelsFor(placeholder.id), (input, signal) => assetSearch.search("catalog", input, signal), undefined, panelScreenshots, () => Promise.reject(new Error("No project"))),
         createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder), { catalog: true }),
       ];
     },
@@ -4010,7 +4013,7 @@ export function createApp(options: AppOptions = {}) {
 
   registerLibraryRoutes(app, {
     projects, library, sources: librarySources,
-    addFromSource: (projectId, source, item, signal) => libraryAgentSearch.addFromSource({ projectId, workspacePath: projects.get(projectId)!.workspacePath }, source, item, signal),
+    addFromSource: (projectId, source, item, signal) => assetSearch.addFromSource({ projectId, workspacePath: projects.get(projectId)!.workspacePath }, source, item, signal),
   });
   registerModelThumbnailRoutes(app, path.join(dataDirectory, "cache", "model-thumbnails"), projects, library);
 

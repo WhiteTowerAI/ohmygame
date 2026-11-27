@@ -148,9 +148,16 @@ function bridge(port, hello) {
         return api.request("panel.open", { panel, ...(options.state !== undefined ? { state: options.state } : {}) });
       },
     },
-    /** The person's Library, with the `library` capability. */
-    library: {
+    /** The project's assets, with the `library` capability. */
+    assets: {
       /** Adds a file the page made, named with its type (`ricochet.png`); a File keeps its own name unless given one. */
+      add(file, options = {}) {
+        const name = options.name ?? file?.name;
+        return api.request("assets.add", { data: file, name, ...(options.prompt ? { prompt: options.prompt } : {}) });
+      },
+    },
+    /** @deprecated Since API 2.38.0: use `assets`. Removed in API 3.0.0. */
+    library: {
       add(file, options = {}) {
         const name = options.name ?? file?.name;
         return api.request("library.add", { data: file, name, ...(options.prompt ? { prompt: options.prompt } : {}) });

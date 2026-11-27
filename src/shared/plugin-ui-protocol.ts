@@ -89,6 +89,8 @@ export const PLUGIN_UI_METHODS = [
   "models.complete",
   "models.cancel",
   "panel.open",
+  "assets.add",
+  // compat: deprecated in API 2.38.0, remove in API 3.0.0. assets.add under its old name.
   "library.add",
   "assistant.run",
   "assistant.history",
@@ -191,6 +193,7 @@ const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "
   "models.list": "models",
   "models.complete": "models",
   "models.cancel": "models",
+  "assets.add": "library",
   "library.add": "library",
   "assistant.run": "models",
   "assistant.history": "models",
@@ -417,12 +420,13 @@ export function readPluginUiRequest(
         if (issue) return fail(issue);
       }
       break;
+    case "assets.add":
     case "library.add":
-      if (!(typeof Blob !== "undefined" && p.data instanceof Blob) || !p.data.size) return fail("library.add needs the file, as a Blob");
-      if (p.data.size > LIBRARY_UPLOAD_MAX_BYTES) return fail("library.add takes files of at most 200 MB");
-      if (!attachmentName(p.name)) return fail("library.add needs a file name, without slashes, of at most 200 characters, such as ricochet.png");
+      if (!(typeof Blob !== "undefined" && p.data instanceof Blob) || !p.data.size) return fail(`${method} needs the file, as a Blob`);
+      if (p.data.size > LIBRARY_UPLOAD_MAX_BYTES) return fail(`${method} takes files of at most 200 MB`);
+      if (!attachmentName(p.name)) return fail(`${method} needs a file name, without slashes, of at most 200 characters, such as ricochet.png`);
       if (p.prompt !== undefined && (typeof p.prompt !== "string" || p.prompt.length > PLUGIN_UI_LIBRARY_PROMPT_MAX))
-        return fail(`library.add's prompt is text of at most ${PLUGIN_UI_LIBRARY_PROMPT_MAX.toLocaleString("en")} characters`);
+        return fail(`${method}'s prompt is text of at most ${PLUGIN_UI_LIBRARY_PROMPT_MAX.toLocaleString("en")} characters`);
       break;
     case "context.set":
       // No label and text clears it.

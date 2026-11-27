@@ -2215,14 +2215,14 @@ export async function clearPluginAssistant(projectId: string, plugin: string, pa
 }
 
 /** Adds a file a plugin's page made to the project's media, under the plugin's name. */
-export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
+export async function addPluginAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; path: string; name: string; mediaType: string }> {
   const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
-  const asset = await request<{ id: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
+  const asset = await request<{ id: string; projectPath: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
     body: contents,
   });
-  return { id: asset.id, name: asset.name, mediaType: asset.mediaType };
+  return { id: asset.id, path: asset.projectPath, name: asset.name, mediaType: asset.mediaType };
 }
 
 /** Names the panel so its file operations can join the tool running there. */

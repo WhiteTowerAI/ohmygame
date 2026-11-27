@@ -85,3 +85,17 @@ describe("a page's media requests", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 });
+
+describe("a page's assets", () => {
+  it("adds to the project's assets, saying where with assets.add and by id with the old library.add", async () => {
+    const add = vi.fn(async (name: string) => ({ id: "asset-1", path: `.ohmygame/media/imported/${name}`, name, mediaType: "image" }));
+    const page = { ...context(async () => ({})), capabilities: { library: true }, assets: { add } };
+    const data = new Blob([new Uint8Array(4)], { type: "image/png" });
+    await expect(handlePluginUiRequest({ id: 1, method: "assets.add", params: { name: " burst.png ", data, prompt: "burst" } }, page)).resolves.toEqual({ path: ".ohmygame/media/imported/burst.png", name: "burst.png", mediaType: "image" });
+    expect(add).toHaveBeenCalledWith("burst.png", data, "burst");
+    await expect(handlePluginUiRequest({ id: 2, method: "library.add", params: { name: "burst.png", data } }, page)).resolves.toEqual({ id: "asset-1", name: "burst.png", mediaType: "image" });
+    // Only while the person can see the page, and with the capability.
+    await expect(handlePluginUiRequest({ id: 3, method: "assets.add", params: { name: "burst.png", data } }, { ...page, visible: () => false })).rejects.toThrow("isn't showing");
+    await expect(handlePluginUiRequest({ id: 4, method: "assets.add", params: { name: "burst.png", data } }, { ...page, capabilities: {} })).rejects.toThrow("needs the library capability");
+  });
+});

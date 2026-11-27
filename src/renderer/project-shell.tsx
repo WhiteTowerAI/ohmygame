@@ -109,7 +109,7 @@ import {
   runPluginAssistant,
   getPluginAssistantHistory,
   clearPluginAssistant,
-  addPluginLibraryAsset,
+  addPluginAsset,
   movePluginFile,
   readPluginFile,
   writePluginFile,
@@ -1411,11 +1411,10 @@ export function ProjectShell({
       }),
       history: (limit) => getPluginHistory(current.id, panel.plugin, limit),
       usage: () => getPluginUsage(current.id, panel.plugin),
-      // The Library is the person's, beyond this project, so each file a page adds says so.
-      // A draft's preview doesn't add to it.
-      ...(draft ? {} : { library: {
+      // Each file a page adds says so. A draft's preview doesn't add to the project.
+      ...(draft ? {} : { assets: {
         add: async (name: string, contents: Blob, prompt?: string) => {
-          const asset = await addPluginLibraryAsset(current.id, panel.plugin, name, contents, prompt);
+          const asset = await addPluginAsset(current.id, panel.plugin, name, contents, prompt);
           toast({ title: panel.plugin, description: t("pluginLibrary.added", { name: asset.name }), tone: "success" });
           return asset;
         },

@@ -33,13 +33,13 @@ const GENERATED_MEDIA = generatedMedia(".ohmygame/media/");
 /** Images sent in chat are references; they stay out of every build unless the game takes a copy. */
 const CONVERSATION_IMAGES = "Images the user sends in the conversation are kept under .ohmygame/local/references/ as references, outside the game. When asked to use one in the game, copy it into the game's own files and reference that copy.";
 
-/** Before making media, what the person kept and their sources may already have. */
-const LIBRARY_MEDIA = "Before generating images, sounds, music or models for a game, look for suitable ones with library_search when it is available: the person's own Library first, then the Library sources it lists, with a short English query. Use a fitting one with library_use, which copies it into the project beside generated files, returns its path and records any credit in CREDITS.md; treat that copy as a generated file. Generate what neither has, or when the request asks for new or bespoke art.";
+/** Before making media, what the person's asset sources may already have. */
+const SOURCED_MEDIA = "Before generating images, sounds, music or models for a game, look for suitable ones with asset_search when it is available, in the asset sources it lists, with a short English query. Add a fitting one with asset_use, which puts it in the project beside generated files, returns its path and records any credit in CREDITS.md; treat it as a generated file. Generate what the sources don't have, or when the request asks for new or bespoke art.";
 
 const GENERAL_GAME_INSTRUCTIONS = [
   "You are OhMyGame's general game creation agent. Help users create and evolve games without assuming a particular engine, language, platform, or project structure. Read the workspace and preserve its existing stack; follow the user's chosen target. Applications, tools, and content are also supported through appropriate workflows; do not force those tasks into a game loop.",
   "For requests to create a game, use game-studio when available to coordinate design, production assets, implementation, and verification. For focused features, fixes, or non-game work, use only the relevant workflow and keep the requested scope. Do not require a Plugin to perform ordinary coding or content work.",
-  LIBRARY_MEDIA,
+  SOURCED_MEDIA,
   GENERATED_MEDIA,
   CONVERSATION_IMAGES,
   "Integrate generated assets using the chosen engine's actual import and build pipeline. Verify that required files are included in the shipped output; asset generation alone does not make an asset part of the game.",
@@ -52,7 +52,7 @@ const WEB_GAME_INSTRUCTIONS = [
   "OhMyGame owns the dev server. It installs dependencies when node_modules is missing, starts the preview after your turn, and game_use opens the preview, starting it if needed. Do not start a dev server, leave background processes running, or tell the user to open a local URL; run a build or another one-off command when you need to check compilation.",
   "The game runs inside an iframe of any size, in the editor preview, on tablet and mobile presets, and when published. Fill the frame, adapt when it resizes, and avoid fixed-width layouts and horizontal overflow. Support pointer and touch input alongside the keyboard when the game allows it.",
   "Give the game a deliberate visual identity: a cohesive palette kept in CSS variables or constants, typography that suits the theme, and visible feedback for every input. Use game-ui-frontend when available for restrained HUDs and UI that matches the game's world.",
-  LIBRARY_MEDIA,
+  SOURCED_MEDIA,
   GENERATED_MEDIA,
   CONVERSATION_IMAGES,
   "To use a file from .ohmygame/media/, copy it into the game's own source, under src/ to import it or public/ for a fixed URL, and reference it from there. Nothing in .ohmygame/ is part of the published build.",
