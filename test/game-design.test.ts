@@ -197,11 +197,10 @@ describe("Markdown design workspace", () => {
     expect((await checkCanvasWorkspace(project.workspacePath)).issues).toContainEqual({ file: `canvas/boards/${board.board.id}.json`, message: "Node hero: file .ohmygame/media/files/Hero.psd: File not found" });
   });
 
-  it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {
+  it("records contextual defaults in canvas history and preserves them through reloads", async () => {
     let defaultId = "project-image";
     const generate = vi.fn<ImageGenerator["generate"]>()
-      .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502))
-      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+      .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502));
     const resolve = vi.fn(async (_tool: string, input: RunToolRequest, projectId?: string) => {
       if (!projectId) throw new Error("Project context missing");
       return { ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId, id: defaultId } };
@@ -213,10 +212,8 @@ describe("Markdown design workspace", () => {
     expect(resolve).toHaveBeenCalledOnce();
     defaultId = "changed-image";
     const restored = new CanvasStore(projects, library, tools); stores.push(restored);
-    await restored.retry(project.id, first.id);
-    expect((await waitForJob(restored, project.id)).status).toBe("succeeded");
-    expect(resolve).toHaveBeenCalledTimes(2);
-    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: project.id, id: "project-image" }, { provider: project.id, id: "project-image" }]);
+    expect((await restored.jobs(project.id))[0]).toMatchObject({ id: first.id, model: { provider: project.id, id: "project-image" } });
+    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: project.id, id: "project-image" }]);
     const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
     expect(history[0].model).toEqual({ provider: project.id, id: "project-image" });
     const saved = (await restored.board(project.id, boardId)).board.nodes[0]!;
@@ -638,12 +635,10 @@ describe("Markdown design workspace", () => {
     detail.board.nodes.push(video); detail.board.editorLayout.nodes[video.id] = video.position;
     await store.saveBoard(project.id, detail.board, detail.revision);
     const output = await library.add("walk.mp4", Buffer.from("video"));
-    const run = vi.spyOn(tools, "runPrepared").mockRejectedValueOnce(new Error("Temporary provider error")).mockResolvedValueOnce({ id: "retry-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
-    const job = await store.generateNode(project.id, boardId, video.id);
-    expect((await waitForJob(store, project.id)).status).toBe("failed");
-    await store.retry(project.id, job.id);
+    const run = vi.spyOn(tools, "runPrepared").mockResolvedValueOnce({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    await store.generateNode(project.id, boardId, video.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run.mock.calls.map((call) => call[1])).toEqual([expect.objectContaining({ references: [{ type: "image", assetId: updated.assetId }] }), expect.objectContaining({ references: [{ type: "image", assetId: updated.assetId }] })]);
+    expect(run.mock.calls.map((call) => call[1])).toEqual([expect.objectContaining({ references: [{ type: "image", assetId: updated.assetId }] })]);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
   });
   it("rejects media mismatches and missing documents with file diagnostics", async () => {
@@ -826,7 +821,7 @@ describe("Markdown design workspace", () => {
     finish({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const job = await waitForJob(store, project.id); expect(job.status).toBe("succeeded"); expect(library.get(job.run!.files[0]!.assetId!)).toBeDefined();
   });
-  it("rejects duplicate generation and supports cancellation and retry", async () => {
+  it("rejects duplicate generation and supports cancellation and generating again", async () => {
     let calls = 0;
     const { store, project, boardId, node } = await runtime({ generate: async (_input, signal) => {
       if (calls++) return { bytes: Buffer.from("image"), mediaType: "image/png" };
@@ -837,16 +832,26 @@ describe("Markdown design workspace", () => {
     await expect(store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" })).rejects.toMatchObject({ statusCode: 409 });
     expect((await store.cancel(project.id, job.id)).status).toBe("cancelled");
     await vi.waitFor(() => expect(calls).toBe(1));
-    await store.retry(project.id, job.id); expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); expect((await waitForJob(store, project.id)).status).toBe("succeeded");
   });
   it("restores interrupted jobs as cancelled without another paid call", async () => {
-    const { store, project, boardId, node } = await runtime();
+    let started = false;
+    const { store, project, boardId, node } = await runtime({ generate: async (_input, signal) => {
+      started = true;
+      return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));
+    } });
     await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), JSON.stringify([{ id: "interrupted", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "running", createdAt: "now", input: { prompt: "Garden" } }]));
     const before = await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8");
     expect((await readCanvasJobHistory(project.workspacePath, project.id))[0].status).toBe("running");
     await expect(readCanvasJobHistory(project.workspacePath, "wrong-project")).rejects.toThrow("Invalid generation history");
     expect(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8")).toBe(before);
     expect((await store.jobs(project.id))[0]).toMatchObject({ status: "cancelled", error: expect.stringContaining("interrupted") });
+    // Earlier versions kept the input for a retry the canvas no longer offers.
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"))[0]).not.toHaveProperty("input");
+    // Quitting stops a running job the same way, and points to generating again rather than a retry.
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => started).toBe(true);
+    await store.close();
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"))[0]).toMatchObject({ status: "cancelled", error: "Generation interrupted. Generate again to start a new request." });
   });
   it("keeps generation history usable in a duplicated project", async () => {
     const { store, projects, project, boardId, node } = await runtime();
@@ -866,18 +871,12 @@ describe("Markdown design workspace", () => {
     } });
     const job = await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" });
     await expect.poll(() => calls).toBe(1);
-    // A copied job can't bring its own record of what plugins changed.
-    const history = path.join(project.workspacePath, "canvas/jobs.json");
-    const stored = JSON.parse(await readFile(history, "utf8")) as Array<{ input: object }>;
-    stored[0]!.input = { ...stored[0]!.input, requestedPrompt: "Forged", pluginChanges: [{ plugin: "x/y", version: "1.0.0", fields: ["bogus"] }] };
-    await writeFile(history, JSON.stringify(stored));
     const copy = await projects.duplicate(project.id);
     expect((await store.jobs(copy.id))[0]).toMatchObject({ id: job.id, status: "cancelled", error: expect.stringContaining("interrupted"), context: { projectId: copy.id } });
-    expect(JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"))[0].input).toEqual({ prompt: "Garden" });
     // The copy shares the job ID; cancelling there must leave the original running.
     expect((await store.cancel(copy.id, job.id)).status).toBe("cancelled");
     expect((await store.jobs(project.id))[0]!.status).toBe("running"); expect(calls).toBe(1);
-    await store.retry(copy.id, job.id); expect((await waitForJob(store, copy.id)).status).toBe("succeeded");
+    await store.start(copy.id, boardId, node.id, "generate-image", { prompt: "Garden" }); expect((await waitForJob(store, copy.id)).status).toBe("succeeded");
     expect((await store.jobs(project.id))[0]!.status).toBe("running");
   });
   it.each(["generate-video", "image-to-3d", "animate-3d"] as const)("stores %s output in the matching node", async (toolId) => {
@@ -1367,31 +1366,6 @@ describe("MiniMax canvas model migration", () => {
     expect(saved.board.nodes[0]!.title).toBe("A new edit after migration");
   });
 
-  it("refuses retired MiniMax retry without changing history, while an uncut profile preserves retry ownership", async () => {
-    const { store, migrating, tools, library, project, boardId, before } = await fixture();
-    const video = before.board.nodes[1]!;
-    const output = await library.add("continued.mp4", Buffer.from("video"));
-    const run = vi.spyOn(tools, "runPrepared")
-      .mockRejectedValueOnce(new Error("Interrupted legacy request"))
-      .mockResolvedValueOnce({ id: "continued", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
-    const job = await store.generateNode(project.id, boardId, video.id);
-    expect((await waitForJob(store, project.id)).status).toBe("failed");
-    await migrating.board(project.id, boardId);
-    expect(run).toHaveBeenCalledOnce();
-    const historyFile = path.join(project.workspacePath, "canvas/jobs.json");
-    await migrating.jobs(project.id);
-    const historyBefore = await readFile(historyFile, "utf8");
-    await expect(migrating.retry(project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its status in MiniMax") });
-    expect(await readFile(historyFile, "utf8")).toBe(historyBefore);
-    expect(run).toHaveBeenCalledOnce();
-    await store.retry(project.id, job.id);
-    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
-    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
-    expect(run.mock.calls[1]![1]).toMatchObject({ model: { provider: "minimax-video-cn", id: "MiniMax-H3" } });
-    expect((await migrating.board(project.id, boardId)).board.nodes.find((node) => node.id === video.id)).toMatchObject({ data: { model: { provider: "plugin.ohmygame.minimax.cn", id: "MiniMax-H3" }, assetId: expect.any(String) } });
-  });
-
   it("refuses an expanded board exceeding the byte limit without writing an unreadable file", async () => {
     const { migrating, project, boardId, file } = await fixture();
     const raw = JSON.parse(await readFile(file, "utf8"));
@@ -1419,7 +1393,7 @@ describe("MiniMax canvas model migration", () => {
 
 
 describe("Seedance canvas model migration", () => {
-  it.each(["image", "ark-video", "byteplus-video"] as const)("retains original %s task ownership after canvas cutover", async (kind) => {
+  it.each(["image", "ark-video", "byteplus-video"] as const)("notes original %s task ownership after canvas cutover without changing history", async (kind) => {
     const state = await runtime();
     const detail = await state.store.board(state.project.id, state.boardId);
     const node = createAssetGenerationNode(kind === "image" ? "image" : "video", { x: 300, y: 96 });
@@ -1431,20 +1405,13 @@ describe("Seedance canvas model migration", () => {
     detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
     await state.store.saveBoard(state.project.id, detail.board, detail.revision);
     const run = vi.spyOn(state.tools, "runPrepared").mockRejectedValue(new Error("Original provider error"));
-    const job = await state.store.generateNode(state.project.id, state.boardId, node.id);
+    await state.store.generateNode(state.project.id, state.boardId, node.id);
     expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
     const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { seedance: true }); stores.push(migrating);
     await migrating.board(state.project.id, state.boardId);
     expect((await migrating.jobs(state.project.id))[0]?.error).toContain("Check its result and billing");
     const file = path.join(state.project.workspacePath, "canvas/jobs.json"), before = await readFile(file, "utf8");
     expect(JSON.parse(before)[0]).toMatchObject({ error: "Original provider error", recoveryId: run.mock.calls[0]![3]?.recoveryId });
-    await expect(migrating.retry(state.project.id, job.id)).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("Check its result and billing") });
-    expect(await readFile(file, "utf8")).toBe(before);
-    expect(run).toHaveBeenCalledOnce();
-    await state.store.retry(state.project.id, job.id);
-    expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
-    expect(run.mock.calls[1]![1]).toEqual(run.mock.calls[0]![1]);
-    expect(run.mock.calls[1]![3]?.recoveryId).toBe(run.mock.calls[0]![3]?.recoveryId);
   });
 
   it.each([false, true])("maps image and video selections only in committed Seedance profiles (%s)", async (committed) => {
