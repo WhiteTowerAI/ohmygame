@@ -283,17 +283,12 @@
   }
 
   .dock-tab:not(.is-active) .dock-tab-label,
-  .dock-tab:not(.is-active) .dock-tab-close,
-  .dock-collapsible-label {
+  .dock-tab:not(.is-active) .dock-tab-close {
     display: none;
   }
 
   .dock-tab:not(.is-active) .dock-tab-button {
     padding: 0 var(--space-2);
-  }
-
-  .dock-collapsible {
-    padding-inline: 6px;
   }
 }
 
