@@ -124,6 +124,32 @@ export class ProjectWrites {
       if (--state.active === 0) state.drained?.();
     };
   }
+  /** Runs a write the daemon makes on its own, such as saving a finished
+   * generation's output. It has no editor version to match and nobody to
+   * refuse, so it waits out a snapshot or restore instead, and a checkpoint
+   * that starts meanwhile drains it like a request. Aborting `signal` ends the
+   * wait: removing a project holds the workspace while it cancels its runs. */
+  async write<T>(id: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const state = this.#state(id);
+    while (state.lock) {
+      signal?.throwIfAborted();
+      let stop!: () => void;
+      const aborted = new Promise<void>((resolve) => { stop = resolve; });
+      signal?.addEventListener("abort", stop, { once: true });
+      try {
+        await Promise.race([state.lock.done, aborted]);
+      } finally {
+        signal?.removeEventListener("abort", stop);
+      }
+    }
+    signal?.throwIfAborted();
+    state.active++;
+    try {
+      return await operation();
+    } finally {
+      if (--state.active === 0) state.drained?.();
+    }
+  }
   async exclusive<T>(id: string, operation: () => Promise<T>): Promise<T> {
     return this.#exclusive(id, operation, "mutation");
   }

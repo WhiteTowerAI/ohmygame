@@ -76,8 +76,14 @@ time. Queued and steering messages get their before checkpoint when consumed,
 not when enqueued. Each range is linked by checkpoint entry IDs, which remain
 the same when the live conversation is reloaded from disk.
 
-Checkpoint boundaries drain daemon HTTP handlers and canvas generation callbacks,
-including callbacks whose job already reports cancellation. Ordinary snapshots
+Checkpoint boundaries drain daemon HTTP handlers and canvas generation output
+saves, including saves whose job already reports cancellation. A generation
+still waiting for its provider holds nothing: when it finishes, it saves its
+output as a workspace write, which waits for a snapshot under way and is drained
+by the next one. Its output belongs to whichever side of a turn's checkpoints
+the save lands on, like an editor save. An output saved after the turn that
+started it ended is not part of that turn; undoing the turn reports the board
+and asset files it changed as later changes. Ordinary snapshots
 keep preview servers and pages running, including while a server is starting;
 chatting or opening a turn's file changes does not restart the game. Source edits
 use the development server's HMR or the static preview's file refresh. Explicit

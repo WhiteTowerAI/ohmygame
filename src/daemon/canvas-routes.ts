@@ -19,12 +19,13 @@ import type { PixelArtCheckBatch, PixelArtCheckExpectations } from "../shared/pi
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
+import type { ProjectWrites } from "./project-writes.js";
 import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; mediaMigrations?: MediaMigrationState;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; plugins?: CanvasPluginRunner; audio?: AudioGenerator; mediaMigrations?: MediaMigrationState; writes?: ProjectWrites;
 }): CanvasStore {
-  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.mediaMigrations);
+  const store = new CanvasStore(options.projects, options.library, options.tools, options.plugins, options.mediaMigrations, options.writes);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError || cause instanceof PixelArtFixerError || cause instanceof PixelArtCheckError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {

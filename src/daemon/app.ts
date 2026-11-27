@@ -1055,7 +1055,7 @@ export function createApp(options: AppOptions = {}) {
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
-    await canvasStore.waitForProject(project.id);
+    // A generation still running holds nothing: it saves its output as a write, which this snapshot drains.
     // A plugin change left unrecorded goes in first, so a turn's snapshot doesn't count it as the turn's, and the turn's writes don't land in it.
     await pluginWrites.settle(project);
     return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
@@ -1066,7 +1066,6 @@ export function createApp(options: AppOptions = {}) {
     // Plugin writes hold the workspace themselves, so this snapshot doesn't take it again.
     snapshot: async (project) => {
       if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
-      await canvasStore.waitForProject(project.id);
       return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
     },
     busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id) || tools.jobs().some((job) => job.context?.projectId === project.id && job.status === "running"),
@@ -1598,7 +1597,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, writes: projectWrites, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
