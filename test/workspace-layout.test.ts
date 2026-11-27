@@ -316,6 +316,26 @@ describe("the panel layout", () => {
     expect(container.querySelector(".dock-title-end")).not.toBeNull();
   });
 
+  it("keeps the title bar with the chat on the right", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    const onChange = vi.fn();
+    const titlebar = { start: document.createElement("div"), end: document.createElement("div"), release: () => {} };
+    const show = (size: number) => act(async () => root.render(createElement(Titlebar.Provider, { value: titlebar },
+      createElement(PanelLayout, { layout: { ...layout, left: { panels: [], size: 280 }, right: { panels: ["chat"], active: "chat", size } }, panels: panels.slice(0, 2), onChange, empty: null }))));
+    const columns = () => container.querySelector<HTMLElement>(".dock")!.style.gridTemplateColumns;
+    // The chat alone ends it in 360px, and leaves the center its 320px.
+    await show(380);
+    expect(columns()).toContain("var(--drag-right, 380px)");
+    expect(container.querySelector(".dock-title-end")).not.toBeNull();
+    await show(200);
+    expect(columns()).toContain("var(--drag-right, 360px)");
+    expect(container.querySelector(".dock-title-end")).not.toBeNull();
+    await show(900);
+    expect(columns()).toContain("var(--drag-right, 679px)");
+    await act(async () => container.querySelector(".dock-resizer-right")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(onChange.mock.lastCall![0].right.size).toBe(663);
+  });
+
   it("gives a maximized side area the whole layout", async () => {
     await render(layout);
     const dock = container.querySelector<HTMLElement>(".dock")!;

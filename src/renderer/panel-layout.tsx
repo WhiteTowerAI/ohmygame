@@ -45,6 +45,8 @@ const CENTER_MIN = 320;
 const CHAT_TITLEBAR_MIN = 280;
 /** The narrowest area that ends the title bar: its panel's toolbar beside the project's actions. */
 const TITLEBAR_END_MIN = 560;
+/** The same for the chat alone, whose tab and actions take less. */
+const CHAT_TITLEBAR_END_MIN = 360;
 /** The line between areas, from panel-layout.css. */
 const GAP = 1;
 
@@ -249,27 +251,30 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   const stacked = !!width && width < CENTER_MIN + sides * (SIDE_MIN + GAP);
   const startArea: AreaId = max ?? (has("left") ? "left" : "center");
   const endArea: AreaId = max ?? (has("right") ? "right" : "center");
-  // With the title bar along the areas, the left area shows at least the chat's
-  // room beside the window's controls and leaves the center the room for the
-  // project's actions, whatever size was kept, so an older size or a narrower
-  // window doesn't move them to a row of their own. Only a window too narrow
-  // for both keeps the kept size.
+  // With the title bar along the areas, the sides show at least the chat's room
+  // beside the window's controls and the room that ends the title bar, whatever
+  // size was kept, so an older size or a narrower window doesn't move the title
+  // and actions to a row of their own. Only a window too narrow for that keeps
+  // the kept size.
   const chatLeft = startArea === "left" && (layout.left.active ?? shown("left")[0]) === "chat";
-  const leftLow = Math.max(SIDE_MIN, titlebar && chatLeft ? CHAT_TITLEBAR_MIN : 0);
-  const leftHigh = titlebar && !max && !stacked && width && endArea === "center"
-    ? width - GAP - TITLEBAR_END_MIN - (has("right") ? layout.right.size + GAP : 0) : Infinity;
-  const leftSize = leftLow <= leftHigh ? Math.min(leftHigh, Math.max(leftLow, layout.left.size)) : layout.left.size;
-  const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${leftSize}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
+  const endMin = endArea === "right" && shown("right").join() === "chat" ? CHAT_TITLEBAR_END_MIN : TITLEBAR_END_MIN;
+  const fits = !!titlebar && !max && !stacked && !!width;
+  const clamp = (size: number, low: number, high: number) => low <= high ? Math.min(high, Math.max(low, size)) : size;
+  const leftSize = clamp(layout.left.size, Math.max(SIDE_MIN, titlebar && chatLeft ? CHAT_TITLEBAR_MIN : 0),
+    fits && endArea === "center" ? width - GAP - endMin : Infinity);
+  const rightSize = clamp(layout.right.size, fits && endArea === "right" ? endMin : SIDE_MIN,
+    fits ? width - GAP - CENTER_MIN - (has("left") ? leftSize + GAP : 0) : Infinity);
+  const sizeOf = (area: (typeof SIDES)[number]) => area === "left" ? leftSize : area === "right" ? rightSize : layout.bottom.size;
+  const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${leftSize}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${rightSize}px))` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
   const order = (["left", "center", "right", "bottom"] as const).filter(has);
   // Side by side, the areas along the top are the title bar: the leftmost
   // starts it, the rightmost ends it with the project's actions. Stacked, or
   // with too little room at the end for a panel's toolbar and those actions,
   // the frame keeps a title bar row of its own.
-  const endWidth = max ? width ?? 0 : endArea === "right" ? layout.right.size
-    : (width ?? 0) - (has("left") ? leftSize + GAP : 0) - (has("right") ? layout.right.size + GAP : 0);
+  const endWidth = max ? width ?? 0 : endArea === "right" ? rightSize : (width ?? 0) - (has("left") ? leftSize + GAP : 0);
   const narrowChat = !max && chatLeft && leftSize < CHAT_TITLEBAR_MIN;
-  const inTitlebar = !!titlebar && !stacked && !narrowChat && (!width || endWidth >= TITLEBAR_END_MIN);
+  const inTitlebar = !!titlebar && !stacked && !narrowChat && (!width || endWidth >= endMin);
   useLayoutEffect(() => {
     if (!titlebar || !titleStart || !titleEnd) return;
     place(titleStart, titlebar.start);
@@ -332,8 +337,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     let low = MIN_SIZE, high = Infinity;
     if (inTitlebar && area !== "bottom") {
       if (area === "left" && chatLeft) low = Math.max(low, CHAT_TITLEBAR_MIN);
-      if (area === endArea) low = Math.max(low, TITLEBAR_END_MIN);
-      else if (endArea === "center") high = (area === "left" ? leftSize : layout[area].size) + endWidth - TITLEBAR_END_MIN;
+      if (area === endArea) low = Math.max(low, endMin);
+      else if (endArea === "center") high = leftSize + endWidth - endMin;
       if (low > high) return [MIN_SIZE, Infinity];
     }
     return [low, high];
@@ -469,10 +474,10 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
             {area === "center" || stacked || max ? null : (
               <div className={`dock-resizer dock-resizer-${area}`} role="separator" tabIndex={0}
                 aria-orientation={area === "bottom" ? "horizontal" : "vertical"} aria-label={t("panels.resize", { area: areaLabel(area) })}
-                aria-valuenow={layout[area].size}
+                aria-valuenow={sizeOf(area)}
                 onPointerDown={(event) => {
                   if (!root.current || event.button !== 0) return;
-                  resizeDrag.current = { area, bounds: root.current.getBoundingClientRect(), size: layout[area].size };
+                  resizeDrag.current = { area, bounds: root.current.getBoundingClientRect(), size: sizeOf(area) };
                   event.currentTarget.setPointerCapture(event.pointerId);
                   document.documentElement.classList.add("is-resizing-dock");
                 }}
@@ -484,7 +489,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                   if (event.key !== grow && event.key !== shrink) return;
                   event.preventDefault();
                   const [low, high] = sizeRange(area);
-                  const size = layout[area].size + (event.key === grow ? 16 : -16);
+                  const size = sizeOf(area) + (event.key === grow ? 16 : -16);
                   onChange({ ...layout, [area]: { ...layout[area], size: Math.min(high, Math.max(low, size)) } });
                 }} />
             )}
