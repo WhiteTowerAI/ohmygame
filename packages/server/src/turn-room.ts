@@ -627,8 +627,14 @@ export class GameRoom extends Room {
     // Only closing the room needs no rules; the hosting player applies every other command.
     if (this.hosted && value.type !== "close") {
       const base = this.record.snapshot.state;
-      this.hostQueue = this.hostQueue.then(async () => {
+      this.queueHost(async () => {
         try {
+          // A copy sent again while the first waited here gets the first one's answer.
+          const settled = this.services.store.result(this.roomId, id, value.commandId);
+          if (settled) {
+            client.send("command.result", settled);
+            return;
+          }
           if (this.record.snapshot.sequence !== value.expectedSequence) {
             reject("sequence_conflict", "The room state changed. Try again.");
             return;
@@ -1409,9 +1415,13 @@ export class GameRoom extends Room {
       (reply.views === undefined || isHostViews(reply.views));
     this.hostWaits.get(reply.requestId)?.(valid ? (reply as unknown as HostReply) : { requestId: reply.requestId, error: "The host sent an invalid answer." });
   }
+  /** Runs a task after those queued before it; one that fails must not stop the ones after it. */
+  private queueHost(task: () => Promise<void>): void {
+    this.hostQueue = this.hostQueue.then(task).catch((cause) => console.error("A request to the hosting player failed", cause));
+  }
   /** Runs a request that changes the game through the hosting player's rules, after any before it. */
   private hostTask(ask: HostAsk, type: MultiplayerEventType = "state.updated", done?: () => void): void {
-    this.hostQueue = this.hostQueue.then(async () => {
+    this.queueHost(async () => {
       try {
         const base = this.record.snapshot.state;
         const reply = await this.askHost(ask);
@@ -1429,7 +1439,7 @@ export class GameRoom extends Room {
   private hostStartRound(finished?: MultiplayerGameState): void {
     if (this.hostRoundPending) return;
     this.hostRoundPending = true;
-    this.hostQueue = this.hostQueue.then(async () => {
+    this.queueHost(async () => {
       try {
         const state = this.record.snapshot.state;
         if (state.phase === "playing" || state.phase === "closed" || !this.enoughPlayers(state)) return;

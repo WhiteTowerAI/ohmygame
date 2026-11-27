@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, MemoryGameDataStore, startDevServer } from "@ohmygame/server";
 import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { inspectGameRules, loadRulesDefinition } from "../packages/server/src/dev.js";
+import { RoomStore } from "../packages/server/src/store.js";
 import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "@ohmygame/games/gomoku";
@@ -1577,6 +1578,64 @@ export default defineRealtimeGame({
       await wait(() => expect(guest.snapshot!.state.game).toMatchObject({ turns: 4 }));
       expect(seen.join("")).not.toContain(`secret-${owner.playerId}`);
       expect(hosting).toEqual([true, false]);
+    } finally {
+      owner.dispose();
+      guest.dispose();
+    }
+  });
+
+  it("answers a command sent twice with one result while the hosting player applies it, and plays on after a command fails", async () => {
+    const rules = defineGame({
+      players: { min: 2, max: 2 },
+      setup: () => ({ turns: 0 }),
+      moves: { pass(G) { G.turns++; } },
+    });
+    const manifest = await hostedService({ deploymentId: "turns-resent" });
+    const results: TurnCommandResult[] = [];
+    const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+      onCommandResult: (result) => results.push(result),
+    });
+    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+    try {
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.hosting).toBe(true));
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+      await wait(() => expect(owner.snapshot?.state.currentPlayerId).toBe(owner.playerId));
+
+      // A page resends a command it has no answer for when it reconnects, so the room can
+      // hold two copies of one command before the hosting player has applied the first.
+      const resent: TurnCommand = { commandId: randomUUID(), expectedSequence: owner.snapshot!.sequence, type: "action", payload: { action: "pass" } };
+      const room = (owner as unknown as { room: Room }).room;
+      room.send("command", resent);
+      room.send("command", resent);
+      await wait(() => expect(results.filter((result) => result.commandId === resent.commandId)).toHaveLength(2));
+      const [first, second] = results.filter((result) => result.commandId === resent.commandId);
+      expect(first).toMatchObject({ accepted: true, sequence: resent.expectedSequence + 1 });
+      expect(second).toEqual(first);
+      expect(guest.snapshot!.state.game).toMatchObject({ turns: 1 });
+
+      // The room still passes commands to the hosting player.
+      guest.moves.pass();
+      await wait(() => expect(owner.snapshot?.state.game).toMatchObject({ turns: 2 }));
+
+      // A command the room cannot save, nor save a refusal for, fails alone: the next one is applied.
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const save = vi.spyOn(RoomStore.prototype, "save");
+      const unsaved = () => { throw new Error("The disk is full."); };
+      save.mockImplementationOnce(unsaved).mockImplementationOnce(unsaved);
+      try {
+        owner.moves.pass();
+        await wait(() => expect(errors.mock.calls.map(([message]) => message)).toEqual(["A request to the hosting player failed"]));
+        expect(guest.snapshot!.state.game).toMatchObject({ turns: 2 });
+        owner.moves.pass();
+        await wait(() => expect(guest.snapshot?.state.game).toMatchObject({ turns: 3 }));
+      } finally {
+        save.mockRestore();
+        errors.mockRestore();
+      }
     } finally {
       owner.dispose();
       guest.dispose();
