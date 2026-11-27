@@ -1621,6 +1621,37 @@ export function setFileHistorySettings(autoClearDays: number): Promise<{ autoCle
   return request("/settings/file-history", { method: "PUT", body: JSON.stringify({ autoClearDays }) });
 }
 
+/** Settings → General → File history → Location: where every project's file history is kept, and how moving it is going. */
+export interface CheckpointLocationState {
+  /** The chosen folder; none means each project's own storage. */
+  location?: string;
+  /** Whether the chosen folder is there, such as on a disk that is connected. */
+  available?: boolean;
+  problem?: string;
+  /** Where the projects' own storage is. */
+  storage: string;
+  /** The bytes every project's file history takes. */
+  held: number;
+  moves: {
+    moving: boolean;
+    done: number;
+    total: number;
+    current?: { projectId: string; copied: number; total: number };
+    waiting: string[];
+    unavailable: string[];
+    failed: Array<{ projectId: string; error: string }>;
+  };
+}
+
+export function getCheckpointLocation(): Promise<CheckpointLocationState> {
+  return request("/settings/checkpoint-location");
+}
+
+/** Moves every project's file history to the folder, or back into each project with none. `abandon` starts a new history for projects whose folder is gone. */
+export function setCheckpointLocation(location: string | undefined, options: { abandon?: boolean } = {}): Promise<CheckpointLocationState> {
+  return request("/settings/checkpoint-location", { method: "PUT", body: JSON.stringify({ location: location ?? null, ...(options.abandon ? { abandon: true } : {}) }) });
+}
+
 /** Removes the project's file history from before a time. The turns of that time can no longer be undone. */
 export async function clearCheckpointHistory(projectId: string, before: number): Promise<void> {
   await request(`/projects/${projectId}/checkpoints/history/clear`, { method: "POST", body: JSON.stringify({ before }) });

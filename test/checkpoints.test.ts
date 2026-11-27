@@ -17,6 +17,7 @@ import {
   readdir,
   readFile,
   readlink,
+  realpath,
   rename,
   rm,
   symlink,
@@ -38,9 +39,17 @@ import {
   CheckpointChangedError,
   CheckpointConflictError,
   CheckpointIncompleteError,
+  CheckpointMoveError,
   CheckpointStore,
   checkpointDirectory,
 } from "../src/daemon/checkpoints.js";
+import {
+  CheckpointLocationSettings,
+  CheckpointLocationUnavailableError,
+  ROOT_MARKER,
+  STORE_MARKER,
+} from "../src/daemon/checkpoint-location.js";
+import { CheckpointMoves } from "../src/daemon/checkpoint-moves.js";
 import { PluginChangeError, PluginWrites } from "../src/daemon/plugin-writes.js";
 import { ProjectWrites } from "../src/daemon/project-writes.js";
 import { readWorkspaceNotice } from "../src/daemon/workspace-notice.js";
@@ -4018,5 +4027,270 @@ describe("plugin writes", () => {
     const ran = vi.fn();
     await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, ran)).rejects.toThrow();
     expect(ran).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkpoint location", () => {
+  /** A folder chosen as the checkpoint location, marked as one. */
+  async function location(): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-checkpoint-location-"));
+    roots.push(root);
+    await writeFile(path.join(root, ROOT_MARKER), "{\"version\":1}\n");
+    return root;
+  }
+
+  /** A project with an id, as the app has, and one turn of history: `before` and `after`. */
+  async function turn() {
+    const files = await project({ "game.ts": "old\n" });
+    const game = { ...files, id: path.basename(files.storagePath) };
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    await write(game.workspacePath, { "game.ts": "new\n", "added.ts": "added\n" });
+    const after = await store.snapshot(game);
+    return { game, store, before, after };
+  }
+
+  /** Makes renaming the store to `folder` fail as it does to another disk. Its copy, beside it, is then renamed there. */
+  function otherDisk(folder: string): void {
+    let renamed = false;
+    interception.before = async (operation, target) => {
+      if (operation !== "rename" || target !== folder || renamed) return;
+      renamed = true;
+      throw Object.assign(new Error("cross-device link not permitted"), { code: "EXDEV" });
+    };
+  }
+
+  it("copies the history to another disk and goes on with it there", async () => {
+    const { game, store, before, after } = await turn();
+    const root = await location();
+    otherDisk(path.join(root, game.id));
+    const progress: Array<{ copied: number; total: number }> = [];
+
+    expect(await store.move(game, root, { progress: (value) => progress.push(value) })).toBe(true);
+
+    const moved = path.join(root, game.id);
+    expect(await store.location(game)).toBe(moved);
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+    expect(existsSync(`${moved}.moving`)).toBe(false);
+    expect(existsSync(path.join(game.storagePath, "checkpoints-move.json"))).toBe(false);
+    expect(JSON.parse(await readFile(path.join(game.storagePath, "checkpoints-location.json"), "utf8"))).toEqual({ version: 1, path: moved });
+    expect(progress.at(-1)!.copied).toBe(progress.at(-1)!.total);
+    expect(progress.at(-1)!.total).toBeGreaterThan(0);
+    // The history reads, undoes and grows in the new folder, also for a store that reads the record afresh.
+    const fresh = new CheckpointStore();
+    expect(paths(await fresh.diff(game, before, after))).toEqual(["added.ts", "game.ts"]);
+    expect((await fresh.undo(game, { before, after })).changed).toEqual(["added.ts", "game.ts"]);
+    expect(await contents(game.workspacePath)).toEqual({ "game.ts": "old\n" });
+    const next = await fresh.snapshot(game);
+    expect(existsSync(path.join(moved, "objects", next.slice(0, 2), next.slice(2)))).toBe(true);
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+  });
+
+  it("renames the history on the same disk, and moves it back into the project", async () => {
+    const { game, store, before, after } = await turn();
+    const root = await location();
+
+    expect(await store.move(game, root)).toBe(true);
+    expect(await store.location(game)).toBe(path.join(root, game.id));
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+
+    expect(await store.move(game, undefined)).toBe(true);
+    expect(await store.location(game)).toBe(checkpointDirectory(game));
+    expect(existsSync(path.join(root, game.id))).toBe(false);
+    expect(existsSync(path.join(game.storagePath, "checkpoints-location.json"))).toBe(false);
+    expect(paths(await new CheckpointStore().diff(game, before, after))).toEqual(["added.ts", "game.ts"]);
+    expect(await store.move(game, undefined)).toBe(false);
+  });
+
+  it("leaves the history where it was when a copy does not match", async () => {
+    const { game, store, before, after } = await turn();
+    const root = await location();
+    otherDisk(path.join(root, game.id));
+    // A stored object that no longer holds what its id stands for cannot be copied faithfully.
+    const gitdir = checkpointDirectory(game);
+    const blob = createHash("sha1").update("blob 4\0new\n").digest("hex");
+    await chmod(path.join(gitdir, "objects", blob.slice(0, 2), blob.slice(2)), 0o644);
+    await writeFile(path.join(gitdir, "objects", blob.slice(0, 2), blob.slice(2)), deflateSync(Buffer.from("blob 4\0bad\n")));
+
+    await expect(store.move(game, root)).rejects.toThrow(/damaged/);
+
+    expect(await store.location(game)).toBe(gitdir);
+    expect(await readdir(root)).toEqual([ROOT_MARKER]);
+    expect(existsSync(path.join(game.storagePath, "checkpoints-move.json"))).toBe(false);
+    expect(paths(await store.diff(game, before, after))).toEqual(["added.ts", "game.ts"]);
+  });
+
+  it("removes the old history only once the reads in it are done", async () => {
+    const { game, store, before, after } = await turn();
+    const root = await location();
+    // A store in use is copied rather than renamed, even on the same disk.
+    const old = checkpointDirectory(game);
+    let reading!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => (reading = resolve));
+    const held = new Promise<void>((resolve) => (release = resolve));
+    interception.afterRead = async (target) => {
+      if (!target.startsWith(old)) return;
+      interception.afterRead = undefined;
+      reading();
+      await held;
+    };
+    const read = store.diff(game, before, after);
+    await started;
+
+    let moved = false;
+    const move = store.move(game, root).then(() => (moved = true));
+    for (let attempt = 0; attempt < 100 && (await store.location(game)) === old; attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await store.location(game)).toBe(path.join(root, game.id));
+    expect(existsSync(old)).toBe(true);
+    expect(moved).toBe(false);
+
+    release();
+    expect(paths(await read)).toEqual(["added.ts", "game.ts"]);
+    await move;
+    expect(existsSync(old)).toBe(false);
+  });
+
+  it("makes a new project's history in the chosen folder", async () => {
+    const root = await location();
+    const files = await project({ "game.ts": "one\n" });
+    const game = { ...files, id: "new-project" };
+    const store = new CheckpointStore({ location: async () => root });
+
+    const commit = await store.snapshot(game);
+
+    expect(await store.location(game)).toBe(path.join(root, "new-project"));
+    expect(existsSync(path.join(root, "new-project", "objects", commit.slice(0, 2), commit.slice(2)))).toBe(true);
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+  });
+
+  it("keeps a new project's history in the project while the chosen folder is not there", async () => {
+    const files = await project({ "game.ts": "one\n" });
+    const game = { ...files, id: "new-project" };
+    const store = new CheckpointStore({ location: async () => path.join(tmpdir(), "ohmygame-missing-location") });
+
+    await store.snapshot(game);
+
+    expect(await store.location(game)).toBe(checkpointDirectory(game));
+  });
+
+  it("says that the disk is not there instead of starting an empty history", async () => {
+    const { game, store } = await turn();
+    const root = await location();
+    await store.move(game, root);
+    await rm(root, { recursive: true, force: true });
+
+    const fresh = new CheckpointStore();
+    await expect(fresh.snapshot(game)).rejects.toBeInstanceOf(CheckpointLocationUnavailableError);
+    expect(existsSync(root)).toBe(false);
+    await expect(fresh.move(game, undefined)).rejects.toBeInstanceOf(CheckpointLocationUnavailableError);
+
+    // Asked to, the project leaves that history behind and starts a new one.
+    expect(await fresh.move(game, undefined, { abandon: true })).toBe(true);
+    await fresh.snapshot(game);
+    expect(await fresh.location(game)).toBe(checkpointDirectory(game));
+  });
+
+  it("refuses a folder in the way that is not the project's history", async () => {
+    const { game, store, before, after } = await turn();
+    const root = await location();
+    await mkdir(path.join(root, game.id));
+    await writeFile(path.join(root, game.id, "notes.txt"), "mine\n");
+
+    await expect(store.move(game, root)).rejects.toBeInstanceOf(CheckpointMoveError);
+
+    expect(await readFile(path.join(root, game.id, "notes.txt"), "utf8")).toBe("mine\n");
+    expect(await store.location(game)).toBe(checkpointDirectory(game));
+    expect(paths(await store.diff(game, before, after))).toEqual(["added.ts", "game.ts"]);
+  });
+
+  it("finishes a move that the app stopped in", async () => {
+    const { game, store } = await turn();
+    const root = await location();
+    const old = checkpointDirectory(game);
+    const moved = path.join(root, game.id);
+
+    // Stopped while copying: the copy goes, and the history stays where it was.
+    await mkdir(`${moved}.moving`);
+    await writeFile(path.join(`${moved}.moving`, STORE_MARKER), JSON.stringify({ version: 1, projectId: game.id }));
+    await writeFile(path.join(game.storagePath, "checkpoints-move.json"), JSON.stringify({ version: 1, from: old, to: moved }));
+    expect(await new CheckpointStore().location(game)).toBe(old);
+    await vi.waitFor(() => expect(existsSync(`${moved}.moving`)).toBe(false));
+    await vi.waitFor(() => expect(existsSync(path.join(game.storagePath, "checkpoints-move.json"))).toBe(false));
+
+    // Stopped right after the folder was renamed, before the project's record said so.
+    await store.settled(game);
+    await writeFile(path.join(old, STORE_MARKER), JSON.stringify({ version: 1, projectId: game.id }));
+    await rename(old, moved);
+    await writeFile(path.join(game.storagePath, "checkpoints-move.json"), JSON.stringify({ version: 1, from: old, to: moved }));
+    expect(await new CheckpointStore().location(game)).toBe(moved);
+    expect(existsSync(path.join(game.storagePath, "checkpoints-move.json"))).toBe(false);
+
+    // Stopped after the switch, before the old history was removed.
+    await mkdir(old);
+    await writeFile(path.join(old, "HEAD"), "ref: refs/heads/checkpoints\n");
+    await writeFile(path.join(game.storagePath, "checkpoints-move.json"), JSON.stringify({ version: 1, from: old, to: moved }));
+    expect(await new CheckpointStore().location(game)).toBe(moved);
+    await vi.waitFor(() => expect(existsSync(old)).toBe(false));
+  });
+
+  it("removes the history kept outside the project with the project", async () => {
+    const { game, store } = await turn();
+    const root = await location();
+    await store.move(game, root);
+    await writeFile(path.join(root, "other"), "kept\n");
+
+    await store.remove(game);
+
+    expect(existsSync(path.join(root, game.id))).toBe(false);
+    expect(await readFile(path.join(root, "other"), "utf8")).toBe("kept\n");
+  });
+
+  it("moves every project that is not working, and the rest on a later pass", async () => {
+    const first = await turn();
+    const second = await turn();
+    const root = await location();
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-checkpoint-settings-"));
+    roots.push(data);
+    const settings = new CheckpointLocationSettings(data);
+    await settings.set(root);
+    const store = new CheckpointStore();
+    let busy = true;
+    const list = [first.game, second.game] as unknown as ProjectState[];
+    const moves = new CheckpointMoves({
+      store,
+      settings,
+      projects: () => list,
+      idle: (id) => id !== second.game.id || !busy,
+      retryMs: 10,
+    });
+
+    await moves.start();
+    expect(await store.location(first.game)).toBe(path.join(await realpath(root), first.game.id));
+    expect(await store.location(second.game)).toBe(checkpointDirectory(second.game));
+    expect(moves.status()).toMatchObject({ moving: false, done: 2, total: 2, waiting: [second.game.id], failed: [] });
+
+    busy = false;
+    await vi.waitFor(async () => expect(await store.location(second.game)).toBe(path.join(await realpath(root), second.game.id)));
+    moves.stop();
+  });
+
+  it("checks the chosen folder and marks it", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-checkpoint-settings-"));
+    roots.push(data);
+    const settings = new CheckpointLocationSettings(data);
+    await expect(settings.set("relative/folder")).rejects.toThrow(/absolute/);
+    await expect(settings.set(path.parse(data).root)).rejects.toThrow(/root/);
+    await expect(settings.set(path.join(data, "missing"))).rejects.toThrow(/not an available folder/);
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-checkpoint-folder-"));
+    roots.push(folder);
+
+    const saved = await settings.set(folder);
+
+    expect(existsSync(path.join(saved.location!, ROOT_MARKER))).toBe(true);
+    expect(await new CheckpointLocationSettings(data).get()).toEqual({ location: saved.location });
+    await settings.set(undefined);
+    expect(await new CheckpointLocationSettings(data).get()).toEqual({});
   });
 });

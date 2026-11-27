@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
   chmod,
+  copyFile,
   lstat,
   mkdir,
   readdir,
@@ -20,7 +21,26 @@ import { countLineChanges } from "../shared/line-diff.js";
 import { PROJECT_BUILD_DIRECTORY, PROJECT_DATA_DIRECTORY, PROJECT_IDENTITY_FILES, PROJECT_LOCAL_DIRECTORY } from "../shared/project-layout.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
 import {
+  CheckpointLocationUnavailableError,
+  defaultStore,
+  markStore,
+  ownStore,
+  projectId,
+  projectStorage,
+  readMove,
+  readPointer,
+  removeFolder,
+  removeMove,
+  rootAvailable,
+  samePath,
+  STORE_MARKER,
+  storeOwner,
+  writeMove,
+  writePointer,
+} from "./checkpoint-location.js";
+import {
   BUFFERED_BYTES,
+  copyObject,
   FileChangedError,
   CheckpointFileTooLargeError,
   DamagedObjectError,
@@ -53,7 +73,16 @@ import {
   type TreeEntry,
 } from "./checkpoint-objects.js";
 
-type CheckpointProject = Pick<ProjectState, "workspacePath" | "storagePath">;
+type CheckpointProject = Pick<ProjectState, "workspacePath" | "storagePath"> & Partial<Pick<ProjectState, "id">>;
+
+/** How far a store's move has come, in bytes of stored objects. */
+export interface CheckpointMoveProgress {
+  copied: number;
+  total: number;
+}
+
+/** A move that was not made, with the store left where it was. The message says why. */
+export class CheckpointMoveError extends Error {}
 
 export interface CheckpointChange {
   /** Workspace path with forward slashes. */
@@ -270,12 +299,13 @@ const GONE = new Set(["ENOENT", "ENOTDIR", "EISDIR"]);
 // well, and the snapshot names it: otherwise the path would look later like one that was not there.
 const UNREADABLE = new Set(["EACCES", "EPERM", "EBUSY"]);
 
-/** The git directory that holds a project's checkpoints. It is outside the workspace and is removed with the project. */
+/**
+ * The git directory in the project's own storage, which holds its checkpoints
+ * unless they were moved to the checkpoint location. It is outside the
+ * workspace and is removed with the project.
+ */
 export function checkpointDirectory(project: CheckpointProject): string {
-  return path.join(
-    project.storagePath ?? path.dirname(project.workspacePath),
-    "checkpoints",
-  );
+  return defaultStore(project);
 }
 
 function excluded(relativePath: string): boolean {
@@ -401,11 +431,25 @@ function gitignoreRules(content: Buffer): Ignore | undefined {
  * store.
  */
 export class CheckpointStore {
+  /** Keyed by the project's storage, which stays where it is when its store moves. */
   readonly #queues = new Map<string, Promise<unknown>>();
   readonly #limit = limiter(FILE_CONCURRENCY);
   readonly #objects = new ObjectVerifier();
   readonly #gitignores = new Map<string, Ignore | undefined>();
-  /** One pass per store: a prune, a clear, or finding what a clear would remove. */
+  /** The store each project uses, by its storage, once its record has been read. */
+  readonly #stores = new Map<string, string>();
+  /** Projects whose store is being switched to another folder: nothing starts to use the store until it is done. */
+  readonly #switching = new Map<string, Promise<void>>();
+  /** How many operations use each store folder, so that a store that moved away is removed only once they are done. */
+  readonly #users = new Map<string, { count: number; idle: Array<() => void> }>();
+  /** The chosen checkpoint location, where a new store is made. */
+  readonly #location: () => Promise<string | undefined>;
+
+  constructor(options: { location?: () => Promise<string | undefined> } = {}) {
+    this.#location = options.location ?? (async () => undefined);
+  }
+
+  /** One pass per store: a prune, a clear, or finding what a clear would remove. Keyed as `#queues`. */
   readonly #prunes = new Map<
     string,
     {
@@ -432,7 +476,7 @@ export class CheckpointStore {
    * operation that starts while the folder is being removed writes into it.
    */
   async settled(project: CheckpointProject): Promise<void> {
-    const key = checkpointDirectory(project);
+    const key = projectStorage(project);
     // An operation that is asked for while this waits is waited for as well.
     for (
       let queued = this.#queues.get(key);
@@ -448,11 +492,12 @@ export class CheckpointStore {
     from: string,
     to: string,
   ): Promise<CheckpointChange[]> {
-    const gitdir = checkpointDirectory(project);
-    const { changes } = await this.#compare(
-      gitdir,
-      await readCommit(gitdir, from),
-      await readCommit(gitdir, to),
+    const { changes } = await this.#using(project, async (gitdir) =>
+      this.#compare(
+        gitdir,
+        await readCommit(gitdir, from),
+        await readCommit(gitdir, to),
+      ),
     );
     return changes
       .map((change): CheckpointChange => ({
@@ -468,11 +513,9 @@ export class CheckpointStore {
     from: string,
     to: string,
   ): Promise<boolean> {
-    const gitdir = checkpointDirectory(project);
-    const [before, after] = await Promise.all([
-      readCommit(gitdir, from),
-      readCommit(gitdir, to),
-    ]);
+    const [before, after] = await this.#using(project, (gitdir) =>
+      Promise.all([readCommit(gitdir, from), readCommit(gitdir, to)]),
+    );
     return after.unreadable.some((file) => !before.unreadable.includes(file));
   }
 
@@ -519,7 +562,17 @@ export class CheckpointStore {
     filePath: string,
     maxBytes?: number,
   ): Promise<Uint8Array | undefined> {
-    const gitdir = checkpointDirectory(project);
+    return this.#using(project, (gitdir) =>
+      this.#readFile(gitdir, commit, filePath, maxBytes),
+    );
+  }
+
+  async #readFile(
+    gitdir: string,
+    commit: string,
+    filePath: string,
+    maxBytes?: number,
+  ): Promise<Uint8Array | undefined> {
     let tree = await readCommitTree(gitdir, commit);
     const names = filePath.split("/");
     for (const [index, name] of names.entries()) {
@@ -544,7 +597,7 @@ export class CheckpointStore {
    * An unreadable or malformed record is an error, not an absent recovery.
    */
   async unfinished(project: CheckpointProject): Promise<string | undefined> {
-    return this.#unfinished(checkpointDirectory(project));
+    return this.#using(project, (gitdir) => this.#unfinished(gitdir));
   }
 
   async #unfinished(gitdir: string): Promise<string | undefined> {
@@ -639,13 +692,11 @@ export class CheckpointStore {
     if (referenced)
       return (await this.#sweep(project, referenced, {}, false, undefined, false)) as CheckpointUsage;
     // The size alone only reads the folder, so it does not wait for snapshots being taken, nor they for it.
-    const gitdir = checkpointDirectory(project);
-    if (!(await present(path.join(gitdir, "HEAD"))))
-      return { removed: 0, bytes: 0, held: 0 };
-    let held = 0;
-    // A time of 0 leaves the files of unfinished writes alone: a pass under way may still need them.
-    for (const object of await listObjects(gitdir, 0)) held += object.size;
-    return { removed: 0, bytes: 0, held };
+    return this.#using(project, async (gitdir) => ({
+      removed: 0,
+      bytes: 0,
+      held: await heldBytes(gitdir),
+    }));
   }
 
   async #sweep(
@@ -659,20 +710,20 @@ export class CheckpointStore {
     cleared: number | undefined,
     prune: boolean,
   ): Promise<CheckpointUsage | undefined> {
-    const gitdir = checkpointDirectory(project);
+    const key = projectStorage(project);
     // Only a prune comes at most once in an interval, and joins a prune under way. Anything else comes after the pass
     // under way, and so does a prune that also clears, which removes more than one that does not.
-    const running = this.#prunes.get(gitdir);
+    const running = this.#prunes.get(key);
     if (prune && cleared === undefined && running?.prune) return running.result;
     for (
       let pending = running;
       pending;
-      pending = this.#prunes.get(gitdir)
+      pending = this.#prunes.get(key)
     )
       await pending.result.catch(() => {});
     // A snapshot handed out from now on may be named before the removal although nothing named it before.
     const issued = new Set<string>();
-    const run = async (): Promise<CheckpointUsage | undefined> => {
+    const run = async (gitdir: string): Promise<CheckpointUsage | undefined | typeof MOVED> => {
       // A project without checkpoints does not get a store from this.
       if (!(await present(path.join(gitdir, "HEAD"))))
         return { removed: 0, bytes: 0, held: 0 };
@@ -688,6 +739,9 @@ export class CheckpointStore {
           await this.#keep(gitdir, root, kept);
         }
       return this.#serialize(project, async () => {
+        // The store moved while what it needs was worked out: the pass starts again in the new one, so that a
+        // record of a clear is not written into the folder that is about to go.
+        if (remove && !samePath(this.#stores.get(key) ?? gitdir, gitdir)) return MOVED;
         const started = Date.now();
         if (
           options.proceed?.() === false ||
@@ -745,8 +799,9 @@ export class CheckpointStore {
         return result;
       });
     };
-    const result = run().finally(() => this.#prunes.delete(gitdir));
-    this.#prunes.set(gitdir, { issued, result, prune });
+    const outcome = this.#using(project, run).finally(() => this.#prunes.delete(key));
+    const result = outcome.then((value) => (value === MOVED ? this.#sweep(project, referenced, options, remove, cleared, prune) : value));
+    this.#prunes.set(key, { issued, result, prune });
     return result;
   }
 
@@ -756,7 +811,7 @@ export class CheckpointStore {
    * that are gone, so the conversation shows it without Undo.
    */
   async cleared(project: CheckpointProject): Promise<number | undefined> {
-    return this.#cleared(checkpointDirectory(project));
+    return this.#using(project, (gitdir) => this.#cleared(gitdir));
   }
 
   async #cleared(gitdir: string): Promise<number | undefined> {
@@ -779,7 +834,7 @@ export class CheckpointStore {
 
   /** Whether the store still holds a snapshot. */
   held(project: CheckpointProject, commit: string): Promise<boolean> {
-    return hasObjectFile(checkpointDirectory(project), commit);
+    return this.#using(project, (gitdir) => hasObjectFile(gitdir, commit));
   }
 
   /** Adds an object to `kept` with everything it needs. Reading goes on beside other reads, a few at a time. */
@@ -834,7 +889,7 @@ export class CheckpointStore {
           (await this.#snapshot(project)).commit,
           new Error("Recover the unfinished checkpoint operation first"),
         );
-      const gitdir = checkpointDirectory(project);
+      const gitdir = this.#store(project);
       const target = await readCommit(gitdir, commit);
       const current = await this.#snapshot(project);
       const { changes, omitted } = await this.#compare(gitdir, current, target);
@@ -883,7 +938,7 @@ export class CheckpointStore {
           (await this.#snapshot(project)).commit,
           new Error("Recover the unfinished checkpoint operation first"),
         );
-      const gitdir = checkpointDirectory(project);
+      const gitdir = this.#store(project);
       const [before, after] = await Promise.all([
         readCommit(gitdir, range.before),
         readCommit(gitdir, range.after),
@@ -1191,7 +1246,7 @@ export class CheckpointStore {
     whole: boolean,
     complete?: (previous: string) => Promise<void>,
   ): Promise<void> {
-    const gitdir = checkpointDirectory(project);
+    const gitdir = this.#store(project);
     const unfinished = path.join(gitdir, UNFINISHED_FILE);
     if (changes.length === 0 && !complete)
       return whole ? await rm(unfinished, { force: true }) : undefined;
@@ -1299,7 +1354,7 @@ export class CheckpointStore {
     progress: Progress,
     paths: WorkspacePaths,
   ): Promise<void> {
-    const gitdir = checkpointDirectory(project);
+    const gitdir = this.#store(project);
     const entry = change.to!;
     const file = path.join(project.workspacePath, change.path);
     const replaced = change.from
@@ -1359,16 +1414,15 @@ export class CheckpointStore {
     }
   }
 
-  #issue(gitdir: string, commit: string): void {
-    this.#prunes.get(gitdir)?.issued.add(commit);
+  #issue(project: CheckpointProject, commit: string): void {
+    this.#prunes.get(projectStorage(project))?.issued.add(commit);
   }
 
   async #snapshot(project: CheckpointProject): Promise<Snapshot> {
-    const gitdir = checkpointDirectory(project);
     // A project that is being removed has no workspace any more, and must not get the folder of its store back.
     // Listing the workspace shows that it is there and that it is a folder.
     await fromSource(readdir(project.workspacePath));
-    await initialize(gitdir);
+    const gitdir = await this.#made(project);
     const paths = await WorkspacePaths.open(project.workspacePath);
     const walk: Walk = {
       gitdir,
@@ -1401,7 +1455,7 @@ export class CheckpointStore {
       recorded?.tree === tree &&
       recorded.unreadable.join("\0") === unreadable.join("\0")
     ) {
-      this.#issue(gitdir, head);
+      this.#issue(project, head);
       return {
         commit: head,
         tree,
@@ -1419,7 +1473,7 @@ export class CheckpointStore {
       walk.objects,
     );
     await writeHead(gitdir, commit);
-    this.#issue(gitdir, commit);
+    this.#issue(project, commit);
     return {
       commit,
       tree,
@@ -1724,12 +1778,322 @@ export class CheckpointStore {
     );
   }
 
+  /**
+   * The folder of the project's store: in the checkpoint location when it was
+   * moved or made there, else in the project's own storage.
+   */
+  location(project: CheckpointProject): Promise<string> {
+    return this.#using(project, async (gitdir) => gitdir);
+  }
+
+  /**
+   * Moves the project's store into `root`, the checkpoint location, or back
+   * into the project's own storage when `root` is undefined.
+   *
+   * On the same disk the folder is renamed. Elsewhere the objects are copied
+   * while the project goes on working, each checked against its id; then,
+   * between its other operations, what was written meanwhile is copied too and
+   * the project's record is switched to the copy. Until then the old store is
+   * the one in use, so a move that fails or is stopped leaves it as it was.
+   * The old store is removed once nothing reads it any more.
+   *
+   * A store whose folder is not there, such as on a disk that is not
+   * connected, cannot be moved. With `abandon`, the project starts a new store
+   * instead and leaves that one behind. Resolves to whether the store moved.
+   */
+  async move(
+    project: CheckpointProject & { id: string },
+    root: string | undefined,
+    options: {
+      signal?: AbortSignal;
+      progress?: (progress: CheckpointMoveProgress) => void;
+      abandon?: boolean;
+    } = {},
+  ): Promise<boolean> {
+    const key = projectStorage(project);
+    const to = root ? path.join(root, project.id) : defaultStore(project);
+    const from = await this.location(project);
+    if (samePath(from, to)) return false;
+    if (root && !(await rootAvailable(root)))
+      throw new CheckpointLocationUnavailableError(root);
+    if (!(await present(path.join(from, "HEAD")))) {
+      // Nothing to copy: a project without file history yet, or one whose store is on a disk that is gone.
+      const gone = !(await present(path.dirname(from)));
+      if (gone && !options.abandon)
+        throw new CheckpointLocationUnavailableError(path.dirname(from));
+      await this.#queue(key, async () => {
+        this.#current(key, from);
+        if (!(await present(to))) {
+          await mkdir(to);
+          await markStore(to, project.id);
+        } else if (!(await ownStore(to, project)))
+          throw new CheckpointMoveError(`${to} is already there and does not hold this project's checkpoints`);
+        await writePointer(key, to);
+        this.#stores.set(key, to);
+      });
+      if (!gone && (await ownStore(from, project))) {
+        await this.#idle(from);
+        await removeFolder(from).catch(() => {});
+      }
+      return true;
+    }
+    await writeMove(key, { from, to });
+    const staging = `${to}.moving`;
+    try {
+      if (!(await this.#renamed(project, from, to))) {
+        await this.#stage(project, to, staging);
+        await copyObjects(from, staging, options);
+        await this.#queue(key, async () => {
+          this.#current(key, from);
+          if (await this.#unfinished(from))
+            throw new CheckpointMoveError("Recover the interrupted file restore before moving the file history");
+          // What was written while the rest was copied.
+          await copyObjects(from, staging, {});
+          await copyFiles(from, staging);
+          const head = await readHead(from);
+          if (head !== (await readHead(staging)))
+            throw new CheckpointMoveError("The copied file history does not match");
+          if (head) await readCommit(staging, head);
+          await rename(staging, to);
+          try {
+            await writePointer(key, to);
+          } catch (error) {
+            await rename(to, staging).catch(() => {});
+            throw error;
+          }
+          this.#stores.set(key, to);
+        });
+      }
+    } catch (error) {
+      if ((await storeOwner(staging)) === project.id)
+        await removeFolder(staging).catch(() => {});
+      await removeMove(key);
+      throw error;
+    }
+    // The old store goes once the reads that began in it are done. Should that fail, the next start removes it.
+    await this.#idle(from);
+    await removeFolder(from)
+      .then(() => removeMove(key))
+      .catch(() => {});
+    return true;
+  }
+
+  /**
+   * Removes a store the project had outside its own storage, as removing the
+   * project removes the rest. Call it once `settled` resolved.
+   */
+  async remove(project: CheckpointProject): Promise<void> {
+    const key = projectStorage(project);
+    const store = await this.location(project).catch(() => undefined);
+    if (
+      store &&
+      !samePath(store, defaultStore(project)) &&
+      (await storeOwner(store)) === projectId(project)
+    )
+      await removeFolder(store);
+    this.#stores.delete(key);
+  }
+
+  /** The store the queue entered, for the operations that run in it. */
+  #store(project: CheckpointProject): string {
+    const gitdir = this.#stores.get(projectStorage(project));
+    if (gitdir === undefined) throw new Error("The checkpoint store is not open");
+    return gitdir;
+  }
+
+  /** Stops a move whose store another move took elsewhere meanwhile. */
+  #current(key: string, from: string): void {
+    if (!samePath(this.#stores.get(key) ?? from, from))
+      throw new CheckpointMoveError("The file history moved meanwhile");
+  }
+
+  /** A new store goes into the checkpoint location, when one is chosen and there. */
+  async #made(project: CheckpointProject): Promise<string> {
+    const key = projectStorage(project);
+    let gitdir = this.#store(project);
+    if (await present(path.join(gitdir, "HEAD"))) return gitdir;
+    if (samePath(gitdir, defaultStore(project)) && !(await present(gitdir))) {
+      const root = await this.#location().catch(() => undefined);
+      const store = root && path.join(root, projectId(project));
+      if (store && (await rootAvailable(root)) && !(await present(store))) {
+        await mkdir(store);
+        await markStore(store, projectId(project));
+        await writePointer(key, store);
+        this.#stores.set(key, store);
+        gitdir = store;
+      }
+    }
+    try {
+      await initialize(gitdir);
+    } catch (error) {
+      // The folder the store is in is not made along with it: where that is gone, so is the disk it was on.
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOENT" &&
+        !samePath(gitdir, defaultStore(project))
+      )
+        throw new CheckpointLocationUnavailableError(path.dirname(gitdir));
+      throw error;
+    }
+    return gitdir;
+  }
+
+  /** On the same disk, renames the store into place between the project's other operations. False when it cannot. */
+  #renamed(
+    project: CheckpointProject & { id: string },
+    from: string,
+    to: string,
+  ): Promise<boolean> {
+    const key = projectStorage(project);
+    return this.#queue(key, async () => {
+      this.#current(key, from);
+      if (await this.#unfinished(from))
+        throw new CheckpointMoveError("Recover the interrupted file restore before moving the file history");
+      if (this.#users.has(path.resolve(from)) || (await present(to)))
+        return false;
+      // Nothing starts to read the store while its folder has neither name.
+      let release!: () => void;
+      this.#switching.set(key, new Promise<void>((resolve) => (release = resolve)));
+      try {
+        // Should the app stop right after the rename, the next start knows the folder for this project's.
+        await markStore(from, project.id);
+        try {
+          await rename(from, to);
+        } catch (error) {
+          if (RENAME_REFUSED.has(String((error as NodeJS.ErrnoException).code)))
+            return false;
+          throw error;
+        }
+        try {
+          await writePointer(key, to);
+        } catch (error) {
+          await rename(to, from).catch(() => {});
+          throw error;
+        }
+        this.#stores.set(key, to);
+        return true;
+      } finally {
+        this.#switching.delete(key);
+        release();
+      }
+    });
+  }
+
+  /** The folder a copy goes into: a new one, or what an earlier, stopped move of this project left. */
+  async #stage(
+    project: CheckpointProject & { id: string },
+    to: string,
+    staging: string,
+  ): Promise<void> {
+    if (await present(staging)) {
+      if ((await storeOwner(staging)) !== project.id)
+        throw new CheckpointMoveError(`${staging} is already there and does not hold this project's checkpoints`);
+      return;
+    }
+    if (await present(to)) {
+      // An old copy of this project's store, such as one it moved away from, holds objects that need no copying.
+      if (!(await ownStore(to, project)))
+        throw new CheckpointMoveError(`${to} is already there and does not hold this project's checkpoints`);
+      await rename(to, staging);
+      await markStore(staging, project.id);
+      return;
+    }
+    await mkdir(staging);
+    await markStore(staging, project.id);
+  }
+
+  /** Runs an operation with the project's store, which is not removed while it runs. */
+  async #using<T>(
+    project: CheckpointProject,
+    operation: (gitdir: string) => Promise<T>,
+  ): Promise<T> {
+    const key = projectStorage(project);
+    let gitdir: string | undefined;
+    while (gitdir === undefined) {
+      const switching = this.#switching.get(key);
+      if (switching) await switching;
+      else if (!this.#stores.has(key)) await this.#open(project);
+      else gitdir = this.#stores.get(key)!;
+    }
+    // Counted in the same step as it is looked up, so that a move sees every use of the old store.
+    const folder = path.resolve(gitdir);
+    const users = this.#users.get(folder) ?? { count: 0, idle: [] };
+    users.count += 1;
+    this.#users.set(folder, users);
+    try {
+      return await operation(gitdir);
+    } finally {
+      users.count -= 1;
+      if (users.count === 0) {
+        this.#users.delete(folder);
+        for (const resolve of users.idle) resolve();
+      }
+    }
+  }
+
+  readonly #opening = new Map<string, Promise<void>>();
+
+  /** Reads which store the project uses, and finishes a move that an earlier run of the app left. */
+  #open(project: CheckpointProject): Promise<void> {
+    const key = projectStorage(project);
+    let opening = this.#opening.get(key);
+    if (!opening) {
+      opening = (async () => {
+        const store = await this.#recover(project, (await readPointer(key)) ?? defaultStore(project));
+        if (!this.#stores.has(key)) this.#stores.set(key, store);
+      })().finally(() => this.#opening.delete(key));
+      this.#opening.set(key, opening);
+    }
+    return opening;
+  }
+
+  /**
+   * Ends a move that an earlier run of the app left. The project's record says
+   * which store is in use: a move that switched it removes the old store, and
+   * one that did not removes its copy. A rename that was made just before the
+   * app stopped, before the record was switched, is switched now.
+   */
+  async #recover(project: CheckpointProject, current: string): Promise<string> {
+    const key = projectStorage(project);
+    const move = await readMove(key);
+    if (!move) return current;
+    const id = projectId(project);
+    let leftover: string | undefined;
+    if (samePath(current, move.to)) leftover = move.from;
+    else if (samePath(current, move.from)) {
+      if (
+        !(await present(path.join(move.from, "HEAD"))) &&
+        (await present(path.join(move.to, "HEAD"))) &&
+        (await storeOwner(move.to)) === id
+      ) {
+        await writePointer(key, move.to);
+        current = move.to;
+      } else leftover = `${move.to}.moving`;
+    }
+    if (leftover && !samePath(leftover, current) && (await present(leftover)) && (await ownStore(leftover, project)))
+      // Large, and in nobody's way: it goes beside the project's work.
+      void removeFolder(leftover).then(() => removeMove(key)).catch(() => {});
+    else await removeMove(key);
+    return current;
+  }
+
+  /** Resolves when nothing uses the folder. */
+  #idle(folder: string): Promise<void> {
+    const users = this.#users.get(path.resolve(folder));
+    if (!users) return Promise.resolve();
+    return new Promise((resolve) => users.idle.push(resolve));
+  }
+
   /** Snapshots and changes of one project run one at a time: two conversations may work in it at once. */
   #serialize<T>(
     project: CheckpointProject,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const key = checkpointDirectory(project);
+    return this.#queue(projectStorage(project), () =>
+      this.#using(project, () => operation()),
+    );
+  }
+
+  #queue<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const result = (this.#queues.get(key) ?? Promise.resolve()).then(
       operation,
       operation,
@@ -1741,6 +2105,96 @@ export class CheckpointStore {
     });
     return result;
   }
+}
+
+// A rename that cannot be made where it is: to another disk, or while a program, such as a virus scanner, holds a file.
+const RENAME_REFUSED = new Set(["EXDEV", "EPERM", "EACCES", "EBUSY", "ENOTEMPTY", "EEXIST"]);
+const MOVED = Symbol("moved");
+const COPY_CONCURRENCY = 8;
+
+/** The bytes on disk of a store's objects; none for a project without file history. */
+async function heldBytes(gitdir: string): Promise<number> {
+  if (!(await present(path.join(gitdir, "HEAD")))) return 0;
+  let held = 0;
+  // A time of 0 leaves the files of unfinished writes alone: a pass under way may still need them.
+  for (const object of await listObjects(gitdir, 0)) held += object.size;
+  return held;
+}
+
+/**
+ * Copies the objects one store has and another lacks, a few at a time. An
+ * object removed meanwhile, as a prune does, is not needed. A copy that does
+ * not match its id fails the move.
+ */
+async function copyObjects(
+  from: string,
+  to: string,
+  options: {
+    signal?: AbortSignal;
+    progress?: (progress: CheckpointMoveProgress) => void;
+  },
+): Promise<void> {
+  const objects = await listObjects(from, 0);
+  const total = objects.reduce((sum, object) => sum + object.size, 0);
+  let copied = 0;
+  const limit = limiter(COPY_CONCURRENCY);
+  options.progress?.({ copied, total });
+  await all(
+    objects.map((object) =>
+      limit(async () => {
+        options.signal?.throwIfAborted();
+        if (!(await hasObjectFile(to, object.oid))) {
+          try {
+            await copyObject(from, to, object.oid);
+          } catch (error) {
+            if (!(error instanceof DamagedObjectError) || (await hasObjectFile(from, object.oid)))
+              throw error;
+          }
+        }
+        copied += object.size;
+        options.progress?.({ copied, total });
+      }),
+    ),
+  );
+}
+
+/**
+ * Makes the files of a store other than its objects, such as its branch and
+ * its records, the same in a copy: each is copied under a temporary name and
+ * renamed, and what the copy has and the store lacks is removed.
+ */
+async function copyFiles(from: string, to: string, relative = ""): Promise<void> {
+  const source = path.join(from, relative);
+  const target = path.join(to, relative);
+  await mkdir(target, { recursive: true });
+  const names = new Set<string>();
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (relative === "" && (entry.name === "objects" || entry.name === STORE_MARKER)) continue;
+    if (copyTemporary(entry.name)) continue;
+    names.add(entry.name);
+    const name = path.join(relative, entry.name);
+    if (entry.isDirectory()) await copyFiles(from, to, name);
+    else if (entry.isFile()) {
+      const temporary = path.join(to, `${name}.${randomUUID()}.tmp`);
+      try {
+        await copyFile(path.join(from, name), temporary);
+        await rename(temporary, path.join(to, name));
+      } catch (error) {
+        await rm(temporary, { force: true });
+        throw error;
+      }
+    }
+  }
+  for (const entry of await readdir(target, { withFileTypes: true })) {
+    if (relative === "" && (entry.name === "objects" || entry.name === STORE_MARKER)) continue;
+    if (!names.has(entry.name))
+      await rm(path.join(target, entry.name), { recursive: true, force: true });
+  }
+}
+
+/** The names a store gives the files it writes before it renames them into place. */
+function copyTemporary(name: string): boolean {
+  return name.startsWith("tmp_") || name.endsWith(".tmp");
 }
 
 /**

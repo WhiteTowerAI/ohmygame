@@ -3,8 +3,11 @@ import type { CheckpointHistory, ProjectState } from "../shared/contracts.js";
 import {
   clearCheckpointHistory,
   getCheckpointHistory,
+  getCheckpointLocation,
   getFileHistorySettings,
+  setCheckpointLocation,
   setFileHistorySettings,
+  type CheckpointLocationState,
 } from "./api.js";
 import { formatBytes } from "./format-bytes.js";
 import { language, t } from "./i18n.js";
@@ -13,6 +16,7 @@ import {
   Button,
   Dialog,
   Popover,
+  Progress,
   SegmentedControl,
   Select,
   Spinner,
@@ -542,5 +546,135 @@ function ClearHistoryDialog({
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Settings → General → File history → Location: the folder that holds every
+ * project's file history. Changing it moves each project's history there, one
+ * project at a time, while the app goes on working.
+ */
+export function CheckpointLocation() {
+  const [state, setState] = useState<CheckpointLocationState>();
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
+  const choose = window.ohMyGameDesktop?.selectProjectDirectory;
+  const moving = state?.moves.moving ?? false;
+  const waiting = (state?.moves.waiting.length ?? 0) > 0;
+  useEffect(() => {
+    let disposed = false;
+    const load = () =>
+      getCheckpointLocation().then(
+        (value) => {
+          if (!disposed) setState(value);
+        },
+        (cause) => {
+          if (!disposed) setError(cause instanceof Error ? cause.message : String(cause));
+        },
+      );
+    void load();
+    // While projects move, and while some wait for their work to end, the row follows them.
+    const timer = moving || waiting ? setInterval(() => void load(), moving ? 1_000 : 5_000) : undefined;
+    return () => {
+      disposed = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [moving, waiting]);
+  async function save(location: string | undefined, abandon = false) {
+    setSaving(true);
+    setError(undefined);
+    try {
+      setState(await setCheckpointLocation(location, { abandon }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+      setAbandoning(false);
+    }
+  }
+  async function pick() {
+    const selected = await choose?.();
+    if (selected) await save(selected);
+  }
+  const moves = state?.moves;
+  const current = moves?.current;
+  const unavailable = state?.location && state.available === false;
+  return (
+    <>
+      <SettingsRow
+        title={t("projectFileHistory.location")}
+        description={
+          state
+            ? `${t("projectFileHistory.locationHint")} ${t("projectFileHistory.size", { size: formatBytes(state.held) })}`
+            : t("projectFileHistory.locationHint")
+        }
+      >
+        {state ? (
+          <span className="settings-mono settings-muted settings-location" title={state.location ?? state.storage}>
+            <bdi>{state.location ?? t("projectFileHistory.locationDefault")}</bdi>
+          </span>
+        ) : null}
+        {state?.location ? (
+          <Button size="sm" variant="ghost" disabled={saving || moving} onClick={() => void save(undefined)}>
+            {t("projectFileHistory.locationReset")}
+          </Button>
+        ) : null}
+        {choose ? (
+          <Button size="sm" disabled={!state || saving || moving} onClick={() => void pick()}>
+            {t("projectFileHistory.locationChange")}
+          </Button>
+        ) : null}
+      </SettingsRow>
+      {moving && moves ? (
+        <SettingsNote role="status">
+          {t("projectFileHistory.locationMoving", { done: Math.min(moves.done + 1, moves.total), total: moves.total })}
+          {current && current.total ? (
+            <Progress
+              value={current.copied / current.total}
+              label={t("projectFileHistory.locationCopied", { copied: formatBytes(current.copied), total: formatBytes(current.total) })}
+            />
+          ) : null}
+        </SettingsNote>
+      ) : null}
+      {!moving && waiting && moves ? (
+        <SettingsNote role="status">{t("projectFileHistory.locationWaiting", { count: moves.waiting.length })}</SettingsNote>
+      ) : null}
+      {unavailable || (moves?.unavailable.length ?? 0) > 0 ? (
+        <SettingsNote tone="danger">
+          {t("projectFileHistory.locationUnavailable", { path: state?.location ?? "" })}{" "}
+          <Button size="sm" variant="ghost" disabled={saving || moving} onClick={() => setAbandoning(true)}>
+            {t("projectFileHistory.locationAbandon")}
+          </Button>
+        </SettingsNote>
+      ) : null}
+      {moves?.failed.length ? (
+        <SettingsNote tone="danger">
+          {t("projectFileHistory.locationFailed", { count: moves.failed.length, error: moves.failed[0]!.error })}
+        </SettingsNote>
+      ) : null}
+      {error || state?.problem ? <SettingsNote tone="danger">{error ?? state?.problem}</SettingsNote> : null}
+      {abandoning ? (
+        <Dialog
+          open
+          size="sm"
+          title={t("projectFileHistory.locationAbandonTitle")}
+          description={t("projectFileHistory.locationAbandonDescription")}
+          onClose={() => {
+            if (!saving) setAbandoning(false);
+          }}
+          footer={
+            <>
+              <Button disabled={saving} onClick={() => setAbandoning(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button variant="primary" disabled={saving} onClick={() => void save(undefined, true)}>
+                {t("projectFileHistory.locationAbandonConfirm")}
+              </Button>
+            </>
+          }
+        />
+      ) : null}
+    </>
   );
 }

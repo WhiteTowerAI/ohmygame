@@ -8,6 +8,8 @@ import type { BrowserDriver } from "../shared/browser-use.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointConflictError, CheckpointStore } from "./checkpoints.js";
+import { CheckpointLocationError, CheckpointLocationSettings, freeBytes, pathContains, rootAvailable } from "./checkpoint-location.js";
+import { CheckpointMoves } from "./checkpoint-moves.js";
 import { GameTuning, GameTuningError } from "./game-tuning.js";
 import type { GameTuningScalar } from "../shared/game-tuning.js";
 import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
@@ -685,7 +687,9 @@ export function createApp(options: AppOptions = {}) {
     tuning: gameTuning,
     webBuild: (project, signal, log) => buildWebPreview({ folder: project.workspacePath, services: pluginServices, signal, onProgress: log }),
   });
-  const checkpoints = new CheckpointStore();
+  const checkpointLocation = new CheckpointLocationSettings(dataDirectory);
+  // A new project's file history goes into the checkpoint location, when one is chosen.
+  const checkpoints = new CheckpointStore({ location: async () => (await checkpointLocation.get()).location });
   const projectWrites = new ProjectWrites();
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const browserSettings = new BrowserSettingsStore(dataDirectory);
@@ -1057,6 +1061,14 @@ export function createApp(options: AppOptions = {}) {
   const pruneAllCheckpoints = async (interval?: number) => {
     for (const project of projects.list()) await pruneCheckpoints(project, interval);
   };
+  // Settings → General → Checkpoint location moves each project's file history, one at a time, while it is not working.
+  const checkpointMoves = new CheckpointMoves({
+    store: checkpoints,
+    settings: checkpointLocation,
+    projects: () => projects.list(),
+    idle: (id) => !!projects.get(id) && !agents.isProjectBusy(id) && !projectWrites.isMutating(id) && !projectWorking(id),
+    log: (err, projectId) => app.log.warn({ err, projectId }, "Could not move the project's file history"),
+  });
   /** Each project's plugin game runtime, while its type declares one; its conversations share it. */
   const pluginGames = new Map<string, PluginGameRuntime>();
   const closePluginGame = (projectId: string) => {
@@ -1731,6 +1743,8 @@ export function createApp(options: AppOptions = {}) {
     void pluginServicesReady.then(() => pendingWrites.start());
     // Projects not run for a while are cleared too, at most once a day each, when the history is cleared automatically.
     void fileHistorySettings.get().then(({ autoClearDays }) => autoClearDays ? pruneAllCheckpoints() : undefined);
+    // A move to the checkpoint location that the app stopped in goes on, as does one left for a project that was working.
+    void checkpointMoves.start();
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
     // Plugins are checked for updates once at startup and when the Plugins page opens. Those from the market
@@ -3384,6 +3398,56 @@ export function createApp(options: AppOptions = {}) {
   app.get("/settings/web-search", async () => webSearchSettings.get());
 
   app.get("/settings/file-history", () => fileHistorySettings.get());
+  const checkpointLocationState = async () => {
+    const { location, problem } = await checkpointLocation.get();
+    let held = 0;
+    for (const project of projects.list()) held += (await checkpoints.usage(project).catch(() => ({ held: 0 }))).held;
+    return {
+      ...(location ? { location, available: await rootAvailable(location) } : {}),
+      ...(problem ? { problem } : {}),
+      storage: projects.storage,
+      held,
+      moves: checkpointMoves.status(),
+    };
+  };
+  app.get("/settings/checkpoint-location", checkpointLocationState);
+  app.put<{ Body: { location: string | null; abandon?: boolean } }>("/settings/checkpoint-location", {
+    schema: { body: { type: "object", required: ["location"], additionalProperties: false, properties: { location: { anyOf: [{ type: "string", minLength: 1, maxLength: 4096 }, { type: "null" }] }, abandon: { type: "boolean" } } } },
+  }, async (request, reply) => {
+    // What the folder must take: every store that is not in it yet.
+    const needed = async (folder: string) => {
+      let bytes = 0;
+      for (const project of projects.list()) {
+        const store = await checkpoints.location(project).catch(() => undefined);
+        if (store && !pathContains(folder, store)) bytes += (await checkpoints.usage(project).catch(() => ({ held: 0 }))).held;
+      }
+      return bytes;
+    };
+    const enough = async (folder: string) => {
+      const [free, bytes] = await Promise.all([freeBytes(folder), needed(folder)]);
+      if (free !== undefined && free < bytes * 1.1)
+        throw new CheckpointLocationError(`The checkpoint location needs about ${Math.ceil(bytes / 1024 / 1024)} MB free, and has ${Math.floor(free / 1024 / 1024)} MB`);
+    };
+    try {
+      const location = request.body.location ?? undefined;
+      if (!location) await enough(projects.storage);
+      await checkpointLocation.set(location, async (folder) => {
+        const storage = await realpath(projects.storage).catch(() => projects.storage);
+        if (pathContains(storage, folder) || pathContains(folder, storage) || pathContains(projects.storage, folder))
+          throw new CheckpointLocationError("OhMyGame's project storage cannot be the checkpoint location");
+        // A snapshot of the workspace would take in the history it is stored in.
+        for (const project of projects.list())
+          if (pathContains(project.workspacePath, folder) || pathContains(await realpath(project.workspacePath).catch(() => project.workspacePath), folder))
+            throw new CheckpointLocationError(`The checkpoint location cannot be in the folder of “${project.name}”`);
+        await enough(folder);
+      });
+      void checkpointMoves.start({ abandon: request.body.abandon === true });
+      return await checkpointLocationState();
+    } catch (cause) {
+      if (cause instanceof CheckpointLocationError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
   app.put<{ Body: { autoClearDays: number } }>("/settings/file-history", {
     schema: { body: { type: "object", additionalProperties: false, required: ["autoClearDays"], properties: { autoClearDays: { type: "integer", enum: [...FILE_HISTORY_AUTO_CLEAR_DAYS] } } } },
   }, async (request, reply) => {
@@ -3994,6 +4058,8 @@ export function createApp(options: AppOptions = {}) {
       const release = await pluginServices.hosts.editors.guardRemoval(project.workspacePath);
       try {
         await forgetProject(project);
+        // File history kept in the checkpoint location goes with the project, as the rest of its storage does.
+        await checkpoints.remove(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not remove the project's file history"));
         if (keep) return await projects.remove(project.id);
         await projects.delete(project.id);
       } finally {
@@ -5641,6 +5707,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     pendingWrites.stop();
+    // A store being moved stays where it was, whole; the next start moves it.
+    checkpointMoves.stop();
     await pluginMediaProviders.close();
     await pluginServices.native.stopPersistent();
     limitContinuations.close();

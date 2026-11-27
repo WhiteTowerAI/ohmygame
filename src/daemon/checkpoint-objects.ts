@@ -689,6 +689,55 @@ export async function removeObject(gitdir: string, oid: string): Promise<void> {
   await rmdir(path.dirname(target)).catch(() => {});
 }
 
+/**
+ * Copies a loose object into another store, such as one on another disk, and
+ * checks the copy against its id before it takes the object's name. A copy
+ * that does not match is removed and reported as damaged, so a disk that
+ * loses writes is found out before the old store goes.
+ */
+export async function copyObject(
+  from: string,
+  to: string,
+  oid: string,
+): Promise<void> {
+  const target = objectPath(to, oid);
+  await mkdir(path.dirname(target), { recursive: true });
+  const temporary = path.join(path.dirname(target), `tmp_obj_${randomUUID()}`);
+  try {
+    await copyFile(objectPath(from, oid), temporary).catch(
+      (error: NodeJS.ErrnoException) => {
+        throw error.code === "ENOENT" ? new DamagedObjectError(oid) : error;
+      },
+    );
+    await verifyObjectFile(temporary, oid);
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+/** Whether a loose object file holds what its id stands for, read as a stream so that a large one is not held in memory. */
+async function verifyObjectFile(file: string, oid: string): Promise<void> {
+  const hash = createHash("sha1");
+  try {
+    await pipeline(
+      createReadStream(file),
+      createInflate(),
+      new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          hash.update(chunk);
+          done();
+        },
+      }),
+    );
+  } catch (error) {
+    if (String((error as NodeJS.ErrnoException).code).startsWith("Z_")) throw new DamagedObjectError(oid);
+    throw error;
+  }
+  if (hash.digest("hex") !== oid) throw new DamagedObjectError(oid);
+}
+
 /** Whether the store has an object file for this id, whole or not. */
 export async function hasObjectFile(
   gitdir: string,

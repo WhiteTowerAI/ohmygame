@@ -113,7 +113,8 @@ an operation rolls back when possible rather than silently overwriting them.
 ## Storage and file scope
 
 The daemon stores Git-compatible objects in the project's storage directory at
-`checkpoints/`, outside its workspace. The workspace does not need Git;
+`checkpoints/`, outside its workspace, unless they were moved to the
+[file history location](#file-history-location). The workspace does not need Git;
 snapshotting never writes its `.git`, branches, index, or `.gitignore` files.
 Explicit Undo, Reapply and Restore can restore `.gitignore` alongside other
 project files. This is internal snapshot storage rather than a user-facing Git
@@ -235,6 +236,51 @@ operation are under way, and tells an open conversation through
 or a longer setting does not bring cleared turns back. Project settings say
 when a project's history is cleared automatically.
 
+### File history location
+
+**Settings → General → File history → Location** chooses a folder for every
+project's file history, such as one on another disk when the system disk is
+full. Unset, each project keeps it in `checkpoints/` in its own storage. The
+choice is kept in `checkpoint-location.json` in the data folder, as
+`{ "version": 1, "location": "<folder>" }`; a file that cannot be read moves
+nothing and is left as it is until the user fixes or removes it. The folder
+must be an existing, writable folder that is not a filesystem root, OhMyGame's
+project storage, or inside a project's workspace, and its disk must have room
+for the history it doesn't hold yet, with a tenth to spare. It is marked with
+`ohmygame-checkpoints-root.json`, and each project's store in it is a folder
+named after the project's id, marked with `ohmygame-checkpoints.json`.
+
+Each project records the store it uses in `checkpoints-location.json` in its
+storage, as `{ "version": 1, "path": "<store>" }`; without that record it uses
+`checkpoints/` there. A record that cannot be read is an error rather than a
+reason to start an empty history. A project's first snapshot after a folder is
+chosen makes its store there, or in its own storage while the folder isn't
+available.
+
+Choosing a folder, or going back to the default, moves each project's history
+in turn, while the app goes on working; a project that is running an agent,
+generation jobs, publishing or a workspace operation is moved on a pass 30
+seconds later. On the same disk the store is renamed. Elsewhere its objects are
+copied beside the new store's place, each checked against its id, while the
+project goes on taking snapshots; then, between its other checkpoint
+operations, what was written meanwhile is copied too, the branch and records
+are copied, and the project's record is switched to the copy. Until that
+switch the old store is the one in use, so a move that fails, such as on a copy
+that does not match its id, a full disk or a folder in the way that is not this
+project's history, leaves it as it was. A project with an unfinished restore is
+not moved until it is recovered. The old store is removed once the reads that
+began in it are done.
+
+`checkpoints-move.json` in the project's storage names the move under way. When
+the app stops during one, the next start reads the project's record to know
+which store is in use: a move that switched it removes the old store, one that
+did not removes the copy, and a rename that was made before the record was
+switched is switched then. A project whose store is in a folder that is not
+there, such as on a disk that is not connected, says so instead of starting a
+new history, and no folder is made for it; **Start new history…** starts a new
+one in each such project after confirmation, leaving the old one behind.
+Removing a project removes its store in the folder too.
+
 The global asset Library,
 generation history, and conversation session files are preserved. Snapshot
 metadata uses `ohmygame-checkpoint`, `ohmygame-turn-end`, and
@@ -284,6 +330,9 @@ restoring files.
   `src/renderer/workspace-version.ts`, and `src/renderer/project-file-history.tsx`
   for clearing the file history, by hand and automatically;
   `src/daemon/file-history-settings.ts` keeps the automatic choice.
+- File history location: `src/daemon/checkpoint-location.ts` and
+  `src/daemon/checkpoint-moves.ts`, with the move itself in
+  `CheckpointStore.move`.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
   `test/checkpoint-routes.test.ts`, `test/checkpoint-references.test.ts`,
   `test/preview-checkpoints.test.ts`, and the canvas storage suites.
@@ -295,7 +344,11 @@ The routes under `/projects/:projectId` are:
 - `POST checkpoints/history/clear` with `{ before }`
 
 The app setting is `GET /settings/file-history` and `PUT /settings/file-history`
-with `{ autoClearDays }`, which is 0, 7, 30, 90 or 365.
+with `{ autoClearDays }`, which is 0, 7, 30, 90 or 365. The file history
+location is `GET /settings/checkpoint-location`, with the folder, whether it is
+available, the bytes every project's history takes and how moving it is going,
+and `PUT /settings/checkpoint-location` with `{ location, abandon? }`, where a
+`location` of `null` goes back to each project's own storage.
 
 - `GET conversations/:conversationId/checkpoints/:checkpointId/changes`
 - `GET conversations/:conversationId/checkpoints/:checkpointId/file?path=...`
