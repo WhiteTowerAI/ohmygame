@@ -56,23 +56,3 @@
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
-
-/* With plugins' templates, the type row's label chooses between a type and a template, as two words. */
-.new-project-start {
-  display: inline-flex;
-  gap: var(--space-3);
-}
-
-.new-project-start button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-text-tertiary);
-  font: inherit;
-  cursor: pointer;
-}
-
-.new-project-start button:hover:not(:disabled),
-.new-project-start button.is-selected {
-  color: var(--color-text);
-}

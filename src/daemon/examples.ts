@@ -134,31 +134,6 @@ export class ExampleStore {
   }
 }
 
-/**
- * Starts a project from a plugin's template, as an example starts one: in an
- * empty folder, as a copy that is the project's own.
- */
-export async function createTemplateProject(
-  projects: ProjectManager,
-  template: { type: "general" | "web-game"; title: string; folder: string },
-  copy: (from: string, to: string) => Promise<void>,
-  options: { type?: ProjectType; name?: string; workspacePath?: string } = {},
-): Promise<ProjectState> {
-  if (options.type && options.type !== template.type) throw new ExampleError("The template does not match the project type", 400);
-  if (options.workspacePath && !(await isEmptyDirectory(options.workspacePath))) {
-    throw new ProjectWorkspaceError("Choose an empty folder to start from a template");
-  }
-  const project = await projects.create(options.name?.trim() || template.title, template.type, options.workspacePath);
-  try {
-    await copy(template.folder, project.workspacePath);
-    await projects.storeSettings(project.id);
-    return await projects.refreshPreviewReadiness(project.id);
-  } catch (error) {
-    await projects.delete(project.id);
-    throw error;
-  }
-}
-
 async function isEmptyDirectory(directory: string): Promise<boolean> {
   try {
     return (await readdir(directory)).every((entry) => IGNORABLE_WORKSPACE_FILES.has(entry));

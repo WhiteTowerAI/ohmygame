@@ -6,8 +6,7 @@ import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, Spinner } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, isAppProjectType, PROJECT_TYPES } from "./project-types.js";
-import { newProjectKind, projectTypeOptions, usePluginProjectTypes, useProjectTemplates } from "./project-type-choices.js";
-import { PluginGlyph } from "./plugin-icons.js";
+import { newProjectKind, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -104,18 +103,12 @@ export function ProjectCreateDialog({
   const offered = (value: string | undefined): value is string =>
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
-  // Plugins' templates are the other way to start: their files are copied in once, and they set the type.
-  const templates = useProjectTemplates();
-  const [startFrom, setStartFrom] = useState<"type" | "template">("type");
-  const [templateId, setTemplateId] = useState<string>();
-  const template = startFrom === "template" ? templates.find((item) => item.id === templateId) ?? templates[0] : undefined;
   const preferred = firstMessage?.type ?? initialType;
   // Else the type a mentioned plugin adds, then the first that fits.
   const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
   const addedType = types.find(({ value }) => referenced.some((plugin) => kinds[value]?.startsWith(`${plugin.id}:`)))?.value
     ?? pluginTypes.find((option) => referenced.some((plugin) => option.plugin?.id === plugin.id))?.id;
-  const type: string = template ? template.type
-    : offered(chosenType) ? chosenType
+  const type: string = offered(chosenType) ? chosenType
     : offered(preferred) ? preferred
     : addedType ?? types[0]?.value ?? pluginTypes[0]?.id ?? initialType;
   // The type asked for: the person's choice here, else Home's. Only a plugin's waits for plugins' types.
@@ -202,9 +195,8 @@ export function ProjectCreateDialog({
     try {
       if (!offered(type)) throw new Error(t("createDialog.incompatiblePlugins"));
       const input = {
-        ...(name.trim() ? { name: name.trim() } : template ? { name: template.name } : {}),
+        ...(name.trim() ? { name: name.trim() } : {}),
         ...(isAppProjectType(type) ? { type } : { projectType: type }),
-        ...(template ? { template: template.id } : {}),
         ...(workspacePath ? { workspacePath } : {}),
       };
       await saveBeforeLeaving();
@@ -250,12 +242,6 @@ export function ProjectCreateDialog({
 
   if (!shown) return null;
 
-  function typeSelect(id?: string) {
-    return <Select<string> id={id} label={t("createDialog.type")} value={type}
-      onChange={setChosenType}
-      options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />;
-  }
-
   // A folder the person chose or set is shown as its path; OhMyGame's own storage by name, its path on hover.
   const locationPath = workspacePath ?? defaultLocation.location;
   const locationTitle = locationPath ?? defaultLocation.storage;
@@ -276,36 +262,14 @@ export function ProjectCreateDialog({
         ) : null}
         <Field label={t("common.name")}>
           {(props) => <Input {...props} value={name} maxLength={120} disabled={creating}
-            placeholder={template ? template.name : firstMessage ? t("createDialog.namedFromPrompt") : defaultProjectName(kind)}
+            placeholder={firstMessage ? t("createDialog.namedFromPrompt") : defaultProjectName(kind)}
             onChange={(event) => setName(event.target.value)} />}
         </Field>
-        {/* With plugins' templates, this row starts the project from a type or from a template; a template sets the type. */}
-        {templates.length ? (
-          // Not a Field: its label can't hold the two buttons that switch the row.
-          <div className="ui-field">
-            <div className="ui-field-label new-project-start" role="radiogroup" aria-label={t("createDialog.startFrom")}>
-              {(["type", "template"] as const).map((value) => (
-                <button key={value} type="button" role="radio" aria-checked={startFrom === value} disabled={creating}
-                  className={startFrom === value ? "is-selected" : undefined} onClick={() => setStartFrom(value)}>
-                  {value === "type" ? t("createDialog.type") : t("createDialog.template")}
-                </button>
-              ))}
-            </div>
-            <div className="ui-field-control">
-              {template ? (
-                <Select<string> label={t("createDialog.template")} value={template.id} onChange={setTemplateId}
-                  options={templates.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                    ...(item.description ? { description: item.description } : {}),
-                    icon: <PluginGlyph plugin={item.plugin} size={20} name={item.plugin.displayName} />,
-                  }))} />
-              ) : typeSelect()}
-            </div>
-          </div>
-        ) : (
-          <Field label={t("createDialog.type")}>{(props) => typeSelect(props.id)}</Field>
-        )}
+        <Field label={t("createDialog.type")}>
+          {(props) => <Select<string> id={props.id} label={t("createDialog.type")} value={type}
+            onChange={setChosenType}
+            options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
+        </Field>
         {/* Only a folder shown by its path needs saying how it is used. */}
         <Field label={t("creator.workspace")} hint={workspacePath ? t("createDialog.usesFolder") : locationPath ? t("createDialog.newFolder") : undefined}>
           {(props) => (

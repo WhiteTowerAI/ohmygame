@@ -660,60 +660,6 @@
           "minItems": 1,
           "maxItems": 50
         },
-        "templates": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "id",
-              "title",
-              "projectType",
-              "folder"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-                "maxLength": 64
-              },
-              "title": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500
-              },
-              "projectType": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "const": "general"
-                  },
-                  {
-                    "type": "string",
-                    "const": "web-game"
-                  },
-                  {
-                    "type": "string",
-                    "const": "interactive-story"
-                  }
-                ]
-              },
-              "folder": {
-                "type": "string",
-                "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",
-                "minLength": 3,
-                "maxLength": 500
-              }
-            },
-            "additionalProperties": false
-          },
-          "minItems": 1,
-          "maxItems": 10
-        },
         "skills": {
           "type": "string",
           "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",

@@ -70,8 +70,6 @@ export async function stageExport(entry: PluginIndexEntry, publisher: string, st
   // Installed, a template has its .gitignore back; published, it needs the name npm keeps.
   for (const type of entry.manifest.contributes?.projectTypes ?? [])
     if (type.template) await hideGitignores(path.join(staging, type.template));
-  for (const template of entry.manifest.contributes?.templates ?? [])
-    await hideGitignores(path.join(staging, template.folder));
   const published = (await readdir(staging)).filter((item) => !["package.json", "README.md", ".gitignore", ".github"].includes(item));
   const files = pluginPublishingFiles({
     publisher,

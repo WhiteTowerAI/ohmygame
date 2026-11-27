@@ -12,16 +12,6 @@ export interface ExampleSummary {
   description: string;
 }
 
-/** A plugin's project template (`contributes.templates`), as `GET /project-templates` lists it. */
-export interface ProjectTemplateSummary {
-  /** `publisher/name:template`. */
-  id: string;
-  type: "general" | "web-game";
-  name: string;
-  description?: string;
-  plugin: { id: string; displayName: string; version: string; icon?: { type: "asset"; path: string }; iconRevision?: string };
-}
-
 /** An example as packaged by scripts/prepare-examples.ts. Paths are relative to the catalog. */
 export interface PreparedExample extends ExampleSummary {
   /** Source copied into a new project's workspace. */

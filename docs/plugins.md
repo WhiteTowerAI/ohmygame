@@ -232,7 +232,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
-| 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
+| 2.36.0 | Plugins could give project templates (`contributes.templates`). Since removed: the app ignores the field, and a plugin that has it loads without it. |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. A project type's `cover`, its picture on Home and in the new project dialog. Project plugins can open a [native editor](#native-editor-sessions). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
@@ -745,7 +745,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 | TapTap Maker | `@ohmygame/taptap-maker` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
-| Project types, project templates and web builds | `src/daemon/project-types.ts`, `src/daemon/examples.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
+| Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
@@ -959,43 +959,6 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   it from `/plugins/:id/project-types/:type/cover`. Without one, the card
   shows the app's picture for plugin types. An older app ignores the field.
 
-## Project templates
-
-`contributes.templates` (API 2.36.0, at most 10) gives files a new project
-starts from, as a packaged example does, without a project type of its own:
-
-```json
-{ "contributes": { "templates": [{
-  "id": "studio", "title": "%template.title%", "description": "%template.description%",
-  "projectType": "general", "folder": "./template/"
-}] } }
-```
-
-- `projectType` is the app type the project gets: `general` or `web-game`.
-  `interactive-story`, from when OhMyGame had that type, is still accepted
-  until plugin API 3 and starts a web game. `folder` must be a folder in the package; like a
-  project type's `template`, it may hold only files and folders.
-- The new-project dialog offers each installed plugin's templates, from its
-  newest version, as the other way to start: with templates installed, its
-  type row's label switches between **Type** and **Template**, which lists
-  them with their plugin's icon and description (`GET /project-templates?locale=`,
-  `availableProjectTemplates` in `src/daemon/project-types.ts`), leaving out
-  plugins turned off. A chosen template sets the project's type, so the
-  dialog doesn't ask for one, and names the project unless the person does:
-  `POST /projects` with `template: "publisher/name:id"`. Templates aren't on
-  Home's Explore, which holds games to play.
-- As an example, a template needs an empty folder. Its files are copied once
-  (`createTemplateProject` in `src/daemon/examples.ts`, with `copyTemplate`),
-  except an `ohmygame.json`, which the app writes. From then on the project is
-  the person's own: updating or removing the plugin doesn't touch it.
-- The add review and the plugin's page list templates (`adds.templates`).
-  Templates run nothing, so a plugin of Skills and templates is still one
-  that applies by itself, and one of templates alone joins the app, so
-  projects' switches don't show it.
-- Nothing in a template runs when it's copied. What a coding agent does with
-  files in it, such as Claude Code's `.claude/settings.json` hooks, is up to
-  that agent, as for a folder the person cloned.
-
 ## Plugins for every project
 
 The person's choice for every project is `grants.json`'s `everyProject`. Until
@@ -1120,8 +1083,8 @@ projects keep the installed plugin. Deleting the folder goes back to it.
   `dev` script. A project from elsewhere (opened or imported) loads no copy,
   as it starts nothing, until the person first presses Play or sends a
   message ([preview runtime](preview-runtime.md)). Safe mode loads none.
-- **Project parts only.** Model and media providers, coding agents, templates
-  and `sessions` join the app itself. They come only from installed plugins;
+- **Project parts only.** Model and media providers, coding agents and
+  `sessions` join the app itself. They come only from installed plugins;
   a copy's are left out, with a line in its log.
 - **Edits apply.** `PluginServices` reads copies again when
   `.ohmygame/plugins/` changes. It restarts the project's extension host, and
@@ -1478,7 +1441,7 @@ as any package is checked.
   (`src/daemon/plugin-export.ts`, `POST /plugin-store/:publisher/:name/export`)
   copies it into `<folder>/<name>` as `<publisher>/<name>`, with the
   `package.json`, README and release workflow a new package gets from the
-  [template](#tools-for-plugin-authors). Project templates' `.gitignore` files
+  [template](#tools-for-plugin-authors). Project type templates' `.gitignore` files
   go back to `gitignore`, as npm's packing rules need. Nothing installed changes.
 - **Publish to GitHub**, in the workspace's name menu once the plugin is
   installed (`src/daemon/plugin-github.ts`, `PluginPublishDialog`), releases
@@ -1617,8 +1580,7 @@ adds, the same `pluginAdds` rows as the plugin's page.
   The size and file limits are the release ones.
 - npm leaves `.gitignore` files out of what it publishes, so a template ships
   `gitignore`, and packages from the market or a `.tgz` get it back as `.gitignore` in
-  each project type's `template` folder and each [project template](#project-templates)'s
-  `folder`, unless one is already there.
+  each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
   its page; a GitHub origin keeps the branch or tag it was added from.
 
