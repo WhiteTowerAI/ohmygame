@@ -8965,6 +8965,21 @@ summary.work-summary:hover {
   display: block;
 }
 
+/* A plugin's tool shows the plugin's own icon in the icon's place. */
+.tool-plugin-glyph {
+  width: 13px;
+  height: 13px;
+  overflow: hidden;
+  border-radius: calc(var(--radius-sm) / 2);
+}
+
+.tool-plugin-glyph > img,
+.tool-plugin-glyph > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .tool-label {
   overflow: hidden;
   text-overflow: ellipsis;

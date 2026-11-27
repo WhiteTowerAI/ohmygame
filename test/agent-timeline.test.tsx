@@ -1034,10 +1034,10 @@ describe("AgentTimeline", () => {
       // Still being written by the model, so not yet waiting on anything.
       call("writing", "generate_video", "preparing"),
     ]} activeTurnId="turn-1" />);
-    expect(html).toContain("Queued: generate_audio");
-    expect(html).toContain("Preparing generate_video");
+    expect(html).toContain("Queued: Generate audio");
+    expect(html).toContain("Preparing: Generate a video");
     // The group is named for the call that is running.
-    expect(html).toMatch(/tool-group-summary[^]*?title="animate_3d_asset"/);
+    expect(html).toMatch(/tool-group-summary[^]*?title="Animating a 3D model"/);
 
     // With nothing running, a call about to start is not waiting in a queue.
     expect(renderToStaticMarkup(<AgentTimeline items={[user(), call("next", "generate_audio", "preparing", {})]} activeTurnId="turn-1" />))
@@ -1096,6 +1096,45 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html).toContain("Used an image tool");
+  });
+
+  it("names OhMyGame's own tools and a plugin's with their own icons and words", () => {
+    const tool = (id: string, name: string, status: "inProgress" | "completed" = "completed"): ThreadItem => ({ id, turnId: "turn-1", type: "dynamicToolCall", toolCallId: id, tool: name, status });
+    const plugins = [{ id: "acme/pixelfx", name: "pixelfx", displayName: "Pixel FX", description: "", marketplaceId: "acme", marketplaceDisplayName: "acme" }];
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool("audio-1", "generate_audio"),
+      tool("audio-2", "generate_audio"),
+      // An older conversation's Library search reads as the assets it was.
+      tool("search", "library_search"),
+      tool("export", "acme__pixelfx__export_sheet"),
+      tool("gone", "other__tools__make_map"),
+      tool("model", "generate_3d_asset", "inProgress"),
+    ]} plugins={plugins} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Generated audio");
+    expect(html).toContain("Searched assets");
+    expect(html).toContain("solar-music-note-linear");
+    expect(html).toContain("Pixel FX: Export sheet");
+    // A plugin that is gone is named from its id.
+    expect(html).toContain("Tools: Make map");
+    expect(html).toContain("Generating a 3D model");
+    expect(html).not.toContain("generate_audio");
+    expect(html).not.toContain("acme__pixelfx");
+  });
+
+  it("summarizes OhMyGame's own tools by what they did", () => {
+    const tool = (id: string, name: string): ThreadItem => ({ id, turnId: "turn-1", type: "dynamicToolCall", toolCallId: id, tool: name, status: "completed" });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool("image-1", "generate_image"),
+      tool("image-2", "generate_image"),
+      tool("plan", "update_plan"),
+      tool("plugin", "acme__pixelfx__export_sheet"),
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Generated 2 images, updated the plan, used Pixelfx");
   });
 
   it("uses an before an MCP initialism", () => {

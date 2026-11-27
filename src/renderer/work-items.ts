@@ -1,5 +1,6 @@
-import type { ThreadItem } from "../shared/contracts.js";
-import { mcpServerName } from "./mcp-tool-presentation.js";
+import type { ConversationCapabilities, ThreadItem } from "../shared/contracts.js";
+import { humanizeIdentifier, mcpServerName } from "./mcp-tool-presentation.js";
+import { builtInTool, pluginTool } from "./tool-presentation.js";
 import { t } from "./i18n.js";
 
 export type ToolItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
@@ -42,7 +43,7 @@ export function projectWorkItems(items: ThreadItem[], { active = false, waiting 
   return projected;
 }
 
-export function toolGroupSummary(tools: ToolItem[]): string {
+export function toolGroupSummary(tools: ToolItem[], plugins: ConversationCapabilities["plugins"] = []): string {
   const categories = new Map<string, ToolItem[]>();
   for (const tool of tools.filter((item) => item.status !== "failed")) {
     const category = toolCategory(tool);
@@ -51,7 +52,7 @@ export function toolGroupSummary(tools: ToolItem[]): string {
 
   const phrases = [...categories]
     .sort(([left], [right]) => categoryOrder(left) - categoryOrder(right))
-    .map(([category, items]) => categoryPhrase(category, items));
+    .map(([category, items]) => categoryPhrase(category, items, plugins));
   const failed = tools.filter((item) => item.status === "failed").length;
   if (failed > 0) phrases.push(failed === 1 ? t("timeline.summary.actionFailed") : t("timeline.summary.actionsFailed"));
   if (phrases.length === 0) return t("timeline.summary.usedTools");
@@ -77,7 +78,7 @@ function categoryOrder(category: string): number {
   return 3;
 }
 
-function categoryPhrase(category: string, tools: ToolItem[]): string {
+function categoryPhrase(category: string, tools: ToolItem[], plugins: ConversationCapabilities["plugins"]): string {
   if (category === "edit") return editedFilesPhrase(tools);
   if (category === "read") return tools.length === 1 ? t("timeline.summary.readFile") : t("timeline.summary.readFiles");
   if (category === "command") return tools.length === 1 ? t("timeline.summary.ranCommand") : t("timeline.summary.ranCommands");
@@ -87,12 +88,22 @@ function categoryPhrase(category: string, tools: ToolItem[]): string {
     const name = singularToolName(mcpServerName(category.slice("mcp:".length) || undefined));
     return usedToolsPhrase(name, tools.length);
   }
-  return usedToolsPhrase(category.slice("tool:".length), tools.length);
+  const name = category.slice("tool:".length);
+  const builtIn = builtInTool(name);
+  // Joined mid-sentence, as the other phrases are; the summary capitalizes its first.
+  if (builtIn) return lowerFirst(builtIn.done(tools.length));
+  const plugin = pluginTool(name, plugins);
+  if (plugin) return t("timeline.summary.usedPlugin", { name: plugin.plugin.displayName });
+  return usedToolsPhrase(lowerFirst(humanizeIdentifier(name)), tools.length);
 }
 
 function usedToolsPhrase(name: string, count: number): string {
   if (count !== 1) return t("timeline.summary.usedToolsNamed", { name });
   return indefiniteArticle(name) === "an" ? t("timeline.summary.usedToolAn", { name }) : t("timeline.summary.usedToolA", { name });
+}
+
+function lowerFirst(value: string): string {
+  return value ? value[0]!.toLowerCase() + value.slice(1) : value;
 }
 
 function editedFilesPhrase(tools: ToolItem[]): string {
