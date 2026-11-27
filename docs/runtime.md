@@ -1042,7 +1042,7 @@ iframe from reloading. When the window is too narrow for the side areas beside
 the middle one, the areas stack in one scrolling column. Every tab is named for
 screen readers, also when a narrow area shows only its icon.
 
-Every project shares one layout. Its type only names the panels it offers, in
+Each project keeps its own layout. Its type only names the panels it offers, in
 the order they open (`src/renderer/workspace-layout.ts`):
 
 | Project types | Panels |
@@ -1120,11 +1120,13 @@ other and saves once. Neither loads the documents, which creates the project's
 `canvas/` folder, until one of them has opened.
 
 The command menu applies the presets: Default, and Art and Code, which bring
-Canvas or Code forward where a project has them. The arrangement is kept once in local storage
-(`ohmygame-workspace-layout`) and fitted to each project's panels, so moving
-the chat to the right holds in every project. A change keeps other types'
-panels where they were; a panel the layout never knew opens where the default
-puts it, and closed ones stay closed. The chat side used to be a setting; a
+Canvas or Code forward where a project has them. Each project's arrangement is
+kept in local storage (`ohmygame-workspace-layout:<project id>`), and the
+latest one any project kept is also kept as `ohmygame-workspace-layout`, which
+every project once shared. A project without its own starts from that latest
+one, fitted to its panels, with its own default tab in front, so a new project
+opens the way the person last arranged things. A panel the layout never knew
+opens where the default puts it, and closed ones stay closed. The chat side used to be a setting; a
 saved **Right** still decides where the chat first opens. The route's
 `design` view brings the Canvas panel forward and follows it, and a file link
 in the chat opens the file in Code, reopening its panel if it was closed; an

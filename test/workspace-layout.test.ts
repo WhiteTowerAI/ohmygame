@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, PanelToolbar, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
 import { PanelTool, PanelToolsMenu } from "../src/renderer/panel-tools.js";
-import { fitLayout, gamePanelAddable, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
+import { fitLayout, gamePanelAddable, keepLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
 
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
 const GAME: WorkspacePanel[] = ["chat", "game", "design", "canvas", "code", "assets"];
@@ -40,17 +40,31 @@ describe("workspace layouts", () => {
     expect(tabs(presetLayout("art", GAME)).center).toBe("*canvas,game,design,code,assets");
   });
 
-  it("opens with the saved arrangement, or the chat where the old setting put it", () => {
-    expect(tabs(openingLayout(GAME).layout)).toMatchObject({ left: "*chat", right: "" });
+  it("opens with the chat where the old setting put it until a layout is kept", () => {
+    expect(tabs(openingLayout("a", GAME).layout)).toMatchObject({ left: "*chat", right: "" });
     localStorage.setItem("ohmygame:chat-layout", "right");
-    const right = openingLayout(GAME).layout;
+    const right = openingLayout("a", GAME).layout;
     expect(tabs(right)).toMatchObject({ left: "", right: "*chat", center: "*game,design,canvas,code,assets" });
     expect(right.right.size).toBe(right.left.size);
-    saveLayout({ layout: presetLayout("default", GAME), known: GAME });
-    expect(tabs(openingLayout(GENERAL).layout).left).toBe("*chat");
+    saveLayout("a", { layout: presetLayout("default", GAME), known: GAME });
+    expect(tabs(fitLayout(openingLayout("b", GENERAL), GENERAL, presetLayout("default", GENERAL))).left).toBe("*chat");
   });
 
-  it("fits the one saved layout to each project's panels", () => {
+  it("keeps each project's layout, and starts others from the latest with their own front tabs", () => {
+    const fallback = presetLayout("default", GAME);
+    const designFirst = showPanel(movePanel(fallback, "code", "right"), "design", "center");
+    saveLayout("a", { layout: designFirst, known: GAME });
+    // A project that kept nothing opens on the latest arrangement, with its own default in front.
+    const fresh = openingLayout("b", GAME);
+    expect(tabs(fitLayout(fresh, GAME, fallback))).toMatchObject({ center: "*game,design,canvas,assets", right: "*code" });
+    // Changing it doesn't change the first project, which reopens as it was left.
+    saveLayout("b", keepLayout(fresh, movePanel(fitLayout(fresh, GAME, fallback), "chat", "right"), GAME));
+    expect(tabs(openingLayout("a", GAME).layout)).toMatchObject({ left: "*chat", center: "game,*design,canvas,assets", right: "*code" });
+    // The next new project starts from the latest: the chat on the right.
+    expect(tabs(fitLayout(openingLayout("c", GAME), GAME, fallback))).toMatchObject({ left: "", right: "*code,chat" });
+  });
+
+  it("fits a saved layout to the project's panels", () => {
     const fallback = presetLayout("default", GAME);
     const saved = { layout: closePanel(movePanel(fallback, "code", "right"), "assets"), known: GAME };
     // Closed panels stay closed; a panel the project doesn't offer is left out,
@@ -74,7 +88,7 @@ describe("workspace layouts", () => {
     const before = { layout: presetLayout("default", GAME), known: GAME };
     expect(tabs(fitLayout(before, offered, fallback))).toMatchObject({ right: `*${preview}`, bottom: `*${log}` });
     // Closed, the panel stays closed; the plugin turned off, it goes.
-    const closed = mergeLayout(before, fitLayout(before, offered, fallback), closePanel(fitLayout(before, offered, fallback), log), offered);
+    const closed = keepLayout(before, closePanel(fitLayout(before, offered, fallback), log), offered);
     expect(tabs(fitLayout(closed, offered, fallback)).bottom).toBe("");
     expect(tabs(fitLayout(closed, GAME, presetLayout("default", GAME))).right).toBe("");
   });
@@ -86,13 +100,13 @@ describe("workspace layouts", () => {
     const offered = [...GAME, tests];
     const fallback = presetLayout("default", offered, homes, onRequest);
     expect(tabs(fallback).right).toBe("");
-    expect(tabs(openingLayout(offered, homes, onRequest).layout).right).toBe("");
+    expect(tabs(openingLayout("a", offered, homes, onRequest).layout).right).toBe("");
     // A saved layout from before the plugin doesn't take it in either.
     const before = { layout: presetLayout("default", GAME), known: GAME };
     const fitted = fitLayout(before, offered, fallback, onRequest);
     expect(tabs(fitted).right).toBe("");
     // Opened from a command or the panel menu, it stays open.
-    const opened = mergeLayout(before, fitted, showPanel(fitted, tests, "right"), offered);
+    const opened = keepLayout(before, showPanel(fitted, tests, "right"), offered);
     expect(tabs(fitLayout(opened, offered, fallback, onRequest)).right).toBe(`*${tests}`);
   });
 
@@ -103,28 +117,6 @@ describe("workspace layouts", () => {
     const story = { layout: presetLayout("default", older), known: older };
     const general = panelsOf({ type: "godot-game" });
     expect(tabs(fitLayout(story, general, presetLayout("default", general))).center).toBe("*code,design,canvas,assets");
-  });
-
-  it("keeps the other types' panels when a General project's layout changes", () => {
-    const game = { layout: movePanel(presetLayout("default", GAME), "code", "right"), known: GAME };
-    const general = fitLayout(game, GENERAL, presetLayout("default", GENERAL));
-    const merged = mergeLayout(game, general, movePanel(general, "chat", "right"), GENERAL);
-    expect(merged.known).toEqual(expect.arrayContaining(GAME));
-    // Back in a game, the chat follows to the right and Code stays where it was.
-    expect(tabs(fitLayout(merged, GAME, presetLayout("default", GAME)))).toMatchObject({ left: "", center: "*game,design,canvas,assets", right: "code,*chat" });
-  });
-
-  it("keeps a game's front tab when a project without it changes nothing there", () => {
-    const game = { layout: presetLayout("default", GAME), known: GAME };
-    const general = GENERAL;
-    const fitted = fitLayout(game, general, presetLayout("default", general));
-    expect(tabs(fitted).center).toBe("design,canvas,*code,assets");
-    // Bringing Design forward there changes the front tab, but not the order.
-    const merged = mergeLayout(game, fitted, showPanel(fitted, "design", "center"), general);
-    expect(tabs(merged.layout).center).toBe("game,*design,canvas,code,assets");
-    // Moving the chat only, the game keeps Game in front.
-    const moved = mergeLayout(game, fitted, movePanel(fitted, "chat", "right"), general);
-    expect(tabs(moved.layout)).toMatchObject({ center: "*game,design,canvas,code,assets", right: "*chat" });
   });
 
   it("moves, closes and shows panels", () => {
