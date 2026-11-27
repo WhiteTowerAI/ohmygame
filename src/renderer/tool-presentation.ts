@@ -77,7 +77,7 @@ export function builtInTool(name: string): { icon: IconComponent; name: string; 
     icon: tool.icon,
     name: t(`timeline.tools.${tool.key}.name`),
     running: t(`timeline.tools.${tool.key}.running`),
-    done: (count = 1) => t(`timeline.tools.${tool.key}.done`, { count }),
+    done: (count = 1) => count === 1 ? t(`timeline.tools.${tool.key}.done`) : t(`timeline.tools.${tool.key}.doneMany`, { count }),
   };
 }
 
