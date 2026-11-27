@@ -576,28 +576,6 @@ describe("opted-in image recovery", () => {
     } finally { await store.close(); await tools.close(); await media.close(); }
   });
 
-  it.each([[true, true], [false, true], [true, false], [false, false]])("recreates tool-job history across recovery capability changes: %s → %s", async (optedIn, nextOptedIn) => {
-    const first = await setup(IMAGE_START, { ...(optedIn ? { media: recoverable } : {}), reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
-    let tools = new ToolRunner(root, imagesFor(first.media));
-    await tools.load();
-    const { provider, id } = await firstModel(first.media);
-    const job = tools.start("generate-image", { prompt: "fox", imageModel: { provider, id }, resolution: "1K", aspectRatio: "1:1" });
-    await expect.poll(() => tools.jobs().find(item => item.id === job.id)?.status).toBe("failed");
-    await tools.close(); await first.media.close();
-    const next = await setup(IMAGE_START, { ...(nextOptedIn ? { media: recoverable } : {}) });
-    tools = new ToolRunner(root, imagesFor(next.media));
-    try {
-      await tools.load();
-      const retry = tools.retryJob(job.id);
-      await expect.poll(() => tools.jobs().find(item => item.id === retry.id)?.status).toBe(optedIn === nextOptedIn ? "succeeded" : "failed");
-      if (!optedIn && nextOptedIn) expect(tools.jobs().find(item => item.id === retry.id)?.error).toContain("no saved image task");
-      if (optedIn && !nextOptedIn) expect(tools.jobs().find(item => item.id === retry.id)?.error).toContain("no longer supports image recovery");
-      expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
-      expect(next.requests.map(request => request.method)).toEqual(optedIn === nextOptedIn ? (optedIn ? ["GET"] : ["POST", "GET"]) : []);
-      expect(tools.jobs().find(item => item.id === retry.id)).not.toHaveProperty("resuming");
-    } finally { await tools.close(); await next.media.close(); }
-  });
-
   it("retains a paid result after download failure and rejects changed input on retry", async () => {
     const first = await setup(IMAGE_START, { media: recoverable, reply: url => { if (url.startsWith("https://cdn.")) throw new Error("offline"); return undefined; } });
     const model = await firstModel(first.media);
@@ -2596,27 +2574,22 @@ describe("plugin 3D processing", () => {
     await expect(service.generate({ model, operation: "remesh", source: TEST_GLB, images: [] })).rejects.toThrow("invalid");
   });
 
-  it("recovers a processing job through the Library without repeating its paid submission", async () => {
+  it("saves a processing job's model to the Library with its provider metadata", async () => {
     const adapter = `export default { "3d": { async start(input, host) {
       await host.submit("process", "https://api.flow.example/process", { method: "POST", auth: true, json: { source: { $mediaFile: input.source.file } } });
       return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z" }] };
     } } };`;
-    const first = await setup(adapter, { media: processingMedia, reply: url => { if (url.endsWith(".glb")) throw new TypeError("offline"); return undefined; } });
+    const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
     const library = new AssetLibrary(root); await library.load();
     const source = await library.add("source.glb", TEST_GLB);
-    const runner = new ToolRunner(root, { generate: vi.fn() }, router(first.media), undefined, library); await runner.load();
-    const job = runner.start("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
-    await expect.poll(() => runner.jobs()[0]?.status).toBe("failed"); await runner.close();
-    const restored = await setup(adapter, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
-    const restarted = new ToolRunner(root, { generate: vi.fn() }, router(restored.media), undefined, library); await restarted.load();
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
     try {
-      const retry = restarted.retryJob(job.id);
-      await expect.poll(() => restarted.jobs().find(job => job.id === retry.id)?.status).toBe("succeeded");
-      const result = restarted.jobs().find(job => job.id === retry.id)!;
+      const job = runner.start("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
+      await expect.poll(() => runner.jobs().find(item => item.id === job.id)?.status).toBe("succeeded");
+      const result = runner.jobs().find(item => item.id === job.id)!;
       expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
-      expect(first.requests.filter(request => request.method === "POST")).toHaveLength(1);
-      expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
-    } finally { await restarted.close(); }
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
+    } finally { await runner.close(); }
   });
 
   it("preserves declared controls and defaults without changing provider identity", async () => {
@@ -2894,7 +2867,7 @@ describe("plugin 3D animation", () => {
     expect(requests).toEqual([]);
   });
 
-  it("recovers every animation clip through the Library without submitting the rig or batches again", async () => {
+  it("merges every animation clip into one Library model with its provider metadata", async () => {
     const adapter = `export default { "3d": { async start(input, host) {
       if (input.operation !== "animate") throw new Error("Expected animation");
       await host.submit("rig", "https://api.flow.example/rig", { method: "POST", auth: true,
@@ -2903,22 +2876,17 @@ describe("plugin 3D animation", () => {
       return { outputs: input.actionIds.map(id => ({ url: "https://cdn.flow.example/" + id + ".glb", forwardAxis: "+Z" })) };
     } } };`;
     const clips = [await model3DFixture({ rigged: true, clips: ["Idle"] }), await model3DFixture({ rigged: true, clips: ["Walk"] })];
-    const first = await setup(adapter, { media: animationMedia, reply: url => { if (url.endsWith(".glb")) throw new TypeError("offline"); return undefined; } });
+    const { media, requests } = await setup(adapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
     const library = new AssetLibrary(root); await library.load();
     const source = await library.add("hero.glb", TEST_GLB);
-    const runner = new ToolRunner(root, { generate: vi.fn() }, router(first.media), undefined, library); await runner.load();
-    const job = runner.start("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
-    await expect.poll(() => runner.jobs()[0]?.status).toBe("failed"); await runner.close();
-    expect(first.requests.filter(request => request.method === "POST")).toHaveLength(3);
-    const restored = await setup(adapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
-    const restarted = new ToolRunner(root, { generate: vi.fn() }, router(restored.media), undefined, library); await restarted.load();
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
     try {
-      const retry = restarted.retryJob(job.id);
-      await expect.poll(() => restarted.jobs().find(job => job.id === retry.id)?.status).toBe("succeeded");
-      const result = restarted.jobs().find(job => job.id === retry.id)!;
+      const job = runner.start("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
+      await expect.poll(() => runner.jobs().find(item => item.id === job.id)?.status).toBe("succeeded");
+      const result = runner.jobs().find(item => item.id === job.id)!;
       expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
-      expect(restored.requests.filter(request => request.method === "POST")).toEqual([]);
-    } finally { await restarted.close(); }
+      expect(requests.filter(request => request.method === "POST")).toHaveLength(3);
+    } finally { await runner.close(); }
   });
 });
 

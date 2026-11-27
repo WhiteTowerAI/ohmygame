@@ -16,7 +16,7 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
-  it.each([true, false])("preserves a legacy MiniMax job when cutover rejects retry: %s", async (committed) => {
+  it.each([true, false])("preserves a legacy MiniMax job and notes cutover only when committed: %s", async (committed) => {
     const directory = await temporaryData();
     const file = path.join(directory, "tools/jobs.json");
     await mkdir(path.dirname(file), { recursive: true });
@@ -26,43 +26,28 @@ describe("tool runner", () => {
     const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
     const runner = new ToolRunner(directory, fakeGenerator(), undefined, { generate }, undefined, undefined, undefined, { minimax: committed });
     await runner.load();
-    if (committed) {
-      expect(() => runner.retryJob("legacy-minimax")).toThrow("Check its status in MiniMax");
-      expect(runner.jobs()).toEqual([expect.objectContaining({ id: "legacy-minimax", status: "cancelled", error: expect.stringContaining("Check its status in MiniMax") })]);
-      expect(await readFile(file, "utf8")).toBe(bytes);
-      expect(generate).not.toHaveBeenCalled();
-    } else {
-      runner.retryJob("legacy-minimax");
-      await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed"));
-      expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
-      expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("original-owner");
-    }
+    expect(runner.jobs()).toEqual([expect.objectContaining({ id: "legacy-minimax", status: "cancelled" })]);
+    expect(runner.jobs()[0]?.error ?? "").toEqual(committed ? expect.stringContaining("Check its status in MiniMax") : "");
+    expect(await readFile(file, "utf8")).toBe(bytes);
+    expect(generate).not.toHaveBeenCalled();
     await runner.close();
   });
 
-  it.each(["image", "ark-video", "byteplus-video"] as const)("retains %s jobs and rejects replay only after Seedance cutover", async (kind) => {
+  it.each(["image", "ark-video", "byteplus-video"] as const)("retains %s jobs and notes Seedance cutover only when committed", async (kind) => {
     for (const committed of [false, true]) {
       const directory = await temporaryData(), file = path.join(directory, "tools/jobs.json");
       await mkdir(path.dirname(file), { recursive: true });
       const model = { provider: kind === "byteplus-video" ? "byteplus-modelark" : "volcengine-ark", id: "legacy-model" };
       const input = { prompt: "Keep original intent", [kind === "image" ? "imageModel" : "model"]: model, ...(kind === "image" ? {} : { duration: 5, resolution: "720p", aspectRatio: "16:9" }) };
-      const bytes = JSON.stringify([{ id: "old-seedance", toolId: kind === "image" ? "generate-image" : "generate-video", status: "cancelled", title: "Keep intent", createdAt: "2026-11-01T00:00:00.000Z", input, model: { provider: "stale-display", id: "ignored" }, prepared: true, recoveryId: "same-owner", error: "Original provider error" }]);
+      const bytes = JSON.stringify([{ id: "old-seedance", toolId: kind === "image" ? "generate-image" : "generate-video", status: "cancelled", title: "Keep intent", createdAt: "2026-11-01T00:00:00.000Z", input, model: { provider: "stale-display", id: "ignored" }, prepared: true, recoveryId: "same-owner", resuming: true, error: "Original provider error" }]);
       await writeFile(file, bytes);
       const generate = vi.fn().mockRejectedValue(new Error("Fixture stops before vendor"));
       const runner = new ToolRunner(directory, { generate }, undefined, { generate }, undefined, undefined, undefined, { seedance: committed });
       try {
         await runner.load();
-        if (committed) {
-          expect(() => runner.retryJob("old-seedance")).toThrow("Check its result and billing");
-          expect(runner.jobs()[0]?.error).toContain("Check its result and billing");
-          expect(await readFile(file, "utf8")).toBe(bytes);
-          expect(generate).not.toHaveBeenCalled();
-        } else {
-          runner.retryJob("old-seedance");
-          await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
-          expect(generate.mock.calls[0]?.[0]).toMatchObject(input);
-          expect(JSON.parse(await readFile(file, "utf8"))[0].recoveryId).toBe("same-owner");
-        }
+        expect(runner.jobs()[0]?.error).toEqual(committed ? expect.stringContaining("Check its result and billing") : "Original provider error");
+        expect(await readFile(file, "utf8")).toBe(bytes);
+        expect(generate).not.toHaveBeenCalled();
       } finally { await runner.close(); }
     }
   });
@@ -561,16 +546,16 @@ describe("tool runner", () => {
     expect(response.json()).toEqual({ error: "Project and node context must be provided together" });
   });
 
-  it("cancels and retries a background generation job", async () => {
+  it("cancels a background generation job and keeps no input to replay", async () => {
     let attempt = 0;
     const generate: ImageGenerator["generate"] = async (_input, signal) => {
       attempt += 1;
-      if (attempt > 1) return { bytes: Buffer.from("retried"), mediaType: "image/webp" };
       return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
     };
-    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: { generate } });
+    const dataDirectory = await temporaryData();
+    const app = createApp({ dataDirectory, imageGenerator: { generate } });
     apps.push(app);
-    const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Retry me" } });
+    const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Cancel me" } });
 
     await vi.waitFor(() => expect(attempt).toBe(1));
     const cancelled = await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/cancel` });
@@ -580,16 +565,13 @@ describe("tool runner", () => {
       const [job] = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
       expect(job.status).toBe("cancelled");
     });
-    const retried = await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/retry` });
-    expect(retried.statusCode).toBe(202);
-    await vi.waitFor(async () => {
-      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
-      expect(jobs.find((job: { id: string }) => job.id === retried.json().id)?.status).toBe("succeeded");
-      expect(jobs.some((job: { id: string }) => job.id === created.json().id)).toBe(false);
-    });
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(path.join(dataDirectory, "tools/jobs.json"), "utf8"))[0]).toMatchObject({ status: "cancelled" }));
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "tools/jobs.json"), "utf8"))[0]).not.toHaveProperty("input");
+    expect((await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/retry` })).statusCode).toBe(404);
+    expect(attempt).toBe(1);
   });
 
-  it("freezes a resolved model for retries and shares resolution with direct project calls", async () => {
+  it("resolves the model for each job and shares resolution with direct project calls", async () => {
     let current = { provider: "studio", id: "first" };
     const resolve = vi.fn(async (_tool: string, input: object, projectId?: string) => ({ ...input, prompt: "Icon", imageModel: { ...current, provider: projectId ?? current.provider } }));
     const generate = vi.fn<ImageGenerator["generate"]>()
@@ -597,13 +579,13 @@ describe("tool runner", () => {
       .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const runner = new ToolRunner(await temporaryData(), { generate }, undefined, undefined, undefined, resolve);
     await runner.load();
-    const first = runner.start("generate-image", { prompt: "Icon" });
+    runner.start("generate-image", { prompt: "Icon" });
     await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed"));
     current = { provider: "another-studio", id: "second" };
-    runner.retryJob(first.id);
+    runner.start("generate-image", { prompt: "Icon" });
     await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded"));
-    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: "studio", id: "first" }, { provider: "studio", id: "first" }]);
-    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: "studio", id: "first" }, { provider: "another-studio", id: "second" }]);
+    expect(resolve).toHaveBeenCalledTimes(2);
     await runner.run("generate-image", { prompt: "Icon" }, undefined, "project-1");
     expect(generate.mock.calls.at(-1)?.[0].imageModel).toEqual({ provider: "project-1", id: "second" });
   });

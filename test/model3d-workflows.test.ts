@@ -308,37 +308,6 @@ describe("durable 3D tasks and asset preflight", () => {
     expect(current.generate).not.toHaveBeenCalled(); await original.close(); await restarted.close();
   });
 
-  it.each(["meshy", "tripo", "hyper3d"] as const)("retries a saved %s tool job through its native owner after the public generator changes", async (protocol) => {
-    const location = await directory(), request = protocol === "meshy" ? meshyService() : protocol === "tripo" ? tripoService() : hyperService();
-    const respond = request.getMockImplementation()!; let failDownload = true;
-    request.mockImplementation(async (url, init) => String(url) === artifact && failDownload ? new Response("offline", { status: 503 }) : respond(url, init));
-    const provider = protocol === "meshy" ? new MeshyProvider(() => "key", request, 0) : protocol === "tripo" ? new TripoProvider(() => "key", request, 0) : new Hyper3DProvider(() => "key", request, 0);
-    const original = new ToolRunner(location, { generate: vi.fn() }, provider); await original.load();
-    const input = { model: { provider: protocol, id: MODEL_3D_PRESETS[protocol][0]!.id }, images: [image] };
-    const job = original.start("image-to-3d", input);
-    await expect.poll(() => original.jobs()[0]?.status).toBe("failed"); await original.close();
-    const journalDirectory = path.join(location, "tools/model3d-tasks"), files = await readdir(journalDirectory);
-    const receipt = await readFile(path.join(journalDirectory, files[0]!));
-    const paid = () => posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download")).length;
-    const before = paid(), current = { generate: vi.fn(), resolveOperationModel: vi.fn().mockResolvedValue(undefined) };
-    const record = migration(protocol), authorize = vi.fn().mockResolvedValue("key");
-    const recovery = new NativeModel3DRecovery(location, [record], authorize, request);
-    record.recovery.models[0]!.settings.polycount.default = 1234;
-    const restarted = new ToolRunner(location, { generate: vi.fn() }, current, undefined, undefined, undefined, undefined, {}, recovery);
-    await restarted.load(); failDownload = false;
-    try {
-      restarted.retryJob(job.id);
-      await expect.poll(() => restarted.jobs()[0]?.status).toBe("succeeded");
-      expect(restarted.jobs()[0]?.run?.model).toEqual(input.model);
-      expect(paid()).toBe(before);
-      expect(current.generate).not.toHaveBeenCalled(); expect(current.resolveOperationModel).not.toHaveBeenCalled();
-      expect(authorize.mock.calls.length).toBeGreaterThan(1);
-      expect(await readFile(path.join(journalDirectory, files[0]!))).toEqual(receipt);
-      await expect(restarted.runPrepared("image-to-3d", input, undefined, { recoveryId: "fresh" })).rejects.toMatchObject({ statusCode: 409 });
-      expect(paid()).toBe(before);
-    } finally { await restarted.close(); }
-  });
-
   it.each(["cleared", "changed", "revoked-during-poll"])("refuses %s plugin credentials without falling back to a retained native key", async (mode) => {
     const location = await directory(), request = meshyService(), respond = request.getMockImplementation()!;
     const input = { model: meshyModel, images: [image] };
@@ -432,54 +401,33 @@ describe("durable 3D tasks and asset preflight", () => {
     await expect(runner.run("animate-3d", { assetId: source.id, actionIds: [0] })).rejects.toThrow("textured model");
     expect(animate).not.toHaveBeenCalled();
   });
-  it("reloads standalone job history and resumes the paid task on retry", async () => {
-    const location = await directory(), library = new AssetLibrary(location); await library.load();
-    const request = meshyService(), original = request.getMockImplementation()!; let failing = true;
-    request.mockImplementation(async (url, init) => String(url).includes("/image-to-3d/meshy-") && failing ? Promise.reject(new Error("offline")) : original(url, init));
-    const makeRunner = () => new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library);
-    const runner = makeRunner(); await runner.load(); const job = runner.start("image-to-3d", { model: meshyModel, images: [image] });
-    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed")); await runner.close();
-    const restarted = makeRunner(); await restarted.load(); failing = false; restarted.retryJob(job.id);
-    await vi.waitFor(() => expect(restarted.jobs()[0]?.status).toBe("succeeded"));
-    expect(posts(request)).toHaveLength(1);
-    expect(restarted.jobs()[0]).not.toHaveProperty("recoveryId");
-    expect(library.list()[0]).toMatchObject({ model3d: { triangles: 1, textured: true, forwardAxis: "+Z", provider: "meshy", operation: "image" } });
-    await restarted.close();
-  });
 });
 
 describe("3D jobs and persistence failures", () => {
-  it("reuses a rig across tool jobs and journals the reused rig for recovery after restart", async () => {
+  it("reuses a rig across tool jobs", async () => {
     const location = await directory(), library = new AssetLibrary(location); await library.load();
     const source = await library.add("hero.glb", TEST_GLB);
-    const request = meshyService(), service = request.getMockImplementation()!;
-    let failDownload = false;
-    request.mockImplementation(async (url, init) => String(url) === artifact && failDownload
-      ? new Response("offline", { status: 503 }) : service(url, init));
-    const makeRunner = () => new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library);
-    const runner = makeRunner(); await runner.load();
+    const request = meshyService();
+    const runner = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library); await runner.load();
     await runner.run("animate-3d", { assetId: source.id, actionIds: [0], heightMeters: 1.6 });
-    failDownload = true;
-    const second = runner.start("animate-3d", { assetId: source.id, actionIds: [30], heightMeters: 1.6 });
-    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed")); await runner.close();
-    const restarted = makeRunner(); await restarted.load(); failDownload = false; restarted.retryJob(second.id);
-    await vi.waitFor(() => expect(restarted.jobs()[0]?.status).toBe("succeeded")); await restarted.close();
+    runner.start("animate-3d", { assetId: source.id, actionIds: [30], heightMeters: 1.6 });
+    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded")); await runner.close();
     expect(posts(request).filter(([url]) => String(url).endsWith("/rigging"))).toHaveLength(1);
     const animationBodies = posts(request).filter(([url]) => String(url).endsWith("/animations")).map(([, init]) => JSON.parse(String(init!.body)));
     expect(animationBodies).toEqual([{ rig_task_id: "meshy-1", action_ids: [0] }, { rig_task_id: "meshy-1", action_ids: [30] }]);
   });
-  it("reports history write failures without submitting generation and can retry after storage recovers", async () => {
+  it("reports history write failures without submitting generation and generates again after storage recovers", async () => {
     const location = await directory(), generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const runner = new ToolRunner(location, { generate }); await runner.load();
     const file = path.join(location, "tools", "jobs.json"); await mkdir(file);
     const report = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const job = runner.start("generate-image", { prompt: "Icon" });
+      runner.start("generate-image", { prompt: "Icon" });
       await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
       await expect.poll(() => report.mock.calls.length).toBeGreaterThan(0);
       expect(generate).not.toHaveBeenCalled();
       expect((await readdir(path.dirname(file))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
-      await rm(file, { recursive: true }); runner.retryJob(job.id);
+      await rm(file, { recursive: true }); runner.start("generate-image", { prompt: "Icon" });
       await expect.poll(() => runner.jobs()[0]?.status).toBe("succeeded");
       expect(generate).toHaveBeenCalledTimes(1);
     } finally { await runner.close(); report.mockRestore(); }

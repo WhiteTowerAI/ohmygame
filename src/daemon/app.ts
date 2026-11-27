@@ -3616,15 +3616,6 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { jobId: string } }>("/tool-jobs/:jobId/retry", async (request, reply) => {
-    try {
-      return reply.code(202).send(tools.retryJob(request.params.jobId));
-    } catch (cause) {
-      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
   // The type a folder chosen to open names, so the new-project dialog starts on it.
   app.post<{ Body: { workspacePath: string } }>("/projects/folder-type", {
     schema: { body: { type: "object", additionalProperties: false, required: ["workspacePath"], properties: { workspacePath: { type: "string", minLength: 1 } } } },

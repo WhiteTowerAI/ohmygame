@@ -463,7 +463,7 @@ describe("prepared Doubao model references", () => {
     });
   });
   it.each(["volcengine-tts", "volcengine-seed-audio"])(
-    "refuses native paid retry for %s before generation and leaves original history bytes intact",
+    "notes the retired native %s task without generation and leaves original history bytes intact",
     async (provider) => {
       await fixture(async (directory) => {
         const model = { provider, id: "seed-audio-1.0" };
@@ -498,7 +498,6 @@ describe("prepared Doubao model references", () => {
         await tools.load();
         try {
           expect(tools.jobs()[0]?.error).toBe(DOUBAO_RETIRED_RETRY);
-          expect(() => tools.retryJob("old")).toThrow(DOUBAO_RETIRED_RETRY);
           expect(generate).not.toHaveBeenCalled();
           expect(mediaJobNotice(job, {})).toBe(job);
           const succeeded = { ...job, status: "succeeded" as const };
@@ -1031,12 +1030,8 @@ describe("prepared Doubao application ownership", () => {
           "/settings/models/providers/volcengine-seed-audio/models",
         );
         expect(legacyRoute.statusCode, legacyRoute.body).toBe(409);
-        const retry = await app.inject({
-          method: "POST",
-          url: "/tool-jobs/native-paid/retry",
-        });
-        expect(retry.statusCode, retry.body).toBe(409);
-        expect(retry.json().error).toBe(DOUBAO_RETIRED_RETRY);
+        const listed = (await app.inject("/tool-jobs")).json();
+        expect(listed.find((job: { id: string }) => job.id === "native-paid")?.error).toBe(DOUBAO_RETIRED_RETRY);
         expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
         for (const payload of [
           {

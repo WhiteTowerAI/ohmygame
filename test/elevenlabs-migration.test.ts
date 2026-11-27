@@ -305,7 +305,7 @@ describe("prepared ElevenLabs references", () => {
     });
   });
 
-  it("refuses historical retry before any generation and preserves the stored error and request bytes", async () => {
+  it("notes a historical native task without generation and preserves the stored error and request bytes", async () => {
     await fixture(async (directory) => {
       const job = {
         id: "old",
@@ -341,7 +341,6 @@ describe("prepared ElevenLabs references", () => {
           error: ELEVENLABS_RETIRED_RETRY,
           model: legacy,
         });
-        expect(() => tools.retryJob("old")).toThrow(ELEVENLABS_RETIRED_RETRY);
         expect(generate).not.toHaveBeenCalled();
         expect(mediaJobNotice(job, {})).toBe(job);
         const done = { ...job, status: "succeeded" as const };
@@ -599,12 +598,8 @@ describe("prepared ElevenLabs application ownership", () => {
             error: ELEVENLABS_RETIRED_PROVIDER,
           });
         }
-        const retry = await app.inject({
-          method: "POST",
-          url: "/tool-jobs/native-paid/retry",
-        });
-        expect(retry.statusCode).toBe(409);
-        expect(retry.json().error).toBe(ELEVENLABS_RETIRED_RETRY);
+        const listed = (await app.inject("/tool-jobs")).json();
+        expect(listed.find((job: { id: string }) => job.id === "native-paid")?.error).toBe(ELEVENLABS_RETIRED_RETRY);
         expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
         const board = (
           await app.inject(`/projects/${project.id}/canvas/boards/${boardId}`)

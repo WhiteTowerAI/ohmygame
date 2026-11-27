@@ -19,9 +19,6 @@ import { describe, expect, it, vi } from "vitest";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createApp } from "../src/daemon/app.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { MeshyProvider } from "../src/daemon/meshy-provider.js";
-import { Hyper3DProvider } from "../src/daemon/hyper3d-provider.js";
-import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { TEST_GLB } from "./model3d-fixture.js";
 import {
   MODEL3D_MIGRATION_PACKAGES,
@@ -521,69 +518,6 @@ describe.each(MODEL3D_MIGRATION_PACKAGES)(
         const receipt = JSON.parse(await readFile(path.join(directory, backup), "utf8"));
         for (const [file, bytes] of before) expect(receipt.files[file].before).toBe(bytes?.toString("base64") ?? null);
         expect(await migrateModel3DSettings(directory, pin.provider)).toEqual({ ...result, status: "committed" });
-      });
-    });
-
-    it.each(["enabled", "cleared-key", "changed-key", "plugin-disabled", "provider-disabled", "missing-grants", "uninstalled", "unapproved-host", "insecure-url"])("uses current plugin authorization for an old native job (%s)", async (mode) => {
-      await fixture(async (directory, root) => {
-        let failDownload = true;
-        const artifact = mode === "unapproved-host" ? "https://unapproved.test/model.glb" : `${mode === "insecure-url" ? "http" : "https"}://${host}/model.glb`;
-        const request = vi.fn<typeof fetch>(async (url, init) => {
-          if (String(url) === artifact) return failDownload ? new Response("offline", { status: 503 }) : new Response(new Uint8Array(TEST_GLB));
-          if (pin.provider === "hyper3d") return rodinResponse(String(url), artifact, () => "owned-task");
-          if (pin.provider === "meshy") return init?.method === "POST" ? Response.json({ result: "owned-task" }) : Response.json({ status: "SUCCEEDED", model_urls: { glb: artifact } });
-          if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: "owned-file" } });
-          return init?.method === "POST" ? Response.json({ code: 0, data: { task_id: "owned-task" } }) : Response.json({ code: 0, data: { status: "success", output: { model_url: artifact } } });
-        });
-        const Native = { meshy: MeshyProvider, tripo: TripoProvider, hyper3d: Hyper3DProvider }[pin.provider];
-        const original = new ToolRunner(directory, { generate: vi.fn() }, new Native(() => "private-canary", request, 0));
-        await original.load();
-        const job = original.start("image-to-3d", { model: { provider: pin.provider, id: MODEL_3D_PRESETS[pin.provider][0]!.id }, images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] });
-        await expect.poll(() => original.jobs()[0]?.status).toBe("failed"); await original.close();
-        const { before, plan, transaction } = await transactionPlan(directory, root);
-        await transaction.prepareSettingsTransaction(directory, before, plan.changes);
-        await transaction.resumeSettingsTransaction(directory);
-        await transaction.commitSettingsTransaction(directory);
-        const record = (await transaction.committedMigration(directory))!;
-        if (mode === "cleared-key" || mode === "changed-key") {
-          const file = path.join(directory, "plugin-store/configuration.json"), stored = JSON.parse(await readFile(file, "utf8"));
-          if (mode === "cleared-key") delete stored.plugins[pin.id].apiKey;
-          else stored.plugins[pin.id].apiKey.value = "changed-plugin-key";
-          await writeFile(file, JSON.stringify(stored));
-        }
-        if (mode === "plugin-disabled" || mode === "missing-grants") {
-          const file = path.join(directory, "plugin-store/grants.json"), stored = JSON.parse(await readFile(file, "utf8"));
-          if (mode === "plugin-disabled") stored.plugins[pin.id].enabled = false;
-          else stored.plugins[pin.id].allowed = [];
-          await writeFile(file, JSON.stringify(stored));
-        }
-        if (mode === "provider-disabled") await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, disabled: [target] }));
-        if (mode === "uninstalled") await rm(root, { recursive: true });
-        const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
-        const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request, model3DMigrations: [record] });
-        try {
-          await app.ready(); failDownload = false; request.mockClear();
-          expect((await app.inject({ method: "POST", url: `/tool-jobs/${job.id}/retry` })).statusCode).toBe(202);
-          let current: { status: string; error?: string } | undefined;
-          await expect.poll(async () => {
-            current = (await app.inject("/tool-jobs")).json()[0]; return current?.status;
-          }, { timeout: 10_000 }).toBe(mode === "enabled" ? "succeeded" : "failed");
-          if (mode === "enabled") {
-            expect(request.mock.calls.length).toBeGreaterThan(0);
-            const posts = request.mock.calls.filter(([, init]) => init?.method === "POST");
-            expect(posts.map(([url]) => new URL(String(url)).pathname)).toEqual(pin.provider === "hyper3d" ? ["/api/v2/status", "/api/v2/download"] : []);
-            expect(request.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
-          } else {
-            if (mode === "unapproved-host" || mode === "insecure-url") {
-              expect(request).toHaveBeenCalledTimes(pin.provider === "hyper3d" ? 2 : 1);
-              expect(request.mock.calls.some(([url]) => String(url) === artifact)).toBe(false);
-            } else expect(request).not.toHaveBeenCalled();
-            if (pin.provider === "hyper3d" && mode === "insecure-url")
-              expect(current?.error).toBe("Hyper3D completed without a valid GLB artifact");
-            else expect(current?.error).toMatch(/plugin|connection or input changed|address/);
-          }
-          expect(JSON.parse(await readFile(path.join(directory, `${pin.provider}.json`), "utf8")).apiKey).toBe("private-canary");
-        } finally { await app.close(); }
       });
     });
 

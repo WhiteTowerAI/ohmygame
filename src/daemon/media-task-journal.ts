@@ -14,7 +14,7 @@ import { replaceFile } from "./replace-file.js";
 /** Why the daemon stopped a generation: it is shutting down, and the task stays to resume. */
 export class GenerationShutdown extends Error {
   constructor() {
-    super("OhMyGame is shutting down. Retry to resume.");
+    super("OhMyGame is shutting down.");
     this.name = "GenerationShutdown";
   }
 }

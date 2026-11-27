@@ -110,21 +110,21 @@ new request. An invalid submission response also keeps the unconfirmed marker;
 retry cannot turn it into another paid task.
 
 Meshy reuses an available rig for the same source, height and orientation across jobs
-in the running daemon. The reused rig is also recorded in the new job's journal, so
-its retry can recover after restart. Custom connections reuse their adapter while
+in the running daemon. The reused rig is also recorded in the new job's journal.
+Custom connections reuse their adapter while
 the endpoint, settings, authentication and headers remain unchanged.
 
-**Retry** resumes known upload, generation, refine, rig-check, rig and animation
-tasks, including a failed artifact download. It does not resubmit a known failed
-provider task. Starting Generate again creates a new logical job. If a submission
-response was lost before its task ID could be recorded, retry reports the ambiguity
-and refuses another paid POST; inspect the provider dashboard before starting again.
-Changing a connection or effective input blocks recovery until the original settings
-are restored. Expired/deleted upstream artifacts cannot be recovered from the API;
-locally saved successful assets remain available.
+Canvas and tool jobs have no retry: generating again creates a new logical job.
+The journal still records upload, generation, refine, rig-check, rig and animation
+stages, and a provider call that finds a stage for its recovery ID resumes it
+instead of paying again. If a submission response was lost before its task ID
+could be recorded, the provider refuses another paid POST for that recovery ID;
+inspect the provider dashboard before starting again. Expired/deleted upstream
+artifacts cannot be recovered from the API; locally saved successful assets
+remain available.
 
 Cancellation stops local waiting. It does not promise provider cancellation or a
-refund. Restarted interrupted jobs remain in history for explicit retry. Provider
+refund. Restarted interrupted jobs remain in history as cancelled. Provider
 operations allow up to 60 minutes overall, with bounded individual API requests.
 Free cloud retains its separate server-managed idempotency and quota contract.
 

@@ -1,4 +1,4 @@
-import { mediaJobNotice, retiredMediaRetry, migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
+import { mediaJobNotice, migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -53,10 +53,12 @@ import type { AudioGenerationRequest } from "../shared/audio.js";
 
 const VIDEO_DEFAULT_DURATION = 6;
 const HISTORY_LIMIT = 20;
+/** A job the app stopped by quitting; there is no retry, so it is started again. */
+const INTERRUPTED = "Generation interrupted. Generate again to start a new request.";
 
 interface ToolJobRecord extends ToolJob {
   recoveryId: string;
-  resuming?: true;
+  /** Kept while the job runs. Earlier versions also kept it after a failure, for retry. */
   input?: RunToolRequest;
   metadata: ToolJobMetadata;
   controller: AbortController;
@@ -118,10 +120,11 @@ export class ToolRunner {
   async load(): Promise<void> {
     await mkdir(this.#runsDirectory, { recursive: true });
     try {
-      const jobs: ToolJobRecord[] = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
+      // compat: since beta.5.12, remove from beta.7 and 2026-12-26. Records kept `resuming` for a retry that no longer exists.
+      const jobs: Array<ToolJobRecord & { resuming?: unknown }> = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
       if (jobs.some(job => job.resuming !== undefined && job.resuming !== true)) throw new ToolRunError("Unsupported generation retry state", 409);
-      for (const job of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
-        ...(job.status === "running" ? { status: "cancelled", error: "Generation interrupted. Retry can resume a saved provider task." } : {}) });
+      for (const { resuming: _, ...job } of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
+        ...(job.status === "running" ? { status: "cancelled", error: INTERRUPTED } : {}) });
     } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
   }
   #saveJobs(): Promise<void> {
@@ -139,22 +142,21 @@ export class ToolRunner {
     await this.#saveJobs().catch((cause) => console.error("Could not save generation history", cause));
   }
 
-  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false, recoveryId: string = randomUUID(), resuming = false): ToolJob {
+  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}): ToolJob {
     if (this.#closed) throw new ToolRunError("Generation is shutting down", 503);
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     const id = randomUUID();
     const controller = new AbortController();
     const job: ToolJobRecord = {
       id,
-      recoveryId,
-      ...(resuming && toolId === "generate-image" ? { resuming: true as const } : {}),
+      recoveryId: randomUUID(),
       toolId,
       createdAt: new Date().toISOString(),
       status: "running",
       title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
       ...(metadata.context ? { context: metadata.context } : {}),
       input: structuredClone(input),
-      prepared,
+      prepared: false,
       metadata,
       controller,
     };
@@ -181,22 +183,11 @@ export class ToolRunner {
     return publicJob(job);
   }
 
-  retryJob(jobId: string): ToolJob {
-    const job = this.#jobs.get(jobId);
-    if (!job) throw new ToolRunError("Generation job not found", 404);
-    if (job.status !== "failed" && job.status !== "cancelled") throw new ToolRunError("Only failed or cancelled jobs can be retried", 409);
-    if (!job.input) throw new ToolRunError("Generation job can no longer be retried", 409);
-    const retired = retiredMediaRetry(job, this.mediaMigrations);
-    if (retired) throw new ToolRunError(retired, 409);
-    this.#jobs.delete(jobId);
-    return this.start(job.toolId, job.input, job.metadata, job.prepared, job.recoveryId, true);
-  }
-
   async close(): Promise<void> {
     this.#closed = true;
     let changed = false;
     for (const job of this.#jobs.values()) {
-      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = "Generation interrupted. Retry can resume a saved provider task."; job.controller.abort(new GenerationShutdown()); }
+      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = INTERRUPTED; job.controller.abort(new GenerationShutdown()); }
     }
     if (changed) await this.#saveJobsSafely();
     else await this.#jobWrites.catch((cause) => console.error("Could not save generation history", cause));
@@ -212,13 +203,12 @@ export class ToolRunner {
         }
         await this.#saveJobs();
         job.model = selectedModel(job.toolId, job.input!);
-        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId, job.resuming);
+        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
       });
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
       }
       job.status = "succeeded";
-      job.input = undefined;
     } catch (cause) {
       if (job.controller.signal.aborted || cause instanceof Error && cause.name === "AbortError") {
         job.status = "cancelled";
@@ -228,6 +218,8 @@ export class ToolRunner {
         job.error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
+      // Nothing starts a finished job again, and its input can hold reference images.
+      job.input = undefined;
       this.#pruneJobs();
       if (!this.#closed) await this.#saveJobsSafely();
     }
@@ -798,7 +790,7 @@ function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun 
   return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
-function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, resuming: ______, ...job }: ToolJobRecord): ToolJob {
+function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, ...job }: ToolJobRecord): ToolJob {
   return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
 }
 

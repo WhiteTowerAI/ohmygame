@@ -5,8 +5,8 @@ Plugin API 2.5 introduced this contract; API 2.9 adds durable paid steps and
 2.12 adds animation and its action library. Built: the sandbox, `host.fetch`, images, videos, audio
 and 3D models (`src/daemon/plugin-media-sandbox.ts`,
 `src/daemon/plugin-media-providers.ts`, wired into `ProviderImages`,
-`ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), video and 3D tasks
-a retry resumes after a restart (`src/daemon/media-task-journal.ts`), and the
+`ProviderVideos`, `ProviderAudio` and `ProviderModels3D`), receipts for video and
+3D tasks that survive a restart (`src/daemon/media-task-journal.ts`), and the
 market's kinds. What is left is in [Order of work](#order-of-work).
 
 A plugin's model provider can make images, videos, audio and 3D models, not
@@ -72,19 +72,15 @@ step. The host retains receipts through output storage and later canvas import
 failures, until profile removal. Local stop, timeout and app shutdown preserve
 remote ownership; the host does not call the adapter's `cancel` for this operation.
 
-Canvas and tool-job retries carry their original recovery ID and an internal
-`resuming: true` flag, hidden from public job views. A retry may only use an
-existing receipt. An old non-recoverable task, a missing receipt, or an attempt
-that failed before recording a task cannot be silently reinterpreted as new paid
-work after a plugin upgrade. Check the provider and explicitly start a new
-generation if no receipt exists. Changed input/account or an unconfirmed response
-also refuses a replacement submission. If a saved receipt exists and the provider
-loses recovery support or is replaced by a native adapter, retry refuses to fall
-back to a new generation; restore the original provider. Legacy image jobs with
-no receipt retain their existing behavior when the provider has not opted in.
-Stored inputs and source references remain unchanged on retry. A new direct agent call, or generating a failed canvas node
-again, starts new work; use the original saved job’s Retry action for recovery.
-Loading an unsupported retry flag refuses the file rather than rewriting it; missing flags need no migration because the Retry action sets it.
+Canvas and tool jobs have no retry, and keep no input once they finish. A new
+direct agent call, or generating a canvas node again, starts new work with a new
+recovery ID. The image providers still take a `resuming` option, which may only
+use an existing receipt: an old non-recoverable task, a missing receipt, or an
+attempt that failed before recording a task is never reinterpreted as new paid
+work, and changed input/account or an unconfirmed response refuses a replacement
+submission. No job passes it now. Tool-job history saved by earlier versions may
+hold a `resuming: true` flag; loading drops it, and an unsupported value refuses
+the file rather than rewriting it.
 
 ### Saved image workflows
 

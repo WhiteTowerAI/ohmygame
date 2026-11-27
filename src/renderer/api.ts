@@ -1148,10 +1148,6 @@ export async function cancelToolJob(jobId: string): Promise<ToolJob> {
   return request(`/tool-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 }
 
-export async function retryToolJob(jobId: string): Promise<ToolJob> {
-  return request(`/tool-jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
-}
-
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
   const body: PublishProjectRequest = { accessToken, ...metadata };
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
