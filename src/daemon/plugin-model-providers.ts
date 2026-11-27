@@ -1,6 +1,7 @@
 import type { ModelRuntime, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { PluginProviderInfo } from "../shared/contracts.js";
-import { customModelCatalog, knownCustomModel, type CustomModelCatalog } from "./custom-model-capabilities.js";
+import { anthropicThinkingCompat, customModelCatalog, customThinkingLevelMap, knownCustomModel, type CustomModelCatalog } from "./custom-model-capabilities.js";
+import { automaticThinkingLevelMap } from "../shared/reasoning.js";
 import { localizePluginString, type PluginIndexEntry, type PluginLocale } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
 import { discoverProviderModels, namedNotForChat } from "./provider-model-discovery.js";
@@ -189,8 +190,8 @@ export class PluginModelProviders {
         id: model.id, name: models.get(model.id)?.name ?? model.name, api: provider.api,
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-        ...thinkingLevels(model.thinkingLevelMap ?? model.reasoningCapabilities?.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
-        ...chatCompatibility(provider.api),
+        ...thinkingLevels(automaticThinkingLevelMap(model.reasoningCapabilities)),
+        ...chatCompatibility(provider.api, knownCustomModel(model.id, provider.api, catalog), model.reportedAdaptiveThinking),
       });
     }
     const list = [...models.values()];
@@ -209,14 +210,16 @@ function chatModel(id: string, name: string, api: string, catalog: CustomModelCa
     cost: ZERO_COST,
     contextWindow: known?.contextWindow ?? 128_000,
     maxTokens: Math.min(known?.contextWindow ?? 128_000, known?.maxTokens ?? 16_384),
-    ...thinkingLevels(known?.thinkingLevelMap),
-    ...chatCompatibility(api),
+    ...thinkingLevels(customThinkingLevelMap(known, api)),
+    ...chatCompatibility(api, known),
   };
 }
 
 /** A Chat Completions endpoint can support reasoning without accepting OpenAI's developer role. */
-function chatCompatibility(api: string): Pick<ProviderChatModel, "compat"> {
-  return api === "openai-completions" ? { compat: { supportsDeveloperRole: false } } : {};
+function chatCompatibility(api: string, known: ReturnType<typeof knownCustomModel>, reported?: boolean): Pick<ProviderChatModel, "compat"> {
+  if (api === "openai-completions") return { compat: { supportsDeveloperRole: false } };
+  const compat = anthropicThinkingCompat(api, known, reported);
+  return compat ? { compat } : {};
 }
 
 /** Keeps the reasoning levels a known model allows, so none it refuses is offered. */

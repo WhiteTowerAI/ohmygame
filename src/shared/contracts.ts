@@ -261,8 +261,12 @@ export interface CustomProviderDetails extends CustomProviderSettings {
 
 export type DiscoverProviderModelsRequest = Pick<SaveCustomProviderRequest, "baseUrl" | "api" | "authentication" | "apiKey" | "preset"> & { providerId?: string };
 
+export interface DiscoveredProviderModel extends CustomProviderModel {
+  /** Fields supplied by the endpoint itself. ID-only refreshes must preserve previous limits. */
+  reportedFields?: DiscoveredLanguageField[];
+}
 export interface DiscoveredProviderModels {
-  models: CustomProviderModel[];
+  models: DiscoveredProviderModel[];
   truncated?: boolean;
   warnings?: string[];
   source?: "provider" | "presets";
@@ -317,6 +321,9 @@ export interface CustomReasoningCapabilities {
   catalogThinkingLevelMap?: CustomThinkingLevelMap;
 }
 
+export const DISCOVERED_LANGUAGE_FIELDS = ["contextWindow", "maxTokens", "reasoning", "supportsImages"] as const;
+export type DiscoveredLanguageField = typeof DISCOVERED_LANGUAGE_FIELDS[number];
+
 export interface CustomProviderModel {
   id: string;
   name: string;
@@ -328,6 +335,12 @@ export interface CustomProviderModel {
   /** Only explicit user overrides are written to the SDK model definition. */
   thinkingLevelMap?: CustomThinkingLevelMap;
   reasoningCapabilities?: CustomReasoningCapabilities;
+  /** Explicit Anthropic wire format. Automatic removes a previously saved override. */
+  thinkingMode?: "automatic" | "adaptive" | "budget";
+  /** Anthropic capability reported by the configured endpoint. */
+  reportedAdaptiveThinking?: boolean;
+  /** Omitted for manually configured models. Fetch updates only the named fields. */
+  automaticFields?: DiscoveredLanguageField[];
   supportsImages: boolean;
   // compat: since beta.4.1, remove from beta.6 and 2026-11-08. Custom providers before modelConfigurationVersion 2.
   /** Undefined is a legacy language model; an empty object is explicitly unassigned. */

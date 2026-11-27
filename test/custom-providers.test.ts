@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createPiSession } from "../src/daemon/agent.js";
 import { createApp } from "../src/daemon/app.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { customModelCatalog } from "../src/daemon/custom-model-capabilities.js";
@@ -136,6 +137,75 @@ describe("custom providers", () => {
     expect(complete.mock.lastCall?.[2]?.reasoning).toBe("high");
     expect((await app.inject({ method: "POST", url: textUrl, payload: { instruction: "Write rules", model, reasoningLevel: "off" } })).statusCode).toBe(200);
     expect(complete.mock.lastCall?.[2]).not.toHaveProperty("reasoning");
+  });
+
+  it("sends adaptive thinking for existing Anthropic relays and keeps a budget-only override", async () => {
+    const { directory, runtime } = await fixture();
+    const provider = "custom-legacy";
+    const id = "claude-sonnet-5-5";
+    const models = [id, "claude-opus-4-5"].map((id) => ({ id, name: id, reasoning: true, contextWindow: 100_000, maxTokens: 16_000 }));
+    const original = JSON.stringify({ providers: { [provider]: { api: "anthropic-messages", baseUrl: "https://relay.example", models } } });
+    await writeFile(path.join(directory, "models.json"), original);
+    await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, customProviders: { [provider]: { authentication: "api_key" } } }));
+    await runtime.refresh({ allowNetwork: false });
+    await runtime.setRuntimeApiKey(provider, "test-key");
+    const store = new ProviderModelSettingsStore(directory, directory);
+    await store.load();
+    const catalog = customModelCatalog(runtime.getModels());
+    const model = runtime.getModel(provider, id)!;
+    for (const [candidate, expected] of [
+      [model, "adaptive"], [runtime.getModel(provider, "claude-opus-4-5")!, "enabled"],
+      [{ ...model, compat: { forceAdaptiveThinking: false } }, "enabled"],
+    ] as const) {
+      const resolved = store.resolveModel(candidate, catalog);
+      const request = vi.fn<typeof fetch>(async () => Response.json({ error: { type: "invalid_request_error", message: "Captured" } }, { status: 400 }));
+      await runtime.completeSimple(resolved, { messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+        tools: [{ name: "inspect", description: "Inspect", parameters: { type: "object", properties: {} } }] },
+      { reasoning: "low", fetch: request, maxRetries: 0 });
+      const body = JSON.parse(String(request.mock.lastCall?.[1]?.body));
+      expect(body.thinking.type).toBe(expected);
+      if (expected === "adaptive") {
+        expect(body.thinking).not.toHaveProperty("budget_tokens");
+        expect(body.output_config).toEqual({ effort: "low" });
+        expect(resolved.compat).toEqual({ forceAdaptiveThinking: true });
+      } else expect(body.thinking.budget_tokens).toBeGreaterThan(0);
+    }
+    const manager = SessionManager.inMemory(directory);
+    manager.appendModelChange(provider, id);
+    manager.appendThinkingLevelChange("low");
+    const session = await createPiSession({ workspacePath: directory, type: "web-game" }, manager, [], runtime, store.resolveModel(model, catalog), directory);
+    try { expect(session.thinkingLevel).toBe("low"); }
+    finally { await session.dispose(); }
+    expect(await readFile(path.join(directory, "models.json"), "utf8")).toBe(original);
+  });
+
+  it("restores reported adaptive thinking for an alias and resets only the explicit SDK override", async () => {
+    const { app, runtime, directory } = await fixture();
+    const connection = { ...gateway, api: "anthropic-messages" };
+    const alias = { ...firstModel, api: connection.api, reasoning: true, reportedAdaptiveThinking: true, automaticFields: ["contextWindow"] };
+    const created = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload: { ...connection, models: [alias] } });
+    expect(created.statusCode, created.body).toBe(201);
+    const provider = created.json().id;
+    const configPath = path.join(directory, "models.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.providers[provider].models[0].compat = { supportsTemperature: false };
+    await writeFile(configPath, JSON.stringify(config));
+    for (const mode of ["budget", "automatic"]) {
+      const saved = await app.inject({ method: "PUT", url: `/settings/models/providers/${provider}/custom`,
+        payload: { ...connection, apiKey: undefined, models: [{ ...alias, thinkingMode: mode }] } });
+      expect(saved.statusCode, saved.body).toBe(200);
+      const store = new ProviderModelSettingsStore(directory, directory);
+      await store.load();
+      const restored = (await store.customProvider(provider))!.models[0];
+      expect(restored).toMatchObject({ reportedAdaptiveThinking: true, automaticFields: ["contextWindow"] });
+      expect(restored.thinkingMode).toBe(mode === "budget" ? "budget" : undefined);
+      const raw = runtime.getModel(provider, alias.id)!;
+      expect(raw.compat).toEqual(mode === "budget" ? { supportsTemperature: false, forceAdaptiveThinking: false } : { supportsTemperature: false });
+      expect(store.resolveModel(raw, new Map()).compat).toMatchObject({ supportsTemperature: false, forceAdaptiveThinking: mode === "automatic" });
+    }
+    const changed = await app.inject({ method: "PUT", url: `/settings/models/providers/${provider}/custom`, payload: { ...connection, apiKey: undefined, models: undefined, baseUrl: "https://other.example" } });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json().models[0]).not.toHaveProperty("reportedAdaptiveThinking");
   });
 
   it("fills missing GPT relay capabilities from the catalog and preserves reasoning levels through edits", async () => {
@@ -579,7 +649,7 @@ describe("custom providers", () => {
 
 describe("plugin model providers", () => {
   /** Adds a plugin with a keyed provider that discovers models and a provider that needs no key. */
-  async function addProviderPlugin(app: ReturnType<typeof createApp>, balance = false, editable = false) {
+  async function addProviderPlugin(app: ReturnType<typeof createApp>, balance = false, editable = false, anthropic = false) {
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-provider-"));
     directories.push(source);
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
@@ -592,6 +662,8 @@ describe("plugin model providers", () => {
           ? { media: { adapter: "./media.js", "3d": { balance: true, ...(editable ? { editableModels: true } : {}), models: [{ id: "mesh", operations: ["text"], polycount: { min: 100, max: 300000, default: 30000 }, texture: true }] } } }
           : { api: "openai-completions", baseUrl: "https://integrate.example/v1", models: [{ id: "listed-model", title: "Listed model" }], discoverModels: true }) },
         { id: "open", title: "Acme open", api: "openai-completions", baseUrl: "https://open.example/v1", models: [{ id: "open-model" }] },
+        ...(anthropic ? [{ id: "messages", title: "Messages", api: "anthropic-messages", baseUrl: "https://relay.example",
+          models: [{ id: "claude-sonnet-5-5" }], discoverModels: true }] : []),
       ] },
     }));
     await writeFile(path.join(source, "hosted.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#76b900"/></svg>');
@@ -607,6 +679,18 @@ describe("plugin model providers", () => {
     expect(added.statusCode, added.body).toBe(201);
   }
   const providers = async (app: ReturnType<typeof createApp>) => (await app.inject({ method: "GET", url: "/settings/providers" })).json() as ProviderSummary[];
+
+  it("uses Anthropic thinking compatibility for declared and discovered plugin models", async () => {
+    const { app, runtime } = await fixture(undefined, async () => Response.json({ data: [{ id: "deployment",
+      capabilities: { thinking: { supported: true, types: { adaptive: { supported: true } } } } }] }));
+    await addProviderPlugin(app, false, false, true);
+    const provider = pluginModelProviderId("acme/nim", "messages");
+    await providers(app);
+    expect(runtime.getModel(provider, "claude-sonnet-5-5")?.compat).toEqual({ forceAdaptiveThinking: true });
+    const refreshed = await runtime.refresh({ providers: [provider], allowNetwork: true, force: true });
+    expect(refreshed.errors.size).toBe(0);
+    expect(runtime.getModel(provider, "deployment")?.compat).toEqual({ forceAdaptiveThinking: true });
+  });
 
   it("sends system instructions for declared and discovered plugin reasoning models", async () => {
     const discovery = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "discovered-model", reasoning: true }] }));
