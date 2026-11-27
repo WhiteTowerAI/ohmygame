@@ -269,10 +269,9 @@ ignored and omitted from new companion files.
   account voices; 404 when the provider has no voice list, 503 when it is not
   ready;
 - `POST /projects/<id>/canvas/media` with `operation: "transcribe-audio"` —
-  returns `{ kind: "text", text }`.
-
-Audio is generated on the canvas (`POST /projects/<id>/canvas/boards/<board-id>/nodes/<node-id>/generate`)
-or by the Agent's audio tool; there is no separate tool-job endpoint.
+  returns `{ kind: "text", text }`;
+- `POST /projects/<id>/canvas/boards/<board-id>/nodes/<node-id>/generate` —
+  generate an audio node.
 
 The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
 settings and preview endpoints and the Library audio companion download endpoint

@@ -441,7 +441,7 @@ describe("prepared ElevenLabs application ownership", () => {
     });
   });
 
-  it("uses the installed Beta for generation, voices and transcription while retiring native settings and paid retries", async () => {
+  it("uses the installed Beta for generation, voices and transcription while retiring native settings", async () => {
     await fixture(async (directory) => {
       const library = new AssetLibrary(directory),
         projects = new ProjectManager(directory, library);

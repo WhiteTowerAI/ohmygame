@@ -876,7 +876,7 @@ describe("prepared Doubao application ownership", () => {
       }
     });
   });
-  it("uses the published Beta for both audio models and rejects native endpoints and paid retries", async () => {
+  it("uses the published Beta for both audio models and rejects native endpoints", async () => {
     await installed(async (directory) => {
       await activate(directory);
       const nativeFile = path.join(directory, "doubao-voice.json"),

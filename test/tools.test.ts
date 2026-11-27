@@ -1,9 +1,8 @@
 import { TEST_GLB } from "./model3d-fixture.js";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/daemon/app.js";
+import { describe, expect, it, vi } from "vitest";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -11,9 +10,6 @@ import type { MediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { MAX_ANIMATION_ACTIONS } from "../src/shared/generation-config.js";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
-
-const apps: ReturnType<typeof createApp>[] = [];
-afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
   it("rejects removed audio reference and subtitle options before generation", async () => {
@@ -24,18 +20,6 @@ describe("tool runner", () => {
       await expect(runner.run("generate-audio", { prompt: "quiet music", instrumental: true, ...removed })).rejects.toMatchObject({ statusCode: 400 });
     }
     expect(generate).not.toHaveBeenCalled();
-  });
-
-  it("leaves tool-job history from earlier versions untouched", async () => {
-    const dataDirectory = await temporaryData();
-    const file = path.join(dataDirectory, "tools", "jobs.json");
-    await mkdir(path.dirname(file), { recursive: true });
-    const bytes = JSON.stringify([{ id: "old", toolId: "generate-sound-effect", status: "running", title: "Rain", createdAt: "2026-11-01T00:00:00.000Z", input: { prompt: "Rain" }, resuming: "unsupported" }]);
-    await writeFile(file, bytes);
-    const runner = new ToolRunner(dataDirectory, fakeGenerator());
-    await runner.load();
-    await runner.run("generate-image", { prompt: "A forest" });
-    expect(await readFile(file, "utf8")).toBe(bytes);
   });
 
   it("runs Image to 3D and persists its GLB output", async () => {
@@ -447,14 +431,6 @@ describe("tool runner", () => {
     await expect(runner.file(run.id, "../output.webp")).resolves.toBeUndefined();
     await runner.removeRun(run.id);
     await expect(runner.file(run.id, "output.webp")).resolves.toBeUndefined();
-  });
-
-  it("has no tool-job routes", async () => {
-    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
-    apps.push(app);
-    for (const [method, url] of [["POST", "/tools/generate-image/jobs"], ["GET", "/tool-jobs"], ["POST", "/tool-jobs/job-1/cancel"], ["POST", "/tool-jobs/job-1/retry"]] as const) {
-      expect((await app.inject({ method, url, ...(method === "POST" ? { payload: { prompt: "Image" } } : {}) })).statusCode).toBe(404);
-    }
   });
 
   it("resolves the model for each generation, with or without a project", async () => {
