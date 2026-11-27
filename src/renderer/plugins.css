@@ -642,22 +642,6 @@
   color: var(--color-accent);
 }
 
-.plugins-installed-label {
-  flex: none;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-}
-
-/* the AI workspaces under Personal (plugin-builder.tsx) */
-.plugins-page .plugins-installed {
-  margin-top: 0;
-}
-
-.plugins-page .plugins-installed h2 {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
 .plugins-install-form {
   display: flex;
   flex-direction: column;

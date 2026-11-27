@@ -329,12 +329,6 @@
   -webkit-app-region: no-drag;
 }
 
-/* The title bar drags the window, so the panel headers under it don't. */
-.desktop-macos .project-body .window-drag-handle {
-  app-region: no-drag;
-  user-select: auto;
-}
-
 /* A view's own tabs lead its panel's toolbar; its actions stay at the end. */
 .project-body .dock-view-toolbar > .viewer-navigation,
 .project-body .dock-view-toolbar > .viewer-navigation > :last-child {
