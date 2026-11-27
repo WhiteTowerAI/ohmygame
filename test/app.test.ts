@@ -879,11 +879,19 @@ describe("daemon", () => {
       payload: { prompt: "Use @Game Studio", mentions: [mention] },
     });
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Game Studio](plugin://game-studio@ohmygame)"));
+    // The label the picker gives a plugin whose name another one shares reaches the agent whole.
+    const labelled = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${labelled.id}/turns`,
+      payload: { prompt: "Use @Game Studio (ohmygame)", mentions: [{ ...mention, displayName: "Game Studio (ohmygame)" }] },
+    });
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Game Studio (ohmygame)](plugin://game-studio@ohmygame)"));
     const incompatible = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const otherConversation = (await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations` })).json();
     const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Game Studio", mentions: [mention] } });
     expect(mismatch.statusCode).toBe(409);
-    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledTimes(2);
     const rejected = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,

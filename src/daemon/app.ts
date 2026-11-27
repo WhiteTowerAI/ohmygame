@@ -2135,7 +2135,7 @@ export function createApp(options: AppOptions = {}) {
     const id = `${marketplaceId}/${name}`;
     return isPluginId(id) ? pluginServices.index.get(id) : undefined;
   };
-  /** A prompt's mentions, each once and each of a plugin that is on. The app shows a plugin's name in the person's language, so either stays. */
+  /** A prompt's mentions, each once and each of a plugin that is on. The app shows a plugin's name in the person's language, so either stays, also with the publisher or ID the picker adds when another plugin shares it. */
   const validateMentions = async (mentions: readonly PluginMention[]): Promise<PluginMention[]> => {
     await pluginServices.ready();
     const validated: PluginMention[] = [];
@@ -2145,7 +2145,8 @@ export function createApp(options: AppOptions = {}) {
       if (pluginServices.grants.plugin(entry.id)?.enabled === false) throw new Error(`Plugin ${mention.displayName} is disabled`);
       const names = (["en", "zh-CN"] as const).map((locale) => localizePluginString(entry, entry.manifest.displayName, locale));
       if (!validated.some((other) => other.name === mention.name && other.marketplaceId === mention.marketplaceId)) {
-        validated.push({ name: mention.name, marketplaceId: mention.marketplaceId, displayName: names.includes(mention.displayName) ? mention.displayName : names[0]! });
+        const labels = names.flatMap((name) => [name, `${name} (${mention.marketplaceId})`, `${name} (${entry.id})`]);
+        validated.push({ name: mention.name, marketplaceId: mention.marketplaceId, displayName: labels.includes(mention.displayName) ? mention.displayName : names[0]! });
       }
     }
     return validated;
