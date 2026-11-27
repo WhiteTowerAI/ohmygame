@@ -248,7 +248,6 @@ body {
 
 .desktop-window-frame .sidebar-head,
 .desktop-window-frame .project-top,
-.desktop-window-frame .project-rail .sidebar-titlebar,
 .desktop-window-frame .dock-tabs.is-titlebar {
   app-region: drag;
 }

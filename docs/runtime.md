@@ -713,10 +713,11 @@ a game or the application shows its error page.
 The panels' tab strips along the window's top are the title bar
 (`project-frame.tsx`, `panel-layout.tsx`): the leftmost strip starts with the
 rail's toggle and the project's name, the rightmost ends with the project's
-actions, and the panels' tabs sit between them. Beside the project's name a lone
-panel, usually Chat, shows no tab of its own. When the panels stack, or the
-area at the end is narrower than 560px, the title bar is a row of its own above
-the panels.
+actions, and the panels' tabs sit between them. Above the rail the title bar
+holds the macOS window controls; elsewhere the rail's logo sits there. Beside the
+project's name a lone panel, usually Chat, shows no tab of its own. When the
+panels stack, or the area at the end is narrower than 560px, the title bar is
+a row of its own above the panels.
 The title bar holds the project's name as its menu (**Project settings**,
 **Plugins**, **Open in folder** in the desktop app, **Export project** and the
 plugins' own commands), a recording under way, which stops it, **Play** (an
