@@ -63,7 +63,8 @@ export interface ToolMediaFile {
   mediaType: "image" | "video" | "audio" | "model";
   contentType: string;
   size: number;
-  model3d?: Model3DMetadata;
+  /** What is known of a 3D model beyond its file, such as which way it faces. */
+  model3d?: Partial<Model3DMetadata>;
 }
 
 /** Finds `filePath` in the project, or throws why it can't be read. */

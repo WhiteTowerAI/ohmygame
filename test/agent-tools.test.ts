@@ -530,7 +530,7 @@ describe("agent tools", () => {
     }, {
       generate: async ({ images }) => {
         expect(images).toEqual([{ mediaType: "image/png", data: Buffer.from("source image").toString("base64") }]);
-        return { bytes: TEST_GLB, mediaType: "model/gltf-binary" };
+        return { bytes: TEST_GLB, mediaType: "model/gltf-binary", metadata: { forwardAxis: "+X" as const } };
       },
     });
     await runner.load();
@@ -548,6 +548,8 @@ describe("agent tools", () => {
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+    // Which way it faces outlives the run, for animating it later.
+    expect((await projectToolMedia(projects)(project.id, relativePath)).model3d).toEqual({ forwardAxis: "+X" });
   });
 
   it("generates a video from a project image", async () => {

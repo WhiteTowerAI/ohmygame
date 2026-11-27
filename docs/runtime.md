@@ -588,7 +588,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ```text
 .ohmygame/
 ├── .gitignore        leaves local/ and build/ out of the project's repository
-├── assets.json       prompts, previews, origins and sources of assets
+├── assets.json       prompts, previews, origins and sources of assets,
+│                     and which way generated 3D models face
 ├── asset-previews/   preview images of generated assets
 ├── media/            media OhMyGame generated (generated/) or copied in from
 │                     elsewhere (imported/) for the game to use

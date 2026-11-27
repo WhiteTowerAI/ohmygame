@@ -663,6 +663,8 @@ export class ProjectManager {
     metadata: {
       prompt?: string;
       preview?: { bytes: Uint8Array; extension: "png" | "jpg" };
+      /** Which way a 3D model faces, for processing it later. */
+      forwardAxis?: "+X" | "+Z";
     } = {},
   ): Promise<string> {
     const project = this.#projects.get(id);
@@ -703,6 +705,7 @@ export class ProjectManager {
       purpose: "asset",
       ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
       ...(previewPath ? { previewPath } : {}),
+      ...(metadata.forwardAxis ? { axis: metadata.forwardAxis } : {}),
     }));
     await this.touch(id);
     if (!unchanged) this.#assetAdded(project, { path: assetPath, origin: "generated", ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}) });
@@ -751,6 +754,9 @@ export class ProjectManager {
         : writeFile(temporary, source.bytes, { flag: "wx" }),
       placement === "reference" ? CONVERSATION_REFERENCES_DIRECTORY.split("/") : mediaFolder(project, "imported"));
       if (options.audio) await writeAudioCompanions(path.join(project.workspacePath, added), options.audio);
+      // A sound copied from another project keeps what its generation recorded beside it.
+      else if ("file" in source && await lstat(`${source.file}.audio.json`).then((stats) => stats.isFile(), () => false))
+        await copyFile(`${source.file}.audio.json`, path.join(project.workspacePath, `${added}.audio.json`), constants.COPYFILE_EXCL);
       await writeAssetMetadata(project.workspacePath, added, {
         origin: origin === "generated" ? "generated" : "uploaded",
         purpose: placement === "reference" ? "reference" : "asset",

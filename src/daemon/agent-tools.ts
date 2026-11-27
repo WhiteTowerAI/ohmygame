@@ -553,6 +553,7 @@ export function createAgentTools(
         const sourcePrompt = input.prompt ?? (imagePaths[0] ? await projects.generatedAssetPrompt(project.id, imagePaths[0]) : undefined);
         const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
           ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
+          ...(output.model3d?.forwardAxis ? { forwardAxis: output.model3d.forwardAxis } : {}),
           ...(file.preview ? {
             preview: {
               bytes: file.preview.bytes,
@@ -607,7 +608,7 @@ export function createAgentTools(
         const file = await tools.file(run.id, output.name);
         if (!file) throw new Error("Animated 3D model could not be read");
         signal?.throwIfAborted();
-        const relativePath = await projects.addGeneratedAsset(project.id, `model-animated-${run.id}.glb`, file.bytes);
+        const relativePath = await projects.addGeneratedAsset(project.id, `model-animated-${run.id}.glb`, file.bytes, output.model3d?.forwardAxis ? { forwardAxis: output.model3d.forwardAxis } : {});
         return {
           content: [{ type: "text", text: `Animated 3D model saved to ${relativePath} with clips: ${actions.map((action) => action.name).join(", ")}` }],
           details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },

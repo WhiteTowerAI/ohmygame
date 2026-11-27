@@ -6,6 +6,7 @@ import type { AudioAssetData } from "../shared/audio.js";
 import type { ProjectManager } from "./projects.js";
 import type { ProjectState } from "../shared/contracts.js";
 import { getWorkspaceMedia } from "./workspace.js";
+import { readAssetMetadata } from "./asset-metadata.js";
 import type { ToolMediaFiles } from "./tools.js";
 import { readMediaDimensions } from "./media-dimensions.js";
 import { CanvasError, parseCanvasJson, readCanvasFile, writeCanvasJson } from "./canvas-files.js";
@@ -22,12 +23,16 @@ export function projectToolMedia(projects: Pick<ProjectManager, "get">): ToolMed
     const project = projects.get(projectId);
     if (!project) throw new Error("Project not found");
     const media = await getWorkspaceMedia(project.workspacePath, filePath);
+    // A model the agent made outside a canvas keeps which way it faces in the project's asset records.
     const model3d = media.mediaType === "model"
       ? Object.values((await readCanvasAssets(project.workspacePath).catch(() => undefined))?.assets ?? {}).find((asset) => asset.path === media.relativePath)?.model3d
+        ?? axisOnly((await readAssetMetadata(project.workspacePath)).axes[media.relativePath])
       : undefined;
     return { name: path.basename(media.relativePath), absolutePath: media.absolutePath, mediaType: media.mediaType, contentType: media.contentType, size: media.size, ...(model3d ? { model3d } : {}) };
   };
 }
+
+const axisOnly = (forwardAxis?: "+X" | "+Z") => forwardAxis ? { forwardAxis } : undefined;
 
 /** Every asset a board names must be in the manifest; one an older board already named stays editable when its file is gone. */
 export function requireCanvasAssets(manifest: CanvasAssetManifest, ids: readonly string[], existingIds: readonly string[] = []): void {
@@ -51,6 +56,12 @@ export async function addCanvasAsset(
 
 /** Names a file already in the project on the canvas; a file it names already keeps its id. */
 export async function registerCanvasAsset(workspace: string, asset: CanvasAsset): Promise<{ id: string; asset: CanvasAsset }> {
+  // The manifest takes names of up to 200 characters; a longer file name keeps its start and extension.
+  const characters = [...asset.name];
+  if (characters.length > 200) {
+    const extension = [...path.extname(asset.name)].slice(0, 20).join("");
+    asset = { ...asset, name: characters.slice(0, 200 - [...extension].length).join("") + extension };
+  }
   const manifest = await readCanvasAssets(workspace);
   const existing = Object.entries(manifest.assets).find(([, candidate]) => candidate.path === asset.path);
   if (existing) return { id: existing[0], asset: existing[1] };

@@ -92,6 +92,11 @@ describe("project media", () => {
     expect(saved).toMatch(/^\.ohmygame\/media\/imported\/tree.*\.png$/);
     expect(await readFile(path.join(city.workspacePath, saved))).toEqual(PNG);
     expect((await app.inject({ method: "POST", url: `/projects/${city.id}/media/copy`, payload: { projectId: forest.id, path: "missing.png" } })).statusCode).toBe(404);
+    // A generated sound brings what its generation recorded.
+    await writeFile(path.join(forest.workspacePath, "rain.mp3"), Buffer.from([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 0]));
+    await writeFile(path.join(forest.workspacePath, "rain.mp3.audio.json"), '{"kind":"sound-effect"}\n');
+    const sound = (await app.inject({ method: "POST", url: `/projects/${city.id}/media/copy`, payload: { projectId: forest.id, path: "rain.mp3" } })).json<{ path: string }>().path;
+    expect(await readFile(path.join(city.workspacePath, `${sound}.audio.json`), "utf8")).toBe('{"kind":"sound-effect"}\n');
   });
 });
 
@@ -111,6 +116,15 @@ describe("canvas media", () => {
     expect(asset.path).toMatch(/^\.ohmygame\/media\/imported\/portrait.*\.png$/);
     const manifest = JSON.parse(await readFile(path.join(project.workspacePath, "canvas", "assets.json"), "utf8"));
     expect(manifest.assets[asset.id]).toEqual({ name: path.basename(asset.path), path: asset.path });
+
+    // A name too long for the manifest once a second copy is numbered keeps its extension, and the canvas still opens.
+    const long = `${"a".repeat(196)}.png`;
+    for (let copy = 0; copy < 2; copy++) {
+      const added = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/assets?name=${long}&mediaType=image%2Fpng`, headers: { "content-type": "application/octet-stream" }, payload: PNG });
+      expect(added.statusCode, added.body).toBe(201);
+      expect([...added.json<CanvasAssetCatalogEntry>().name].length).toBeLessThanOrEqual(200);
+    }
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).statusCode).toBe(200);
   });
 
   it("names a file of its own project once, and copies in another project's", async () => {
