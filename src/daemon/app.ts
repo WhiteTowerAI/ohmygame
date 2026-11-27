@@ -74,8 +74,8 @@ import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { createGameUseTool } from "./playtest-tools.js";
 import { ExternalMcpService } from "./external-mcp.js";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateGameIdea, generateProjectName } from "./text-generation.js";
-import { namingModel, ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
+import { textGenerationModel, generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateGameIdea, generateProjectName } from "./text-generation.js";
+import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
@@ -828,6 +828,10 @@ export function createApp(options: AppOptions = {}) {
     const runtime = await getModelRuntime();
     return resolveModel(runtime, (await runtime.getAvailable(provider)).find((model) => model.id === id));
   };
+  const availableTextModel = (model?: AgentModelRef) => {
+    const requested = textGenerationModel(model, () => configuredDefaultModel(dataDirectory, piAgentDirectory));
+    return requested ? availableModel(requested.provider, requested.id) : undefined;
+  };
   const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
     events.publish(
       conversation.projectId,
@@ -840,9 +844,7 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project: { ...project } });
   };
   const projectNaming = new ProjectNaming(projects, options.generateProjectName ?? (async (prompt, model, signal) => {
-    const requested = namingModel(model, () => configuredDefaultModel(dataDirectory, piAgentDirectory));
-    if (!requested) return undefined;
-    const selected = await availableModel(requested.provider, requested.id);
+    const selected = await availableTextModel(model);
     if (!selected || signal.aborted) return undefined;
     const runtime = await getModelRuntime();
     return generateProjectName(runtime, selected, prompt, signal);
@@ -4403,8 +4405,7 @@ export function createApp(options: AppOptions = {}) {
   // The new game dialog's random idea: from the model the person chose, or Pi's
   // default when that is a coding agent's; without either, the dialog uses its own.
   app.post<{ Body: { type: BuiltinProjectType; locale: string; model?: AgentModelRef; avoid?: string } }>("/ideas/game", { schema: gameIdeaSchema }, async (request, reply) => {
-    const requested = request.body.model && !isAgentRuntimeId(request.body.model.provider) ? request.body.model : configuredDefaultModel(dataDirectory, piAgentDirectory);
-    const model = requested ? await availableModel(requested.provider, requested.id) : undefined;
+    const model = await availableTextModel(request.body.model);
     if (!model) return reply.code(409).send({ error: "No language model is available" });
     const idea = await generateGameIdea(await getModelRuntime(), model, request.body, AbortSignal.timeout(30_000)).catch(() => undefined);
     if (!idea) return reply.code(502).send({ error: "The language model returned no idea" });

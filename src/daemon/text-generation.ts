@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
-import type { AgentReasoningLevel, BuiltinProjectType, PromptImage } from "../shared/contracts.js";
+import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
+import type { AgentModelRef, AgentReasoningLevel, BuiltinProjectType, PromptImage } from "../shared/contracts.js";
 import type { CanvasDocumentGenerationResult, CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasTable, type CanvasTable, type CanvasTableGenerationResult } from "../shared/canvas-table.js";
 import { isOpenRouterModel, withOpenRouterAttribution } from "./openrouter-attribution.js";
@@ -8,6 +9,14 @@ import { normalizeAssistantText } from "./assistant-thinking.js";
 import { clampReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 
 export type TextGenerationReference = { type: "text"; label: string; text: string } | { type: "image"; label: string; image: PromptImage };
+
+/**
+ * The model for a short text request: the chosen one, unless it is a coding
+ * agent's, which can't take a separate short request; then Pi's default model.
+ */
+export function textGenerationModel(model: AgentModelRef | undefined, piDefault: () => AgentModelRef | undefined): AgentModelRef | undefined {
+  return model && !isAgentRuntimeId(model.provider) ? model : piDefault();
+}
 
 export async function generateProjectName(runtime: ModelRuntime, model: RuntimeModel, prompt: string, signal: AbortSignal): Promise<string | undefined> {
   const reasoning = clampReasoningLevel("off", supportedReasoningLevels(model));

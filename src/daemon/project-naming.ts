@@ -1,5 +1,4 @@
 import type { AgentModelRef, ProjectState } from "../shared/contracts.js";
-import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import type { ProjectManager } from "./projects.js";
 
 export type ProjectNameGenerator = (
@@ -7,14 +6,6 @@ export type ProjectNameGenerator = (
   model: AgentModelRef | undefined,
   signal: AbortSignal,
 ) => Promise<string | undefined>;
-
-/**
- * The model that names a project: the conversation's, unless it is a coding
- * agent's, which can't take a separate short request; then Pi's default model.
- */
-export function namingModel(model: AgentModelRef | undefined, piDefault: () => AgentModelRef | undefined): AgentModelRef | undefined {
-  return model && !isAgentRuntimeId(model.provider) ? model : piDefault();
-}
 
 /** A short, independent request must never delay or fail the user's agent turn. */
 export class ProjectNaming {
