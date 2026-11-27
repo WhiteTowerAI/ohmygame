@@ -36,7 +36,7 @@ import { ImageGenerationError, type ImageGenerator, type ImageGenerationRecovery
 import { sniffImageType } from "./image-format.js";
 import { BACKGROUND_IMAGE_MAX_BYTES } from "./image-background.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
-import { inspectMediaTaskJournal, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
+import { mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import type { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import { inspectModel3D } from "./model3d-inspect.js";
@@ -115,7 +115,7 @@ export class ToolRunner {
     let prepared = input;
     return this.#withGenerationLog(toolId, () => prepared, signal, projectId, async () => {
       prepared = await this.#prepare(toolId, input, projectId);
-      return this.#runPrepared(toolId, prepared, signal, randomUUID(), false, options.addedBy);
+      return this.#runPrepared(toolId, prepared, signal, randomUUID(), options.addedBy);
     });
   }
 
@@ -157,9 +157,9 @@ export class ToolRunner {
   }
 
   /** Executes an input whose model and generation options have already been resolved. */
-  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string; resuming?: boolean } = {}): Promise<ToolRun> {
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string } = {}): Promise<ToolRun> {
     const { recoveryId = randomUUID(), projectId } = options;
-    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId, options.resuming));
+    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId));
   }
 
   async #withGenerationLog(toolId: string, input: () => RunToolRequest, signal: AbortSignal | undefined, projectId: string | undefined, execute: () => Promise<ToolRun>): Promise<ToolRun> {
@@ -193,7 +193,7 @@ export class ToolRunner {
     } catch { /* Logging must not change the result or prevent job persistence. */ }
   }
 
-  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, resuming = false, addedBy?: string): Promise<ToolRun> {
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string, addedBy?: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId),
@@ -218,10 +218,8 @@ export class ToolRunner {
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "params", "transparentBackground", "size", "resolution", "aspectRatio", "outputs", "images", "requestedPrompt", "pluginChanges"]);
-    const directory = path.join(this.#runsDirectory, "../media-tasks");
     return this.#runImage(input as RunImageToolRequest, signal, {
-      journal: await mediaTaskJournal(directory, recoveryId), resuming,
-      ...(resuming ? { receiptRecorded: await inspectMediaTaskJournal(directory, recoveryId) !== "missing" } : {}),
+      journal: await mediaTaskJournal(path.join(this.#runsDirectory, "../media-tasks"), recoveryId),
     }, addedBy);
   }
 

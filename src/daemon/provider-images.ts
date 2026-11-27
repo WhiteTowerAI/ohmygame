@@ -172,8 +172,6 @@ export class ProviderImages implements ImageGenerator {
     if (!selection || !definition) throw new ImageGenerationError(requested
       ? "The selected image model is unavailable. Choose a connected image provider or update the default image model in Providers."
       : "Image generation is not configured", 503);
-    if (recovery?.resuming && recovery.receiptRecorded && definition.protocol !== "plugin")
-      throw new ImageGenerationError("Restore the original image plugin to retry the saved task", 409);
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const required = definition.minReferenceImages ?? 0;

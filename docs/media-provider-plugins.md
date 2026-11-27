@@ -74,11 +74,9 @@ remote ownership; the host does not call the adapter's `cancel` for this operati
 
 Canvas jobs have no retry, and keep no input once they finish. A new direct
 agent call, or generating a canvas node again, starts new work with a new
-recovery ID. The image providers still take a `resuming` option, which may only
-use an existing receipt: an old non-recoverable task, a missing receipt, or an
-attempt that failed before recording a task is never reinterpreted as new paid
-work, and changed input/account or an unconfirmed response refuses a replacement
-submission. No job passes it now. The tool-job history earlier versions kept
+recovery ID. Within one job, a recovery ID that already holds a receipt resumes
+that task; changed input or account, or an unconfirmed response, refuses a
+replacement submission. The tool-job history earlier versions kept
 in `tools/jobs.json` is no longer read; the file is left as it is.
 
 ### Saved image workflows
