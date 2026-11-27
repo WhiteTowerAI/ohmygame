@@ -6,6 +6,7 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore, readCanvasJobHistory, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
+import { ProjectWrites } from "../src/daemon/project-writes.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
@@ -783,6 +784,38 @@ describe("Markdown design workspace", () => {
     const job = await waitForJob(store, project.id), saved = (await store.board(project.id, boardId)).board.nodes[0]!;
     expect(job.status).toBe("succeeded"); expect(saved).toMatchObject({ position: image.position, data: { prompt: "New prompt", assetId: job.run!.files[0]!.assetId } });
     expect(library.get(job.run!.files[0]!.assetId!)).toBeDefined();
+  });
+  it("lets a checkpoint wait for a finished run's save, not for the run", async () => {
+    let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
+    const { store: editor, projects, library, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const writes = new ProjectWrites(), store = new CanvasStore(projects, library, tools, undefined, {}, writes); stores.push(store);
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
+    // The provider is still working, and a snapshot goes ahead anyway.
+    await expect(writes.snapshot(project.id, async () => "taken")).resolves.toBe("taken");
+    let release!: () => void;
+    const snapshot = writes.snapshot(project.id, () => new Promise<void>((resolve) => { release = resolve; }));
+    await expect.poll(() => Boolean(release)).toBe(true);
+    finish({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The output waits for the snapshot that is reading the files.
+    expect((await editor.board(project.id, boardId)).board.nodes[0]!.data).not.toHaveProperty("assetId");
+    release(); await snapshot;
+    const job = await waitForJob(store, project.id);
+    expect(job.status).toBe("succeeded");
+    expect((await editor.board(project.id, boardId)).board.nodes[0]!.data).toMatchObject({ assetId: job.run!.files[0]!.assetId });
+  });
+  it("drops a finished run's save that waits for a project being removed", async () => {
+    let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
+    const { projects, library, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const writes = new ProjectWrites(), store = new CanvasStore(projects, library, tools, undefined, {}, writes); stores.push(store);
+    await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
+    // Removal holds the workspace, cancels the project's runs and waits for them.
+    await writes.exclusive(project.id, async () => {
+      finish({ bytes: Buffer.from("image"), mediaType: "image/png" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await store.cancelProject(project.id); await store.waitForProject(project.id);
+    });
+    expect(store.isProjectBusy(project.id)).toBe(false);
   });
   it.each(["node", "board"] as const)("keeps output and history when its %s is removed", async (remove) => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;

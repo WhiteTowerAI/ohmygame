@@ -29,6 +29,7 @@ import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { sameJson } from "../shared/same-json.js";
+import type { ProjectWrites } from "./project-writes.js";
 export { CanvasError } from "./canvas-files.js";
 
 const boardFileValidator = Compile(CANVAS_BOARD_SCHEMA);
@@ -376,7 +377,12 @@ export class CanvasStore {
   readonly #jobs = new Map<string, StoredJob[]>();
   readonly #controllers = new Map<string, AbortController>();
   #closed = false;
-  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner, private readonly mediaMigrations: MediaMigrationState = {}) {}
+  constructor(private readonly projects: ProjectManager, private readonly library: AssetLibrary, private readonly tools: ToolRunner, private readonly plugins?: CanvasPluginRunner, private readonly mediaMigrations: MediaMigrationState = {}, private readonly writes?: Pick<ProjectWrites, "write">) {}
+  /** A run saves its output as a workspace write once it has finished: a checkpoint waits for the save, not for the provider. */
+  #saveOutput(id: string, signal: AbortSignal, operation: () => Promise<void>): Promise<void> {
+    const save = () => withCanvasLock(this.#project(id).workspacePath, operation);
+    return this.writes ? this.writes.write(id, save, signal) : save();
+  }
   #project(id: string) {
     const project = this.projects.get(id);
     if (!project) throw new CanvasError("Project not found", 404);
@@ -816,7 +822,7 @@ export class CanvasStore {
   async #executePlugin(id: string, job: StoredJob, request: CanvasPluginRequest, controller: AbortController) {
     try {
       const output = await this.plugins!.run(this.#project(id), request, controller.signal); controller.signal.throwIfAborted();
-      await withCanvasLock(this.#project(id).workspacePath, async () => {
+      await this.#saveOutput(id, controller.signal, async () => {
         if (controller.signal.aborted) return;
         const project = this.#project(id), workspace = project.workspacePath, boardId = job.context!.boardId!;
         if ("assetId" in output) await ensureCanvasAssets(project, this.projects, this.library, [output.assetId]);
@@ -853,7 +859,7 @@ export class CanvasStore {
       const run = await this.tools.runPrepared(toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id, resuming: job.resuming }); controller.signal.throwIfAborted();
       const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
-      await withCanvasLock(this.#project(id).workspacePath, async () => {
+      await this.#saveOutput(id, controller.signal, async () => {
         if (controller.signal.aborted) return;
         const workspace = this.#project(id).workspacePath, boardId = job.context!.boardId!;
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!], [], "generated");
