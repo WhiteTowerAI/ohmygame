@@ -1075,12 +1075,19 @@ Generated images, videos and 3D models appear as small thumbnails under the
 tool calls that made them, without opening those calls. A call still running
 holds its place with a loading tile. Choosing an image shows it larger, with
 the same copy and save actions as other chat images; choosing a video or a 3D
-model opens it in a dialog, where the model can be turned and played. A 3D
-model's tile shows the model itself, held still; a row of them loads two at a
-time as it nears the screen. Results
+model opens it in a dialog, where the model can be turned and played. Results
 are not repeated under the response; open a finished turn's work to see them.
 The files remain in the project's media (`.ohmygame/media/generated/`), and
 the conversation keeps their references.
+
+In chat, project assets and the local Library, a model tile shows a small cube
+until its rendered frame is ready. You can open the model at any time. On
+first view, up to two tiles at a time load their models and capture a frame.
+Later visits use the saved image. The app keeps up to 256 frames of up to
+1 MiB each in its local cache and regenerates them when a model changes.
+Image-to-3D input references stay in the project.
+
+![The same four project model tiles while loading and after their rendered thumbnails appear](assets/model-thumbnail-loading.webp)
 
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.

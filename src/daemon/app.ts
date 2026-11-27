@@ -25,6 +25,7 @@ import { pluginAgentDefinitions, pluginAgentIconFile } from "./plugin-agents.js"
 import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
+import { registerModelThumbnailRoutes } from "./model-thumbnail-routes.js";
 import { createHash, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import { createReadStream } from "node:fs";
@@ -4131,6 +4132,7 @@ export function createApp(options: AppOptions = {}) {
   registerCommunityRoutes(app, publisher, projects);
 
   registerLibraryRoutes(app, { projects, library, sources: librarySources });
+  registerModelThumbnailRoutes(app, path.join(dataDirectory, "cache", "model-thumbnails"), projects, library);
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);

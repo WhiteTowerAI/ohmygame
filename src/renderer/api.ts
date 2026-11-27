@@ -1346,8 +1346,28 @@ export async function createCanvasImportFolder(projectId: string, name: string):
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
 
-export async function getLibraryAsset(assetId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
+export function modelThumbnailQuery(projectId: string | undefined, path: string, assetId: string | undefined, large: boolean): string {
+  const query = new URLSearchParams(assetId ? { asset: assetId } : { project: projectId ?? "", path });
+  query.set("size", large ? "large" : "small");
+  return query.toString();
+}
+
+export async function getModelThumbnail(query: string, signal: AbortSignal): Promise<{ version?: string; image?: Blob }> {
+  const response = await fetch(apiUrl("/model-thumbnails?" + query), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  if (!response.headers.get("content-type")?.startsWith("image/png")) return response.json();
+  return { image: await response.blob(), version: response.headers.get("etag")?.replaceAll('"', "") };
+}
+
+export async function saveModelThumbnail(query: string, version: string, image: Blob): Promise<void> {
+  const response = await fetch(apiUrl("/model-thumbnails?" + query + "&version=" + encodeURIComponent(version)), {
+    method: "PUT", headers: { ...runtimeHeaders(), "content-type": "application/octet-stream" }, body: image,
+  });
+  if (!response.ok) throw await responseError(response);
+}
+
+export async function getLibraryAsset(assetId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders(), signal });
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }

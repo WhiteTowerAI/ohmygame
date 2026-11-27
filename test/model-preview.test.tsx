@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ModelPreview } from "../src/renderer/model-preview.js";
+import { ModelThumbnail } from "../src/renderer/model-thumbnail.js";
 
 /** The viewer's public playback and visibility API; GPU behavior is checked in Electron. */
 /** Every model a viewer was put in the page for, since a viewer starts loading as it connects. */
@@ -22,6 +23,7 @@ class ModelViewer extends HTMLElement {
   modelIsVisible = true;
   paused = true;
   currentTime = 1;
+  toBlob = vi.fn(async () => new Blob(["frame"], { type: "image/png" }));
   play = vi.fn(() => {
     this.paused = false;
   });
@@ -80,6 +82,47 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 const viewer = () => container.querySelector<ModelViewer>("model-viewer")!;
+it("shares the first visible frame, releases the live viewer and reopens from the saved image", async () => {
+  vi.stubGlobal("Image", class { decode = async () => {}; });
+  const getImageData = vi.fn()
+    .mockReturnValueOnce({ data: Uint8ClampedArray.of(0, 0, 0, 0) })
+    .mockReturnValue({ data: Uint8ClampedArray.of(0, 0, 0, 255) });
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => {}, getImageData } as unknown as CanvasRenderingContext2D);
+  let stored = false;
+  let reads = 0;
+  let writes = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+    if (String(url).includes("/model-thumbnails?")) {
+      if (options?.method === "PUT") {
+        expect(options.body).toBeInstanceOf(Blob);
+        stored = true;
+        writes++;
+        return new Response(null, { status: 204 });
+      }
+      return stored ? new Response(new Blob(["frame"]), { headers: { "content-type": "image/png" } }) : Response.json({ version: "v1" });
+    }
+    reads++;
+    return new Response(new Blob(["model"]));
+  });
+  const tiles = <>{["First", "Second"].map(label => <ModelThumbnail key={label} project="game" path="knight.glb" label={label} />)}</>;
+  await act(async () => root.render(tiles));
+  await vi.waitFor(() => expect(container.querySelectorAll("model-viewer")).toHaveLength(1));
+  expect(container.querySelectorAll(".model-placeholder")).toHaveLength(2);
+  await act(async () => viewer().dispatchEvent(new CustomEvent("progress", { detail: { totalProgress: 0.42 } })));
+  expect(container.textContent).toBe("");
+  expect(container.querySelector(".spin")).toBeNull();
+  await act(async () => viewer().load());
+  await vi.waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(2));
+  expect(container.querySelector("model-viewer")).toBeNull();
+  await act(async () => root.render(null));
+  await act(async () => root.render(tiles));
+  await vi.waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(2));
+  expect(container.querySelector("model-viewer")).toBeNull();
+  expect(reads).toBe(1);
+  expect(writes).toBe(1);
+  expect(getImageData).toHaveBeenCalledTimes(2);
+});
+
 const button = () => container.querySelector("button")!;
 const click = () => act(async () => button().click());
 async function render(source = "model.glb", controls = true) {

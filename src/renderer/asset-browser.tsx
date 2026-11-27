@@ -3,7 +3,7 @@ import type { LibraryAssetOrigin, LibraryAssetProject, LibraryAssetPurpose, Work
 import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Spinner, MoreHorizontal, Music2, Play, X } from "./icons.js";
 import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
 import { AssetDialogShell, AssetMedia } from "./asset-gallery.js";
-import { ModelPreview } from "./model-preview.js";
+import { ModelThumbnail } from "./model-thumbnail.js";
 import { VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
 import { assetDateTime, assetShortDate, inAssetPeriod, type AssetPeriod, type AssetSort } from "./asset-sort.js";
@@ -42,18 +42,21 @@ export function assetSortDetail(asset: BrowsableAsset & { createdAt?: string }, 
 }
 
 /** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. Thumbnails sit inside open buttons, so they carry no controls. */
-export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visible: boolean }) {
+export function AssetThumbnail({ asset, visible, large = true }: { asset: BrowsableAsset; visible: boolean; large?: boolean }) {
+  if (asset.mediaType === "model") return <ModelThumbnail project={asset.projectId} path={asset.path} asset={asset.assetId} revision={asset.revision} label={fileName(asset.path)} large={large} />;
+  return <FileThumbnail asset={asset} visible={visible} />;
+}
+
+function FileThumbnail({ asset, visible }: { asset: BrowsableAsset; visible: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string>();
   const preview = useAssetPreview(asset, visible && asset.mediaType !== "audio");
   const previewFailed = Boolean(preview.url && failedUrl === preview.url);
   const showPreview = Boolean(preview.url) && !previewFailed;
-  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : preview.error || previewFailed ? X : ImageIcon;
+  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : preview.error || previewFailed ? X : ImageIcon;
   return <>
     {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailedUrl(preview.url)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
     {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setFailedUrl(preview.url)} /> : null}
-    {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} controls={false} /> : null}
-    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <Spinner size="md" /> : null}
-    {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
+    {!showPreview ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
   </>;
 }
 
@@ -63,7 +66,7 @@ function useAssetPreview(asset: BrowsableAsset, enabled = true) {
   const assetId = enabled ? asset.assetId : undefined;
   const revision = asset.modifiedAt ? `${asset.modifiedAt}:${asset.size}` : asset.revision;
   const picture = useWorkspaceImagePreview(image ? projectId : undefined, asset.path, revision, image ? assetId : undefined);
-  const other = useWorkspaceAssetUrl(image ? undefined : projectId, asset.path, asset.revision, image ? undefined : assetId, enabled && !image);
+  const other = useWorkspaceAssetUrl(image ? undefined : projectId, asset.path, asset.revision, image ? undefined : assetId, enabled && !image, asset.mediaType === "model");
   return image ? picture : other;
 }
 
