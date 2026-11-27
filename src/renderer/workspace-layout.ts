@@ -3,13 +3,15 @@ import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { supportsWebPreview } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
 
-// One layout for every project. A project type only names the panels it
+// Each project keeps its own layout. A project type only names the panels it
 // offers, in the order they open (the shape of a plugin's
-// `projectTypes[].panels`); the host decides where they go. The person's
-// arrangement is kept once and fitted to each project's panels, so moving the
-// chat to the right holds everywhere.
+// `projectTypes[].panels`); the host decides where they go. A project without
+// a layout of its own starts from the latest one any project kept, fitted to
+// its panels, so it opens the way the person last arranged things.
 
-const STORAGE_KEY = "ohmygame-workspace-layout";
+/** The latest layout; before projects kept their own, the one every project shared. */
+const LATEST_KEY = "ohmygame-workspace-layout";
+const projectKey = (projectId: string) => `${LATEST_KEY}:${projectId}`;
 const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
@@ -110,9 +112,9 @@ export interface SavedLayout {
   known: readonly string[];
 }
 
-export function readLayout(): SavedLayout | undefined {
+function readSaved(key: string): SavedLayout | undefined {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as { version?: number } & Partial<SavedLayout>;
+    const saved = JSON.parse(localStorage.getItem(key) ?? "{}") as { version?: number } & Partial<SavedLayout>;
     return saved.version === VERSION && saved.layout && validLayout(saved.layout) && Array.isArray(saved.known)
       ? { layout: saved.layout, known: saved.known }
       : undefined;
@@ -121,16 +123,25 @@ export function readLayout(): SavedLayout | undefined {
   }
 }
 
-export function saveLayout(saved: SavedLayout): void {
+/** Keeps a project's layout, and it as the latest, which projects without their own start from. */
+export function saveLayout(projectId: string, saved: SavedLayout): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, ...saved }));
+    const value = JSON.stringify({ version: VERSION, ...saved });
+    localStorage.setItem(projectKey(projectId), value);
+    localStorage.setItem(LATEST_KEY, value);
   } catch { /* The layout still works without storage. */ }
 }
 
-/** What a project opens with: the saved arrangement, or the default. */
-export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes, onRequest?: OnRequestPanels): SavedLayout {
-  const saved = readLayout();
-  if (saved) return saved;
+/**
+ * What a project opens with: its own layout, the latest one, or the default.
+ * The latest may be another type's, so each area's front tab is left to this
+ * project's default.
+ */
+export function openingLayout(projectId: string, offered: readonly PanelId[], homes?: PanelHomes, onRequest?: OnRequestPanels): SavedLayout {
+  const own = readSaved(projectKey(projectId));
+  if (own) return own;
+  const latest = readSaved(LATEST_KEY);
+  if (latest) return { layout: Object.fromEntries(AREAS.map((id) => [id, { ...latest.layout[id], active: undefined }])) as Layout, known: latest.known };
   const layout = presetLayout("default", offered, homes, onRequest);
   // compat: since beta.5.1, remove from beta.7 and 2026-12-03. The ohmygame:chat-layout setting.
   // The chat-side setting this replaced still decides where the chat first opens.
@@ -186,29 +197,7 @@ export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallb
   return next;
 }
 
-/**
- * What to keep after the person changes a project's layout from `before` to
- * `next`: the change, with the other types' panels where they were, so a
- * canvas's arrangement doesn't move a game's panels. An area whose front tab
- * didn't change keeps the saved one, which may be another type's.
- */
-export function mergeLayout(saved: SavedLayout | undefined, before: Layout, next: Layout, offered: readonly PanelId[]): SavedLayout {
-  const layout = { ...next };
-  if (saved) {
-    const mine = (panel: string) => offered.includes(panel as PanelId);
-    for (const id of AREAS) {
-      // The saved order, with this project's panels replaced by the new ones in turn.
-      const queue = [...next[id].panels];
-      const panels: string[] = [];
-      for (const panel of saved.layout[id].panels) {
-        if (!mine(panel)) panels.push(panel);
-        else if (queue.length) panels.push(queue.shift()!);
-      }
-      panels.push(...queue);
-      const kept = saved.layout[id].active;
-      const active = next[id].active === before[id].active && kept && panels.includes(kept) ? kept : next[id].active ?? panels[0];
-      layout[id] = { ...next[id], panels, active };
-    }
-  }
-  return { layout, known: [...new Set([...(saved?.known ?? []), ...offered])] };
+/** What to keep after the person changes a project's layout to `next`: it, and every panel the project has offered. */
+export function keepLayout(saved: SavedLayout | undefined, next: Layout, offered: readonly PanelId[]): SavedLayout {
+  return { layout: next, known: [...new Set([...(saved?.known ?? []), ...offered])] };
 }

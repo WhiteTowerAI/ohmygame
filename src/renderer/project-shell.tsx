@@ -156,7 +156,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { PanelTool, PanelTools } from "./panel-tools.js";
-import { fitLayout, gamePanelAddable, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, gamePanelAddable, homeOf, keepLayout, panelTitle, loadingLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type OnRequestPanels, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { announceProjectPluginsChanged, commandPrompt, commandsForSlot, pageCommand, type PluginCommandTarget, pluginPanelId, PluginPanelToolbar, PluginSlotsContext, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { currentTheme, PluginFrame, PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS, rateLimit, type CommandProgress, type PageToolHost, type PluginToolbarRun } from "./plugin-frame.js";
 import { draftSetupId, PANEL_SCREENSHOT_CAPTURE_MS, type PanelCapture } from "../shared/plugin-setup.js";
@@ -321,7 +321,7 @@ export function ProjectShell({
   /** What the panel menu lists: what the project offers, and the Game panel it can add. */
   const listed: PanelId[] = state.project ? [...panelsOf(state.project, gameAddable), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
-  const opening = useMemo(() => state.project ? openingLayout(offered, homes, onRequest) : undefined, [!!state.project]);
+  const opening = useMemo(() => state.project ? openingLayout(state.project.id, offered, homes, onRequest) : undefined, [!!state.project]);
   const current = saved ?? opening;
   const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes, onRequest), onRequest) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
@@ -355,10 +355,10 @@ export function ProjectShell({
   function changeLayout(next: Layout): void {
     const { current, offered, layout } = latestLayout.current;
     if (!offered.length || !layout) return;
-    const value = mergeLayout(current, layout, next, offered);
+    const value = keepLayout(current, next, offered);
     latestLayout.current = { ...latestLayout.current, current: value, layout: next };
     setSaved(value);
-    saveLayout(value);
+    saveLayout(projectId, value);
   }
   /** Shows a plugin's panel; with `state`, its page hears it was opened with that. */
   function openPluginPanel(plugin: string, panel: string, state?: unknown): void {
@@ -1622,7 +1622,7 @@ export function ProjectShell({
         if (before && shown !== before && latestLayout.current.current === shown) {
           latestLayout.current = { ...latestLayout.current, current: before };
           setSaved(before);
-          saveLayout(before);
+          saveLayout(projectId, before);
         }
       }
     };
