@@ -147,7 +147,6 @@ import {
 import {
   FolderWithFilesIcon as FolderWithFilesBoldIcon,
   HomeIcon as HomeBoldIcon,
-  LayersIcon as LayersBoldIcon,
   PlugCircleIcon as PlugCircleBoldIcon,
   UsersGroupRoundedIcon as UsersGroupRoundedBoldIcon,
 } from "@solar-icons/react/bold";
@@ -401,6 +400,5 @@ export const X = icon(CloseIcon);
 /** Filled versions for the sidebar page that is open. */
 export const HouseBold = icon(HomeBoldIcon);
 export const FolderWithFilesBold = icon(FolderWithFilesBoldIcon);
-export const Layers3Bold = icon(LayersBoldIcon);
 export const UsersGroupRoundedBold = icon(UsersGroupRoundedBoldIcon);
 export const PlugBold = icon(PlugCircleBoldIcon);

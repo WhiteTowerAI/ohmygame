@@ -492,7 +492,7 @@ describe("plugin page files protocol", () => {
     expect(pluginUiRefusal("files.delete", { "project.files": "write" })).toBeUndefined();
   });
 
-  it("adds what a page made to the person's Library under its plugin's name, as often as it may", async () => {
+  it("adds what a page made to the project's media under its plugin's name, as often as it may", async () => {
     const { app, project } = await setup(undefined, "acme/art", { library: true });
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 255]);
     const add = (name: string, body: Buffer = png, plugin = "acme/art", prompt?: string) => app.inject({
@@ -503,19 +503,20 @@ describe("plugin page files protocol", () => {
     });
     const added = await add("ricochet.png", png, "acme/art", "an impact that bounces");
     expect(added.statusCode, added.body).toBe(201);
-    expect(added.json()).toMatchObject({ name: "ricochet.png", mediaType: "image", origin: "generated", saved: true, addedBy: "acme/art", prompt: "an impact that bounces" });
-    const listed = (await app.inject({ method: "GET", url: "/library/assets" })).json<Array<{ id: string; addedBy?: string }>>();
-    expect(listed.find((asset) => asset.id === added.json().id)).toMatchObject({ addedBy: "acme/art" });
+    expect(added.json()).toMatchObject({ name: "ricochet.png", mediaType: "image", origin: "generated", saved: false, addedBy: "acme/art", prompt: "an impact that bounces" });
+    const { projectPath } = added.json<{ projectPath: string }>();
+    expect(projectPath).toMatch(/^\.ohmygame\/media\/imported\/ricochet.*\.png$/);
+    expect(await readFile(path.join(project.workspacePath, projectPath))).toEqual(png);
     // Named with its type, which its data is.
     expect((await add("ricochet")).json().error).toContain("name the file with its type");
     expect((await add("notes.txt")).statusCode).toBe(400);
     expect((await add("ricochet.jpg")).json().error).toContain("isn't the image/jpeg its name says");
-    // An SVG can hold a script, which the Library would serve as the app's own.
+    // An SVG can hold a script, which the media store would serve as the app's own.
     expect((await add("burst.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'))).json().error).toContain("not SVG");
     expect((await add("../../ricochet.png")).statusCode).toBe(201);
     // Only a plugin the project uses, that asks for it.
     expect((await add("x.png", png, "acme/other")).statusCode).toBe(403);
-    // A Plugin Builder preview doesn't add to the person's Library.
+    // A Plugin Builder preview doesn't add to the person's projects.
     expect((await add("x.png", png, "_draft/0f8e7c1a-0000-4000-8000-000000000000")).json().error).toContain("Plugin Builder preview");
     // At most 20 a minute, counting only what was added: the two above make 2.
     for (let index = 2; index < 20; index++) expect((await add(`${index}.png`)).statusCode).toBe(201);
@@ -524,7 +525,7 @@ describe("plugin page files protocol", () => {
     expect(refused.json().error).toContain("at most 20 files");
   });
 
-  it("refuses a page's Library additions without the library capability", async () => {
+  it("refuses a page's additions without the library capability", async () => {
     const { app, project } = await setup("write", "acme/files");
     const added = await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-library/acme/files?name=a.png`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) });
     expect(added.statusCode).toBe(403);

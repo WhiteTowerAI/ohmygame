@@ -206,7 +206,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.2.0 | Page components version 1 stable, loaded without `ui.preview`. |
 | 2.3.0 | Hooks, publish menu items, canvas nodes, `capabilities.game`, `gameUse`, `projectFiles`, preview devices and filters, gamepad maps, coding agents. |
 | 2.4.0 | `categories`, `screenshots`, and manifests that ignore a field this app doesn't know instead of refusing the plugin. |
-| 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [Library sources](#library-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
+| 2.5.0 | [App sessions and persistent connections](#app-sessions-and-persistent-connections) (`capabilities.sessions`), static `contributes.instructions`, `tool.beforeCall` and `tool.afterCall`, `keywords`, provider `media` (with `discoverModels` and a model's `data`) and agent `icon`, [asset sources](#asset-sources) (`contributes.assetSources`), [Browser shortcuts and opening pages](#browser) (`contributes.browserShortcuts`, `browser.open`), and the command slots `home.starters`, `project.toolbar`, `project.layout`, `game.more`, `canvas.add` and `canvas.node`. |
 | 2.6.0 | Conversation model and reasoning settings through `context.sessions`, and turn-scoped stop. |
 | 2.7.0 | Host-managed, revocable target consent for `tool.beforeCall` (`remember`); media video `imageAspectRatios` and `frameAspectRatios`; disclosure, overlay, searchable choice, table, pagination, slider and radio-group page components, file picking/drop zones, custom-content dialogs and numeric input constraints. |
 | 2.8.0 | Media video models can declare up to 30 reference images; frame mode remains limited to two. |
@@ -231,7 +231,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.32.0 | Pin declared non-secret audio settings to durable generation jobs. |
 | 2.33.0 | Image models can declare `promptOptionalWithReference`, so the Image node runs without text once a reference image is connected; the adapter receives an empty `prompt`. |
 | 2.34.0 | Image models can declare `animationFrames`; only those models may return ordered multiple outputs for host-side GIF composition, bounded to 100 validated frames. Native code and commands can open a page in the Browser panel with `context.browser.open`. Any plugin with native code can show a Settings status section (`settings-status`), not only connection plugins. MCP servers can declare `setup` and `docs`, and their Settings tab tests them. |
-| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the person's Library ([adding to the Library](#adding-to-the-library): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
+| 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the project's media ([adding to the project's assets](#adding-to-the-projects-assets): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
 | 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. A project type's `cover`, its picture on Home and in the new project dialog. Project plugins can open a [native editor](#native-editor-sessions). |
@@ -505,8 +505,8 @@ it, through the same runtime and so within the same session limits.
 The host asks the daemon (`game` and `game-reply` messages,
 `src/daemon/plugin-game-bridge.ts`), which checks on every request that the
 plugin is on in the project and asks for `game`. Its sessions are its own and
-end when it is unloaded or its host stops. A recording goes to the Library
-named for the plugin, for at most 60 seconds. The plugin that runs a native
+end when it is unloaded or its host stops. A recording goes to the project's
+media, for at most 60 seconds; `recordStop` gives its `path` there. The plugin that runs a native
 type's game can't play it this way.
 
 API 2.37.0 adds what testing a multiplayer web game needs.
@@ -544,7 +544,7 @@ host, and the add review and the plugin's page list the events.
 
 | Event | When | Input |
 | --- | --- | --- |
-| `asset.added` | A generated asset is saved in the project, or a Library asset is added to it | `path`, `origin` (`generated` or `imported`), `prompt` |
+| `asset.added` | A generated asset is saved in the project, or another is copied into it | `path`, `origin` (`generated` or `imported`), `prompt` |
 | `turn.completed` | A run's turns are closed, however the run ended | `conversationId`, `status`, `changes` (each file once, at most 500) |
 | `build.started`, `build.completed` | Around packing the project for export or publishing | `purpose`, then `status` with `bytes` or `error` |
 | `files.changed` | Files changed, in OhMyGame or outside it | `paths` (at most 200 every half second), `truncated` |
@@ -1255,14 +1255,14 @@ app and isn't disabled everywhere; projects' plugin switches don't apply.
   kind says which (`execute`, `read`, `edit`), and OhMyGame's own tools show
   what they returned.
 
-## Library sources
+## Asset sources
 
-`contributes.assetSources` (plugin API 2.5.0) adds a tab to the Library page
-next to **Local**, for media a plugin can find: a stock or CC0 library, a
-team's asset server, sounds made on request. The person searches it there
-and adds what they pick; only an added item becomes a Library asset.
-`src/daemon/library-sources.ts` checks what the plugin returns, and
-`src/renderer/library-source-browser.tsx` shows it.
+`contributes.assetSources` (plugin API 2.5.0) adds a tab to each project's
+Assets panel next to **This project**, for media a plugin can find: a stock or
+CC0 library, a team's asset server, sounds made on request. The person
+searches it there and adds what they pick to the project; nothing else is
+downloaded. `src/daemon/library-sources.ts` checks what the plugin returns,
+and `src/renderer/asset-source-browser.tsx` shows it.
 
 ```json
 "entrypoints": { "native": "./dist/index.mjs" },
@@ -1282,14 +1282,14 @@ and adds what they pick; only an added item becomes a Library asset.
   manifest check asks for a native entry. `media` lists the kinds it offers
   (`image`, `video`, `audio`, `model`), and the tab filters by them when
   there is more than one. `timeoutSeconds` lengthens both calls. From API
-  2.35.0, `cacheSeconds` (0 to 86400) says how long the Library shows a browse
+  2.35.0, `cacheSeconds` (0 to 86400) says how long the tab shows a browse
   of it again, by kind and without search words, before asking `search`
   again: ten minutes when left out, never with 0. Searches with words always
   ask. A source with a request limit, or whose results rarely change, can
   keep them longer.
 - From API 2.35.0, `collections` (2 to 12 of `{ id, title }`) are the
   source's own ways to browse it, shown in their order as one row of choices
-  in place of the media kinds; the first is chosen at first and the Library
+  in place of the media kinds; the first is chosen at first and the tab
   remembers the last one. `search` gets the chosen `collection`, and a browse
   is kept per collection. A request naming a collection the source doesn't
   declare is refused.
@@ -1303,10 +1303,10 @@ and adds what they pick; only an added item becomes a Library asset.
   details play before it is added; another kind's is dropped. A whole page of
   results stays under 8 MB, so a source that carries its sounds keeps them
   short. `next` is an opaque cursor for the next
-  page, which the tab asks for when the end of its list scrolls into view. Results the Library can't read are an error, not a partial page.
+  page, which the tab asks for when the end of its list scrolls into view. Results OhMyGame can't read are an error, not a partial page.
 - From API 2.35.0, an item's `embed` is a page that shows it, such as a 3D
   viewer with its animations, for its details to show in place of the
-  thumbnail (`SourceEmbed` in `library-source-browser.tsx`). It is kept only
+  thumbnail (`SourceEmbed` in `asset-source-browser.tsx`). It is kept only
   when it is https, carries no user name, password or port, and its host is
   one the plugin's `capabilities.network` lists (as `host` or `host:443`),
   which the person saw when allowing the plugin; `GET /library/sources` gives
@@ -1323,22 +1323,22 @@ and adds what they pick; only an added item becomes a Library asset.
   window's own page, never a frame.
 - `fetch` gets `{ id, mediaType }`, saves the file in `context.dataFolder`
   and returns `{ file, name?, author?, license?, url? }`, `file` relative to
-  that folder. The Library takes the file only from inside the folder, checks
+  that folder. OhMyGame takes the file only from inside the folder, checks
   its extension and first bytes as for an upload (200 MB at most), copies it
-  in and deletes the plugin's copy. A plugin's adds run one at a time, so it
-  may save every fetch under the same name. `author`, `license` and `url`
-  stay with the asset as `sourcedFrom` and show in its details; each one
-  `fetch` leaves out is taken from the result as its search showed it, so a
-  source may name them in its results alone.
-- Adding the same item again finds the same asset without fetching it again,
-  and puts it back in the Library after a remove.
+  into the project's `.ohmygame/media/imported/` and deletes the plugin's
+  copy. A plugin's adds run one at a time, so it may save every fetch under
+  the same name. `author`, `license` and `url` go in the workspace's
+  `CREDITS.md`; each one `fetch` leaves out is taken from the result as its
+  search showed it, so a source may name them in its results alone.
+- Adding the same item again, to this project or another, uses the file
+  already downloaded.
 - These calls run outside any project, in an app-wide extension host, so a
   project's own plugin choices don't apply. A source is offered only while
   its plugin is installed, runs in this app, is on (its switch on the Plugins
   page) and has been allowed everything it asks for; the host stops when that
   ends.
 - Agents search a source too, with
-  [`library_search`](runtime.md#library): the same `search` call, whose words
+  [`library_search`](runtime.md#assets-and-their-sources): the same `search` call, whose words
   an agent writes, so a source's description should say when its queries
   reach another site. Its results reach the agent without `data:` thumbnails
   or previews. `library_use` adds one through the same `fetch` once the
@@ -2268,10 +2268,10 @@ own that changes when it loads and when a `files` event names a `.js` or
 runs the module as it is now; modules a page already imported stay as they
 were in it until it imports them again.
 
-### Adding to the Library
+### Adding to the project's assets
 
 With `capabilities.library` (API 2.35.0), a page puts what it makes in the
-person's Library rather than offering a download, such as an effect rendered
+project's media rather than offering a download, such as an effect rendered
 as a sprite sheet:
 
 ```js
@@ -2282,10 +2282,10 @@ The file is a PNG, JPEG or WebP image, a sound, a video or a 3D model of at
 most 200 MB, named with its type; a `File` keeps its own name unless given
 one. Its data must be the type its name says, and SVG isn't taken, since it
 can hold a script. `prompt`, at most 1,000 characters, says what it was made
-from. It is saved in the Library as generated, with `addedBy` naming the
-plugin, which the Library's details show; the person sees a toast as each
-one comes. Only a page that shows adds, at most 2 at once and 20 a minute;
-a Plugin Builder preview doesn't add to the person's Library
+from. It is copied into the project's `.ohmygame/media/imported/`, stored
+with `addedBy` naming the plugin; the person sees a toast as each one comes.
+Only a page that shows adds, at most 2 at once and 20 a minute; a Plugin
+Builder preview doesn't add to the person's projects
 (`/projects/:id/plugin-library/:publisher/:name` in `src/daemon/app.ts`).
 
 ### AI models

@@ -261,8 +261,8 @@ lets `game_use` use its game through the plugin; see
 
 ## Recording a game
 
-The desktop app records a running game to a video in the Library, where the
-trimmer can cut it down. **Record the game** in the game toolbar's more menu
+The desktop app records a running game to a video in the project's Assets,
+where the trimmer can cut it down. **Record the game** in the game toolbar's more menu
 starts it while the game runs; the recording's time then shows beside Play in
 the top bar and stops it. {Cmd or Ctrl}+Shift+R starts and stops it with the
 game in focus. In the Play

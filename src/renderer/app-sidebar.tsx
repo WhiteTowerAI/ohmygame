@@ -12,8 +12,6 @@ import {
   House,
   HouseBold,
   InfoCircle,
-  Layers3,
-  Layers3Bold,
   LogIn,
   MessageCircle,
   PanelToggle,
@@ -316,7 +314,6 @@ function SidebarResizer({ width }: { width: number }) {
 const SECTIONS: { page: SidebarPage; label: () => string; icon: IconComponent; activeIcon: IconComponent }[] = [
   { page: "home", label: () => t("sidebar.home"), icon: House, activeIcon: HouseBold },
   { page: "projects", label: () => t("sidebar.projects"), icon: FolderWithFiles, activeIcon: FolderWithFilesBold },
-  { page: "library", label: () => t("sidebar.library"), icon: Layers3, activeIcon: Layers3Bold },
   { page: "community", label: () => t("sidebar.community"), icon: UsersGroupRounded, activeIcon: UsersGroupRoundedBold },
   { page: "plugins", label: () => t("sidebar.plugins"), icon: Plug, activeIcon: PlugBold },
 ];
@@ -357,8 +354,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
           <SidebarItem icon={<Search size="md" />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
-          {/* The library is on its way out: it stays listed only while open. */}
-          {SECTIONS.filter((item) => item.page !== "library" || active === "library").map(({ page, label, icon: Icon, activeIcon: ActiveIcon }) => (
+          {SECTIONS.map(({ page, label, icon: Icon, activeIcon: ActiveIcon }) => (
             <SidebarItem key={page} icon={active === page ? <ActiveIcon size="md" /> : <Icon size="md" />} label={label()} active={active === page}
               onClick={() => onNavigate(page)} />
           ))}

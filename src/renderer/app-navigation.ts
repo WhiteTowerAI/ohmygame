@@ -99,8 +99,6 @@ function returnPageLabel(hash: string): string {
   switch (route.page) {
     case "home":
       return t("sidebar.home");
-    case "library":
-      return t("sidebar.library");
     case "community":
       return t("sidebar.community");
     case "game":

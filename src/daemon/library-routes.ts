@@ -3,12 +3,12 @@ import { createReadStream } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CreateLibraryImageRequest, LibraryAsset, LibrarySourceSearchRequest, LibraryUploadMediaType } from "../shared/contracts.js";
-import type { LibrarySources } from "./library-sources.js";
+import type { LibrarySources, SourceItemToAdd } from "./library-sources.js";
 import { ASSET_SOURCE_MEDIA } from "../shared/plugin-manifest.js";
 import { MEDIA_CONTENT_TYPES } from "../shared/media-files.js";
 import { AssetLibraryError, isLibraryAssetDerivation, type AssetLibrary } from "./asset-library.js";
 import { sniffImageType } from "./image-format.js";
-import { ProjectLibraryReferenceError, type ProjectManager } from "./projects.js";
+import type { ProjectManager } from "./projects.js";
 import { workspaceMediaInfo } from "./workspace.js";
 
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -26,7 +26,13 @@ export const ASSET_NAME_BODY_SCHEMA = {
  * the Library shows the `saved` ones: uploaded on its page, saved from a project,
  * or recorded from a game. Other uploads are stored for the project that made them.
  */
-export function registerLibraryRoutes(app: FastifyInstance, { projects, library, sources }: { projects: ProjectManager; library: AssetLibrary; sources: LibrarySources }): void {
+export function registerLibraryRoutes(app: FastifyInstance, { projects, library, sources, addFromSource }: {
+  projects: ProjectManager;
+  library: AssetLibrary;
+  sources: LibrarySources;
+  /** Downloads a source's result into a project's media, with its credit. */
+  addFromSource: (projectId: string, source: string, item: SourceItemToAdd, signal: AbortSignal) => Promise<{ path: string; name: string }>;
+}): void {
   app.get("/library/assets", async (request) => {
     const associations = await projects.libraryAssetAssociations((project, cause) => request.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"));
     return library.list().map((asset) => ({
@@ -79,7 +85,7 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     }
   });
 
-  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference"; saved?: "true"; trimSource?: string; trimStart?: string; trimEnd?: string }; Body: Buffer }>("/library/assets/upload", {
+  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference"; projectId?: string; trimSource?: string; trimStart?: string; trimEnd?: string }; Body: Buffer }>("/library/assets/upload", {
     schema: {
       querystring: {
         type: "object",
@@ -90,7 +96,8 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
           mediaType: { type: "string", enum: [...MEDIA_CONTENT_TYPES] },
           duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
           purpose: { enum: ["asset", "reference"] },
-          saved: { type: "string", enum: ["true"] },
+          // A game recording, put in the media of the project it was recorded in.
+          projectId: { type: "string", minLength: 1, maxLength: 200 },
           trimSource: { type: "string", minLength: 1, maxLength: 200 },
           trimStart: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
           trimEnd: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
@@ -117,7 +124,10 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
       return reply.code(400).send({ error: "Invalid trim source" });
     }
     try {
-      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, saved: request.query.saved === "true", ...(duration !== undefined ? { duration } : {}), ...(derivedFrom ? { derivedFrom } : {}) }));
+      const { projectId } = request.query;
+      if (projectId && !projects.get(projectId)) return reply.code(404).send({ error: "Project not found" });
+      const asset = await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}), ...(derivedFrom ? { derivedFrom } : {}) });
+      return reply.code(201).send(projectId ? { ...asset, projectPath: (await projects.materializeLibraryAsset(projectId, asset.id)).path } : asset);
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
@@ -138,20 +148,7 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     }
   });
 
-  app.patch<{ Params: { assetId: string }; Body: { name: string } }>(
-    "/library/assets/:assetId",
-    { schema: { body: ASSET_NAME_BODY_SCHEMA } },
-    async (request, reply) => {
-      try {
-        return await library.rename(request.params.assetId, request.body.name);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
-      }
-    },
-  );
-
-  // Plugins' sources, shown as tabs beside Local: their searches, and adding a result to the Library.
+  // Plugins' sources, shown as tabs in a project's Assets: their searches, and adding a result to the project.
   app.get<{ Querystring: { locale?: string } }>("/library/sources", async (request) => (
     sources.list(request.query.locale === "zh-CN" ? "zh-CN" : "en")
   ));
@@ -173,7 +170,7 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
     },
   }, async (request, reply) => sourceCall(reply, (signal) => sources.search(request.body, signal)));
 
-  app.post<{ Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"]; author?: string; license?: string; url?: string } }>("/library/sources/add", {
+  app.post<{ Params: { projectId: string }; Body: { source: string; id: string; mediaType: LibraryAsset["mediaType"]; author?: string; license?: string; url?: string } }>("/projects/:projectId/assets/source", {
     schema: {
       body: {
         type: "object",
@@ -190,27 +187,10 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library,
         },
       },
     },
-  }, async (request, reply) => sourceCall(reply, (signal) => sources.add(request.body.source, request.body, signal), 201));
-
-  // Removing from the Library never touches a project: what one uses stays stored for it, and only
-  // what nothing uses is deleted. When usage can't be read, as while a project's folder is
-  // unavailable, it is treated as used.
-  app.delete<{ Params: { assetId: string } }>("/library/assets/:assetId", async (request, reply) => {
-    const id = request.params.assetId;
-    try {
-      if (!library.get(id)) return reply.code(404).send({ error: "Library asset not found" });
-      const used = await projects.referencesLibraryAsset(id).then((references) => references.length > 0, (cause: unknown) => {
-        if (!(cause instanceof ProjectLibraryReferenceError)) throw cause;
-        request.log.warn({ assetId: id, err: cause }, "Could not read Library asset usage; keeping its file");
-        return true;
-      });
-      if (used) await library.unsave(id);
-      else await library.delete(id);
-      return reply.code(204).send();
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
-    }
+  }, async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    const { source, ...item } = request.body;
+    return sourceCall(reply, (signal) => addFromSource(request.params.projectId, source, item, signal), 201);
   });
 }
 

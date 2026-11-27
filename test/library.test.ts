@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterLibraryAssets } from "../src/renderer/library.js";
+import { filterLibraryAssets } from "../src/renderer/library-assets.js";
 import type { LibraryAsset } from "../src/renderer/library-assets.js";
 import { canvasAssetDownloadName, libraryAssetProjects } from "../src/renderer/library-assets.js";
 import { inAssetPeriod, sortAssets } from "../src/renderer/asset-sort.js";

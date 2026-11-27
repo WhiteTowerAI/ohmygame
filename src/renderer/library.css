@@ -1,14 +1,4 @@
-/* The Library page. Layout pieces only; the controls are ui components. */
-
-.library-page-search {
-  width: 260px;
-  min-width: 0;
-  flex-shrink: 1;
-}
-
-.library-page-search .ui-input {
-  width: 100%;
-}
+/* Media lists: a project's Assets, its sources and the pickers. Layout pieces only; the controls are ui components. */
 
 .library-filter-row {
   display: flex;
@@ -27,7 +17,6 @@
   margin-left: auto;
 }
 
-.library-page-error,
 .library-page-dialog-error {
   margin: 0 0 var(--space-3);
   color: var(--color-danger);
@@ -200,19 +189,6 @@
   font-size: var(--text-sm);
 }
 
-.library-sheet-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.library-sheet-state[role="alert"] {
-  color: var(--color-danger);
-}
-
 .library-sheet-props {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -230,18 +206,6 @@
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.library-mono {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.library-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-accent);
 }
 
 /* A plugin source: what it offers, then its results a page at a time. */
@@ -281,96 +245,3 @@ img.library-pixel-art,
   padding-bottom: var(--space-6);
 }
 
-.library-sheet-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.library-sheet-section header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.library-sheet-section h3 {
-  margin: 0;
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-}
-
-.library-sheet-section p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-
-/* dialogs */
-.library-trim .video-trimmer {
-  padding: 0;
-}
-
-.library-trim .video-trimmer > video {
-  max-height: min(52vh, 480px);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-}
-
-.library-trim .video-trimmer-bar,
-.library-trim .video-trimmer-footer {
-  padding: 0;
-}
-
-/* Files dropped anywhere on the page upload to the Library. */
-.library-drop-region {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  min-height: calc(100dvh - 80px);
-}
-
-/* Header, source tabs and panel are spaced as on the Plugins page. */
-.library-drop-region > .sidebar-page-header {
-  padding-bottom: 0;
-}
-
-.library-toolbar {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.library-drop-overlay {
-  position: absolute;
-  inset: var(--space-2) 0 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-6);
-  border: 1px dashed var(--color-accent);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
-  color: var(--color-text);
-  font-size: var(--text-lg);
-  text-align: center;
-  pointer-events: none;
-}
-
-.library-drop-message {
-  position: sticky;
-  top: 50dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  transform: translateY(-50%);
-}
-
-.library-drop-overlay svg {
-  color: var(--color-accent);
-}

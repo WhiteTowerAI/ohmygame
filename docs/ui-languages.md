@@ -52,5 +52,5 @@ cloud credential setup, are displayed as received so their meaning is preserved.
 ## Terminology
 
 Keep Agent, MCP, Skills, Pi, API, and Base URL in English. Use 画布 for
-Canvas, 素材库 for Library, 素材画布 for Asset Canvas, 场景 for Scene,
+Canvas, 素材 for Assets, 素材画布 for Asset Canvas, 场景 for Scene,
 故事地图 for Story map, 服务商 for provider, and 试玩 for play or playtest.

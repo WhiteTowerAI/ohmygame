@@ -8,26 +8,21 @@ import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
-import { Button, IconButton, Tabs } from "./ui/index.js";
+import { Button, IconButton } from "./ui/index.js";
 import { t } from "./i18n.js";
 
-/** The Library picker the canvases share, and the Library upload behind it. */
-export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, libraryTab = false, multiple, onUpload, onClose, onSelect }: {
+/** The media picker the canvases share: the project's media and other projects', and the upload behind it. */
+export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, multiple, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];
   /** Limits the initial view to assets associated with the current project. */
   projectId?: string;
   /** Keeps the current project available in the filter even before it has assets. */
   project?: LibraryAssetProject;
-  /** Offers Upload next to the Library, for a new file instead. */
+  /** Offers Upload beside the media, for a new file instead. */
   onUpload?: () => void;
   uploading?: boolean;
   includeReferences?: boolean;
-  /**
-   * Opens on what the Library page shows, the assets saved to it from any
-   * project, with a second tab for the project's own media as filtered here.
-   */
-  libraryTab?: boolean;
   /** Picks several: items toggle, and the footer's button hands over the picks once there are at least `min`. */
   multiple?: { min: number; max: number; action: (count: number) => string; onSubmit: (assets: LibraryAsset[]) => void };
   onClose: () => void;
@@ -39,9 +34,6 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
     ? current.filter((item) => item.id !== asset.id)
     : current.length >= (multiple?.max ?? Infinity) ? current : [...current, asset]);
   const [filters, setFilters] = useState<LibraryAssetFilters>({ includeReferences, ...(projectId ? { projectId } : {}) });
-  const [scope, setScope] = useState<"library" | "project">(libraryTab ? "library" : "project");
-  const inLibrary = scope === "library";
-  const saved = useMemo(() => assets.filter((asset) => asset.saved), [assets]);
   const dialog = useRef<HTMLElement>(null);
   // Parents may pass a fresh onClose each render; depending on it would re-run this effect and steal focus from search.
   const onCloseRef = useRef(onClose);
@@ -55,28 +47,21 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
     return () => document.removeEventListener("keydown", closeOnEscape, true);
   }, []);
 
-  const visibleAssets = useMemo(() => inLibrary
-    // As the Library page lists them: every saved asset, references too.
-    ? filterLibraryAssets(saved, "all", query, { origin: "all", includeReferences: true })
-    : filterLibraryAssets(assets, "all", query, filters), [inLibrary, query, saved, assets, filters]);
+  const visibleAssets = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [query, assets, filters]);
 
   return createPortal(
     <div className="canvas-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className={libraryTab ? "canvas-video-picker has-scopes" : "canvas-video-picker"} ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-video-picker-title" tabIndex={-1}>
+      <section className="canvas-video-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="canvas-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="canvas-video-picker-title">{title}</h2>
           {onUpload ? <Button size="sm" className="canvas-video-picker-upload" disabled={uploading} icon={uploading ? <Spinner size="sm" /> : <Upload size="sm" />} onClick={onUpload}>{t("assetCanvas.upload")}</Button> : null}
           <IconButton size="sm" label={t("libraryPicker.closePicker")} onClick={onClose}><X size="md" /></IconButton>
         </header>
-        {libraryTab ? <div className="library-picker-scopes"><Tabs variant="pills" label={t("libraryPicker.scopes")} value={scope} onChange={setScope} tabs={[
-          { value: "library", label: t("libraryPicker.libraryTab") },
-          { value: "project", label: t("libraryPicker.projectTab") },
-        ]} /></div> : null}
-        <div className="library-picker-toolbar"><label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("libraryPicker.searchLibrary")} /></label>
-          {inLibrary ? null : <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />}
+        <div className="library-picker-toolbar"><label><Search size="sm" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("libraryPicker.search")} /></label>
+          <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />
         </div>
         <div className="canvas-video-picker-list">
-          {visibleAssets.length === 0 ? <p>{(inLibrary ? saved : assets).length ? t("libraryPicker.noMatch") : inLibrary ? t("libraryPicker.libraryEmpty") : t("libraryPicker.empty")}</p> : null}
+          {visibleAssets.length === 0 ? <p>{assets.length ? t("libraryPicker.noMatch") : t("libraryPicker.empty")}</p> : null}
           {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} {...(multiple ? { selected: picked.some((item) => item.id === asset.id) } : {})} onSelect={() => multiple ? toggle(asset) : onSelect?.(asset)} />)}
         </div>
         {multiple ? <footer className="library-picker-footer">
@@ -89,7 +74,7 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
   );
 }
 
-/** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
+/** One asset in the picker: its thumbnail, loaded once it scrolls near view, and its name. */
 function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset; selected?: boolean; onSelect: () => void }) {
   const [item, visible] = useNearViewport<HTMLButtonElement>(asset.mediaType !== "model");
   const badge = assetTypeBadge(asset.mediaType);
@@ -103,7 +88,7 @@ function LibraryPickerItem({ asset, selected, onSelect }: { asset: LibraryAsset;
   </button>;
 }
 
-/** Uploads a media file to the Library, with the limits every editor shares. */
+/** Uploads a media file to the store projects share, with the limits every editor shares. */
 export async function uploadLibraryFile(file: File): Promise<LibraryAsset> {
   const mediaType = libraryUploadMediaType(file);
   if (!mediaType) throw new Error(t("libraryPicker.uploadTypes"));

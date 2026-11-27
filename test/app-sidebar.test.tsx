@@ -83,7 +83,7 @@ afterEach(async () => {
   window.location.hash = "";
 });
 
-async function render(active: "home" | "library" | "settings" = "home") {
+async function render(active: "home" | "community" | "settings" = "home") {
   await act(async () =>
     root.render(
       <PageFrame active={active} onNavigate={onNavigate}>
@@ -113,8 +113,6 @@ it("lists the sections without the studios and marks the current one", async () 
   const sections = () => [
     ...sidebar().querySelectorAll(":scope > .sidebar-group")[1]!.children,
   ].map((item) => item.textContent);
-  // Library is reached from a project's assets and the command menu; the
-  // sidebar lists it only while it is open.
   expect(sections()).toEqual(["Home", "Projects", "Community", "Plugins"]);
   expect(sidebar().querySelector('[aria-current="page"]')?.textContent).toBe(
     "Home",
@@ -123,8 +121,6 @@ it("lists the sections without the studios and marks the current one", async () 
   button("Projects")!.click();
   expect(onNavigate).toHaveBeenCalledWith("projects");
   expect(container.querySelector(".page-sheet")?.textContent).toBe("Page");
-  await render("library");
-  expect(sections()).toEqual(["Home", "Projects", "Library", "Community", "Plugins"]);
 });
 
 const quickAccess = () =>
@@ -136,8 +132,8 @@ const numbered = (count: number) =>
     project(`p${index}`, `Project ${index}`, `2026-10-${10 + index}T00:00:00Z`));
 
 it("seeds the projects newest first, folds them, and opens one", async () => {
-  // Library has no project list of its own, so the sidebar loads one.
-  await render("library");
+  // Community has no project list of its own, so the sidebar loads one.
+  await render("community");
   expect(quickAccess()).toEqual(["New Rocket", "Old Garden"]);
 
   // A page that reloads the list hands it over, so a rename shows at once.
@@ -162,7 +158,7 @@ it("seeds the projects newest first, folds them, and opens one", async () => {
 
 describe("the project list's order and count", () => {
   beforeEach(async () => {
-    await render("library");
+    await render("community");
     await act(async () => {
       publishSidebarProjects([]);
       publishSidebarProjects(numbered(3));
@@ -287,7 +283,7 @@ it("collapses to icons and resizes from its edge, remembering both", async () =>
   // Another page's frame opens the same way.
   await act(async () =>
     root.render(
-      <PageFrame active="library" onNavigate={onNavigate}>
+      <PageFrame active="community" onNavigate={onNavigate}>
         {null}
       </PageFrame>,
     ),

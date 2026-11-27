@@ -150,11 +150,14 @@ export function createGameUseTool(
   {
     catalog = false,
     maxFrame,
+    keepRecording,
   }: {
     /** List every operation any runtime has, as an outside agent's catalog does. */
     catalog?: boolean;
     /** The highest frame a plugin's captureFrame takes. */
     maxFrame?: number;
+    /** Puts a finished recording in the project's media, returning its path there. */
+    keepRecording?: (assetId: string) => Promise<string>;
   } = {},
 ): ToolDefinition<GameUseToolInput> {
   const plugin = driver.capabilities.runtime === "plugin";
@@ -179,7 +182,7 @@ export function createGameUseTool(
           "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
           "For a multiplayer game, open one session per player: each is a separate browser and so a separate guest. Use actTogether to give several players input at the same time, such as moving toward each other, and samples to compare every player's game state while they move; act moves one player while the others wait",
           "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
-          "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
+          "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the project's media, and is not something you can watch, so use screenshots for your own verification",
         ],
     parameters: catalog ? catalogParameters : plugin ? pluginParameters(driver, maxFrame) : parameters,
     executionMode: "sequential",
@@ -231,7 +234,9 @@ export function createGameUseTool(
         requireCapability(driver, "video", "observation");
         const result = await driver.request({ operation: "recordStop", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
         if (result.operation !== "recordStop") throw new Error("Unexpected game use response");
-        return { content: [{ type: "text", text: `Saved the recording to the Library: ${JSON.stringify(result.recording)}` }], details: undefined };
+        const { assetId, ...recording } = result.recording;
+        const saved = keepRecording ? { path: await keepRecording(assetId), ...recording } : result.recording;
+        return { content: [{ type: "text", text: `Saved the recording${keepRecording ? " to the project" : ""}: ${JSON.stringify(saved)}` }], details: undefined };
       }
       if (input.operation === "close") {
         const sessionId = requiredSessionId(input.operation, input.sessionId);

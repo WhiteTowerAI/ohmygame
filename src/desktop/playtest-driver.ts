@@ -551,7 +551,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     state.proxy?.close();
     this.#sessions.delete(id);
     this.#publishWatchState();
-    // Whatever was being recorded still goes to the Library.
+    // Whatever was being recorded is still saved.
     this.recorder?.stop(recordingId(id));
     if (!state.window.isDestroyed()) {
       if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();

@@ -5,7 +5,6 @@ import { isProjectType } from "../shared/project-runtime.js";
 export type SidebarPage =
   | "home"
   | "projects"
-  | "library"
   | "plugins"
   | "community";
 
@@ -21,9 +20,7 @@ type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects" | "plugins
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "general";
 
-const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "library",
-]);
+const SIDEBAR_PAGES = new Set<SidebarRoutePage>(["home"]);
 
 export type AppRoute =
   | { page: SidebarRoutePage }

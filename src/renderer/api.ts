@@ -1274,9 +1274,6 @@ export async function deleteWorkspaceEntry(projectId: string, filePath: string):
   await request(`/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
 }
 
-export async function saveProjectAssetToLibrary(projectId: string, filePath: string): Promise<LibraryAsset> {
-  return request(`/projects/${encodeURIComponent(projectId)}/assets/library?path=${encodeURIComponent(filePath)}`, { method: "POST" });
-}
 
 export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
   return request("/library/assets");
@@ -1291,15 +1288,15 @@ export interface LibraryUploadOptions {
   purpose?: LibraryAssetPurpose;
   /** The Library video or audio an upload was cut from. */
   derivedFrom?: LibraryAssetDerivation;
-  /** Show it on the Library page. Without it, the upload is only stored for the project that uses it. */
-  saved?: boolean;
+  /** Puts the upload in this project's media too. */
+  projectId?: string;
 }
 
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, saved }: LibraryUploadOptions = {}): Promise<LibraryAsset> {
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, projectId }: LibraryUploadOptions = {}): Promise<LibraryAsset & { projectPath?: string }> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
-  if (saved) query.set("saved", "true");
+  if (projectId) query.set("projectId", projectId);
   if (derivedFrom) {
     query.set("trimSource", derivedFrom.assetId);
     query.set("trimStart", String(derivedFrom.trim.start));
@@ -1357,9 +1354,6 @@ export async function addLibraryAssetToProject(projectId: string, assetId: strin
   return request(`/projects/${encodeURIComponent(projectId)}/library-assets/${encodeURIComponent(assetId)}`, { method: "POST" });
 }
 
-export async function renameLibraryAsset(assetId: string, name: string): Promise<LibraryAsset> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
-}
 
 /** The Library's sources from plugins, shown as tabs beside Local. */
 export async function listLibrarySources(): Promise<LibrarySource[]> {
@@ -1370,17 +1364,15 @@ export async function searchLibrarySource(search: LibrarySourceSearchRequest, si
   return request("/library/sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
 }
 
-/** Fetches a source's result and puts it in the Library; adding it again returns the same asset. */
-/** Adds a source's result to the Library, with the credit it showed for a source whose download gives none. */
-export async function addLibrarySourceItem(source: string, item: Pick<LibrarySourceItem, "id" | "mediaType" | "author" | "license" | "url">): Promise<LibraryAsset> {
+/**
+ * Downloads a source's result into the project's media, with its credit in
+ * CREDITS.md, keeping the credit it showed for a source whose download gives none.
+ */
+export async function addSourceItemToProject(projectId: string, source: string, item: Pick<LibrarySourceItem, "id" | "mediaType" | "author" | "license" | "url">): Promise<{ path: string; name: string }> {
   const { id, mediaType, author, license, url } = item;
-  return request("/library/sources/add", { method: "POST", body: JSON.stringify({ source, id, mediaType, ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) }) });
+  return request(`/projects/${encodeURIComponent(projectId)}/assets/source`, { method: "POST", body: JSON.stringify({ source, id, mediaType, ...(author ? { author } : {}), ...(license ? { license } : {}), ...(url ? { url } : {}) }) });
 }
 
-/** Takes an asset out of the Library; projects that use it keep it, and its file goes only when none does. */
-export async function removeLibraryAsset(assetId: string): Promise<void> {
-  await request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-}
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
   return request(`/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`);
@@ -2222,7 +2214,7 @@ export async function clearPluginAssistant(projectId: string, plugin: string, pa
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`, { method: "DELETE" });
 }
 
-/** Adds a file a plugin's page made to the Library, under the plugin's name. */
+/** Adds a file a plugin's page made to the project's media, under the plugin's name. */
 export async function addPluginLibraryAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }> {
   const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
   const asset = await request<{ id: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {

@@ -57,7 +57,6 @@ describe("Library store upgrade", () => {
     expect(JSON.parse(await readFile(manifest, "utf8")).type).toBe("interactive-story");
     expect(await readFile(graph, "utf8")).toBe(original);
     // Other references in a project skipped during migration still need their bytes.
-    expect((await retry.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(204);
     expect((await retry.inject({ method: "GET", url: `/library/assets/${image.id}/content` })).statusCode).toBe(200);
     await retry.close();
 
@@ -69,7 +68,6 @@ describe("Library store upgrade", () => {
     const assets = JSON.parse(await readFile(graph, "utf8")).assets;
     expect(assets.portrait).toMatchObject({ future: 7, source: { kind: "workspace" } });
     expect(assets.second.source).toEqual(assets.portrait.source);
-    expect((await reopened.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(204);
     expect(await readFile(path.join(project.workspacePath, assets.portrait.source.path))).toEqual(Buffer.from("iVBORw0KGgo=", "base64"));
   });
 
@@ -93,28 +91,8 @@ describe("Library store upgrade", () => {
   });
 });
 
-describe("Remove from Library", () => {
-  it("keeps the file while a project's folder is unavailable, as its usage can't be read", async () => {
-    const first = await setup();
-    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-library-external-"));
-    expect((await first.inject({ method: "POST", url: "/projects", payload: { name: "External", workspacePath } })).statusCode).toBe(201);
-    const response = await first.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=portrait.png&mediaType=image%2Fpng&saved=true",
-      headers: { "content-type": "application/octet-stream" },
-      payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    });
-    const asset = response.json<LibraryAsset>();
-    // Gone while the app runs, as when a drive is disconnected.
-    await rm(workspacePath, { recursive: true, force: true });
-    expect((await first.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(204);
-    expect((await list(first)).find((candidate) => candidate.id === asset.id)).toMatchObject({ saved: false });
-    expect((await first.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(200);
-  });
-});
-
 describe("Library provenance and project filters", () => {
-  it("keeps upload provenance across projects and only saves project files explicitly", async () => {
+  it("keeps upload provenance across projects", async () => {
     const app = await setup();
     const asset = await upload(app);
     const first = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Forest" } })).json<ProjectState>();
@@ -122,34 +100,29 @@ describe("Library provenance and project filters", () => {
     for (const project of [first, second]) {
       expect((await app.inject({ method: "POST", url: `/projects/${project.id}/library-assets/${asset.id}` })).statusCode).toBe(201);
     }
-    await writeFile(path.join(first.workspacePath, "sprite.png"), "project media");
-    expect(await list(app)).toHaveLength(1);
-    const saved = await app.inject({ method: "POST", url: `/projects/${first.id}/assets/library?path=sprite.png` });
-    expect(saved.statusCode, saved.body).toBe(201);
     const assets = await list(app);
-    expect(assets).toHaveLength(2);
+    expect(assets).toHaveLength(1);
     expect(assets.find((candidate) => candidate.id === asset.id)).toMatchObject({ origin: "uploaded", referenceOnly: false, projects: [{ id: first.id, name: "Forest" }, { id: second.id, name: "City" }] });
-    expect(assets.find((candidate) => candidate.name === "sprite.png")).toMatchObject({ origin: "workspace", saved: true, projects: [{ id: first.id }] });
     expect(await list(app)).toEqual(assets);
     await app.inject({ method: "PATCH", url: `/projects/${first.id}`, payload: { name: "New Forest" } });
     expect((await list(app)).find((candidate) => candidate.id === asset.id)?.projects[0]?.name).toBe("New Forest");
   });
 
-  it("keeps repeated saves stable and saves the latest contents after a project file changes", async () => {
+  it("puts an upload for a project, as a game recording, in the project's media", async () => {
     const app = await setup();
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json<ProjectState>();
-    const file = path.join(project.workspacePath, "sprite.png");
-    await writeFile(file, "first");
-    const url = `/projects/${project.id}/assets/library?path=sprite.png`;
-    const first = (await app.inject({ method: "POST", url })).json<LibraryAsset>();
-    const repeated = (await app.inject({ method: "POST", url })).json<LibraryAsset>();
-    expect(repeated.id).toBe(first.id);
-    await writeFile(file, "changed");
-    const changed = (await app.inject({ method: "POST", url })).json<LibraryAsset>();
-    expect(changed.id).not.toBe(first.id);
-    expect(changed).toMatchObject({ saved: true, origin: "workspace" });
-    expect((await app.inject({ method: "GET", url: `/library/assets/${changed.id}/content` })).body).toBe("changed");
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/assets/library?path=../outside.png` })).statusCode).toBe(400);
+    const upload = (projectId: string) => app.inject({
+      method: "POST",
+      url: `/library/assets/upload?name=play.webm&mediaType=video%2Fwebm&duration=2&projectId=${projectId}`,
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81]),
+    });
+    const response = await upload(project.id);
+    expect(response.statusCode, response.body).toBe(201);
+    const { projectPath } = response.json<{ projectPath: string }>();
+    expect(projectPath).toMatch(/^\.ohmygame\/media\/imported\/play.*\.webm$/);
+    expect(await readFile(path.join(project.workspacePath, projectPath))).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81]));
+    expect((await upload("missing")).statusCode).toBe(404);
   });
 
   it("distinguishes canvas reference inputs from materialized assets and standalone nodes", async () => {
