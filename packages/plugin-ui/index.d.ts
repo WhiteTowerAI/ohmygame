@@ -23,6 +23,7 @@ export type PluginUiMethod =
   | "models.complete"
   | "models.cancel"
   | "panel.open"
+  | "assets.add"
   | "library.add"
   | "assistant.run"
   | "assistant.history"
@@ -387,17 +388,30 @@ export interface PluginUiHost {
     open(panel: string, options?: { state?: unknown }): Promise<null>;
   };
   /**
-   * The person's Library, with `capabilities.library` (API 2.35.0), where a
-   * page puts what it makes instead of a download. Each file is listed as
-   * added by the plugin, and the person sees a toast as it comes.
+   * The project's assets, with `capabilities.library` (API 2.38.0), where a
+   * page puts what it makes instead of a download. Each file goes in the
+   * project's media, listed as added by the plugin, and the person sees a
+   * toast as it comes.
    */
-  library: {
+  assets: {
     /**
      * Adds a PNG, JPEG or WebP image, sound, video or 3D model of at most
      * 200 MB, named with its type, such as `ricochet.png`: a File keeps its
      * own name unless given one. `prompt`, at most 1,000 characters, says
      * what it was made from. Only while the page shows; a plugin adds at
-     * most 2 at once and 20 a minute.
+     * most 2 at once and 20 a minute. Resolves with the file's path in the
+     * project.
+     */
+    add(file: Blob | File, options?: { name?: string; prompt?: string }): Promise<{ path: string; name: string; mediaType: "image" | "video" | "audio" | "model" }>;
+  };
+  /**
+   * @deprecated Since API 2.38.0, when the Library became the project's
+   * assets: use `assets`. Removed in API 3.0.0. `library.add` adds to the
+   * project's assets the same way and resolves with an `id`.
+   */
+  library: {
+    /**
+     * @deprecated Use `assets.add`.
      */
     add(file: Blob | File, options?: { name?: string; prompt?: string }): Promise<{ id: string; name: string; mediaType: "image" | "video" | "audio" | "model" }>;
   };

@@ -85,9 +85,9 @@ export interface PluginPageContext {
     models(media: "image" | "audio", kind?: string): Promise<unknown>;
     generate(request: Record<string, unknown>, signal: AbortSignal): Promise<{ files: Array<{ data: string; type: string }> }>;
   };
-  /** The person's Library, with `library`: adds a file the page made, and says what it is now. */
-  library?: {
-    add(name: string, contents: Blob, prompt?: string): Promise<{ id: string; name: string; mediaType: string }>;
+  /** The project's assets, with `library`: adds a file the page made, and says where it is. */
+  assets?: {
+    add(name: string, contents: Blob, prompt?: string): Promise<{ id: string; path: string; name: string; mediaType: string }>;
   };
   /** Whether the person can see the panel now; a page asks a model only then. */
   visible?: () => boolean;
@@ -246,11 +246,14 @@ export async function handlePluginUiRequest(
       if (!context.openBrowser) throw new Error("The browser is only in the desktop app");
       await context.openBrowser(params.url as string);
       return null;
-    case "library.add":
-      if (!context.library) throw new Error("There is no Library here");
+    case "assets.add":
+    case "library.add": {
+      if (!context.assets) throw new Error("This page can't add to the project's assets here");
       // As with asking a model: the person sees what the page adds while it does.
-      if (context.visible && !context.visible()) throw new Error("This page isn't showing, so it can't add to the Library");
-      return context.library.add((params.name as string).trim(), params.data as Blob, params.prompt as string | undefined);
+      if (context.visible && !context.visible()) throw new Error("This page isn't showing, so it can't add to the project's assets");
+      const { id, path, name, mediaType } = await context.assets.add((params.name as string).trim(), params.data as Blob, params.prompt as string | undefined);
+      return request.method === "assets.add" ? { path, name, mediaType } : { id, name, mediaType };
+    }
     case "models.list":
       if (!context.models) throw new Error("There are no AI models here");
       return context.models.list();
@@ -610,7 +613,7 @@ export function PluginFrame({
       return { state: latestOpen.state };
     },
     // The daemon limits how often a plugin adds.
-    get library() { return latest.current.library; },
+    get assets() { return latest.current.assets; },
     // The frame knows whether it shows, whatever the context says; a minimised window doesn't.
     visible: () => shown.current && !document.hidden,
     get fetch() { return latest.current.fetch; },

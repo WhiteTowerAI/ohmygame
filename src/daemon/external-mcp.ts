@@ -40,8 +40,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "project_guide",
   "canvas_initialize",
   "generate_canvas_media",
-  "library_search",
-  "library_use",
+  "asset_search",
   "game_use",
   "browser_use",
   "panel_screenshot",
@@ -77,7 +76,7 @@ const INSTRUCTIONS = [
   "Every tool except list_projects and open_project acts on one OhMyGame project. Working in a project folder selects it; otherwise call list_projects and open_project.",
   `Call ${MEDIA_MODEL_QUERY} when you need to know the selected project’s effective model or its capabilities.`,
   "Generation tools return their result when it is ready within about 45 seconds; otherwise they return a jobId. Call wait_job with it until the job finishes, and do not start the same generation again.",
-  "Generated files are saved in the project workspace and its asset library; results name each file's workspace-relative path. Read them with your own file tools.",
+  "Generated files are saved in the project workspace; results name each file's workspace-relative path. Read them with your own file tools.",
 ].join("\n");
 
 const OWN_TOOLS: BridgeTool[] = [

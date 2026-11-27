@@ -240,7 +240,7 @@ export interface ApprovalRequestDetails {
   /** Host-managed plugin target consent; only allow-always persists it. */
   pluginAccess?: { plugin: string; label: string };
   /**
-   * `library_use` adding a source's result: what it is, for the window to
+   * `asset_use` adding a source's result: what it is, for the window to
    * word in the person's language. `title` and `reason` say the same in
    * English, for a window that doesn't read this.
    */

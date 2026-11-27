@@ -529,10 +529,13 @@ describe("plugin page files protocol", () => {
     const { app, project } = await setup("write", "acme/files");
     const added = await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-library/acme/files?name=a.png`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) });
     expect(added.statusCode).toBe(403);
-    expect(pluginUiRefusal("library.add", {})).toBe("library.add needs the library capability");
-    const ask = (params: unknown) => readPluginUiRequest({ id: 1, method: "library.add", params });
+    expect(pluginUiRefusal("assets.add", {})).toBe("assets.add needs the library capability");
+    const ask = (params: unknown, method = "assets.add") => readPluginUiRequest({ id: 1, method, params });
     expect(ask({ name: "a.png", data: new Blob([new Uint8Array(4)]) })).toMatchObject({ ok: true });
-    expect(ask({ name: "a.png", data: new Blob([]) })).toMatchObject({ ok: false, error: "library.add needs the file, as a Blob" });
+    expect(ask({ name: "a.png", data: new Blob([]) })).toMatchObject({ ok: false, error: "assets.add needs the file, as a Blob" });
+    // The old name, deprecated in API 2.38.0, is read the same way.
+    expect(ask({ name: "a.png", data: new Blob([new Uint8Array(4)]) }, "library.add")).toMatchObject({ ok: true });
+    expect(ask({ name: "a.png", data: new Blob([]) }, "library.add")).toMatchObject({ ok: false, error: "library.add needs the file, as a Blob" });
     expect(ask({ name: "fx/a.png", data: new Blob([new Uint8Array(4)]) })).toMatchObject({ ok: false });
     expect(ask({ name: "a.png", data: new Blob([new Uint8Array(4)]), prompt: "x".repeat(1_001) })).toMatchObject({ ok: false });
   });

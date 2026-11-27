@@ -785,23 +785,22 @@ project it was recorded in. The canvas's **From assets** and the other media
 pickers list the project's media; their project filter reaches other
 projects', and picking one copies it in.
 
-Agents read sources with `library_search` (`src/daemon/library-agent-search.ts`),
+Agents read sources with `asset_search` (`src/daemon/asset-search.ts`),
 in OhMyGame's conversations, planning included, and through
-[external MCP](external-agents.md). Without `source` it searches the assets
-saved to the Library page before it was removed, and lists the turned-on
-sources with their collections; with `source` it runs that source's `search`.
+[external MCP](external-agents.md), offered only while a turned-on plugin has
+a source. Without `source` it lists the sources with their collections; with
+`source` it runs that source's `search`.
 A source's results reach the agent without carried pictures or sounds, marked
 as third-party text to treat as data, with a reminder to check licenses and
 credit authors. An answer is reused for the source's `cacheSeconds` or ten
 minutes, and one conversation may ask a source ten times a minute, so an agent
 can't spend a site's request limit.
 
-`library_use` copies one into the project's `.ohmygame/media/imported/`, as
-the panel does: a saved asset at once, and a source's result, one
-library_search showed in the same conversation, only after the person allows
-it there. An agent outside OhMyGame has no conversation to ask in, so it takes
-only saved assets. A copy whose asset carries an author or license gets its
-line in `CREDITS.md`. Game agents' instructions ask them to look here before
+`asset_use` adds one to the project's `.ohmygame/media/imported/`, as the
+panel does: a result asset_search showed in the same conversation, only after
+the person allows it there. An agent outside OhMyGame has no conversation to
+ask in, so it doesn't get `asset_use`. A file whose result carries an author
+or license gets its line in `CREDITS.md`. Game agents' instructions ask them to look here before
 generating media, and to generate what no source has.
 
 An image sent in a conversation, pasted or attached, is a reference, not part
@@ -809,7 +808,7 @@ of the game: it is kept on this computer in `.ohmygame/local/references/`,
 which no build, export or repository takes. The asset panel lists it as a
 reference, and Code shows that folder, alone of `local/`, to rename or delete
 it. Sending the same image again keeps one copy. The agent copies one into the
-game's own files when asked to use it; `library_use` and the canvas take a
+game's own files when asked to use it; `asset_use` and the canvas take a
 copy of their own in the project's media. Images sent before this stay where
 they were copied.
 

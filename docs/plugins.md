@@ -234,7 +234,7 @@ and the format of an older major is then upgraded where it loads, as
 | 2.35.0 | Commands can go in the Game panel's `game.start` slot, which shows when the panel has no web build to play, such as an engine's project. Library sources can declare `collections`, their own ways to browse them, and `cacheSeconds`, how long their browses are shown again; audio results can carry a `preview` to listen to before adding, and any result an `embed` page from a host the plugin lists in `capabilities.network`, which its details load on request. [Tools a panel's page answers](#page-tools-and-context) (`tools[].panel`, `host.tools.handle`), and what a page says the person is looking at for the next message (`context.set`, with `composer`). A page's writes and deletes under the plugin's `projectFiles` wait while an agent works instead of being refused. Pages and native code ask the language models the person set up ([AI models](#ai-models): `capabilities.models`, `host.models`, `context.models`). Pages import the project's modules from the folders `ui.projectModules` names ([project modules](#project-modules), `host.modules.import`). Commands, pages (`host.panels.open`) and native code (`context.panels.open`) open a panel with a `state` its page hears ([opening a panel](#opening-a-panel): `host.opened`, the `open` event). Pages add what they make to the project's media ([adding to the project's assets](#adding-to-the-projects-assets): `capabilities.library`, `host.library.add`). Pages `fetch` their own plugin's files ([plugin pages](#plugin-pages)). A panel's assistant runs the person's model with the plugin's tools and keeps its conversation ([panel assistant](#panel-assistant): `host.assistant`). |
 | 2.36.0 | Plugins can give [project templates](#project-templates) (`contributes.templates`). |
 | 2.37.0 | A panel can wait to be opened with `opens: "onRequest"` ([in the app](#in-the-app)). Pages reach the hosts in `capabilities.network` with `net.fetch` ([plugin pages](#plugin-pages)). `context.game` opens a path in the preview (`path`), plays several sessions at once (`actTogether`), reloads a web game page and takes it offline and back (`reload`, `setOnline`, `networkControl`). |
-| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. A project type's `cover`, its picture on Home and in the new project dialog. Project plugins can open a [native editor](#native-editor-sessions). |
+| 2.38.0 | Pages make images and audio with the models the person set up ([images and audio](#images-and-audio): `capabilities.media`, `host.media`). Image models can declare `params`, settings of their own the Image node shows and the adapter receives as `input.params`, and `referenceImageLabels` for their reference slots ([media provider plugins](media-provider-plugins.md)). A select setting's option, of a canvas node or a model, can be `{ value, title }`. Encoded audio responses support an explicit error-only status field for single JSON objects. A canvas preset can give a `preview` picture; presets moved from the add menu to Asset presets. A project type's `cover`, its picture on Home and in the new project dialog. Project plugins can open a [native editor](#native-editor-sessions). Pages add what they make to the project's assets with `host.assets.add`, which resolves with its path; `host.library.add` is deprecated ([adding to the project's assets](#adding-to-the-projects-assets)). |
 | 2.30.0 | Image models declare required references and a reference size limit; image adapters can return GIF and key-authenticated result downloads. |
 | 2.24.0 | Speech providers can bind their default voice to a non-secret plugin setting; explicit voices and prompt-audio reference choices remain independent. |
 | 2.23.0 | Recoverable audio can decode bounded JSON/JSON-lines Base64 responses, retain metadata/usage and generate request IDs only at the actual send boundary. |
@@ -1338,10 +1338,10 @@ and `src/renderer/asset-source-browser.tsx` shows it.
   page) and has been allowed everything it asks for; the host stops when that
   ends.
 - Agents search a source too, with
-  [`library_search`](runtime.md#assets-and-their-sources): the same `search` call, whose words
+  [`asset_search`](runtime.md#assets-and-their-sources): the same `search` call, whose words
   an agent writes, so a source's description should say when its queries
   reach another site. Its results reach the agent without `data:` thumbnails
-  or previews. `library_use` adds one through the same `fetch` once the
+  or previews. `asset_use` adds one through the same `fetch` once the
   person allows it.
 
 ## Making a plugin
@@ -2275,7 +2275,7 @@ project's media rather than offering a download, such as an effect rendered
 as a sprite sheet:
 
 ```js
-const asset = await host.library.add(blob, { name: "ricochet.png", prompt: "An impact that bounces" });
+const { path } = await host.assets.add(blob, { name: "ricochet.png", prompt: "An impact that bounces" });
 ```
 
 The file is a PNG, JPEG or WebP image, a sound, a video or a 3D model of at
@@ -2287,6 +2287,10 @@ with `addedBy` naming the plugin; the person sees a toast as each one comes.
 Only a page that shows adds, at most 2 at once and 20 a minute; a Plugin
 Builder preview doesn't add to the person's projects
 (`/projects/:id/plugin-library/:publisher/:name` in `src/daemon/app.ts`).
+`assets.add` (API 2.38.0) resolves with the file's `path` in the project.
+`host.library.add`, its name before the Library became the project's assets,
+is deprecated: it adds the same way and resolves with an `id`, and goes in
+API 3.0.0.
 
 ### AI models
 
