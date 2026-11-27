@@ -184,6 +184,66 @@ export function loginShellPath(recheck = false): Promise<string | undefined> {
   return shellPath;
 }
 
+const PACKAGE_REGISTRY =
+  "HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\Repository\\Packages";
+const packageRoots = new Map<string, Promise<string[]>>();
+
+/**
+ * Install folders of the signed-in person's Microsoft Store packages whose
+ * name starts with the prefix, such as "OpenAI.Codex_". An ordinary process
+ * cannot list the WindowsApps folder, so the folders are read from the
+ * registry. Cached until a rescan.
+ */
+export function windowsStorePackageRoots(
+  prefix: string,
+  recheck = false,
+): Promise<string[]> {
+  if (process.platform !== "win32") return Promise.resolve([]);
+  if (!recheck && packageRoots.has(prefix)) return packageRoots.get(prefix)!;
+  const roots = readWindowsStorePackageRoots(prefix).catch(() => []);
+  packageRoots.set(prefix, roots);
+  void roots.then((value) => {
+    // A failed read must not poison discovery until restart.
+    if (!value.length) packageRoots.delete(prefix);
+  });
+  return roots;
+}
+
+async function readWindowsStorePackageRoots(
+  prefix: string,
+): Promise<string[]> {
+  const keys = await registryQuery([PACKAGE_REGISTRY]);
+  const values = await Promise.all(
+    keys
+      .filter((key) => key.split(path.sep).at(-1)!.startsWith(prefix))
+      .map((key) => registryQuery([key, "/v", "PackageRootFolder"], true)),
+  );
+  return values.flat();
+}
+
+/** The key names a `reg query` lists, or the text of the string values it finds. Empty when the key is missing. */
+function registryQuery(args: string[], values = false): Promise<string[]> {
+  return new Promise((resolve) => {
+    execFile(
+      "reg.exe",
+      ["query", ...args],
+      { timeout: 10_000, encoding: "utf8", windowsHide: true },
+      (error, stdout) => {
+        if (error) return resolve([]);
+        const lines = stdout.split(/\r?\n/).map((line) => line.trim());
+        resolve(
+          values
+            ? lines.flatMap(
+                (line) =>
+                  line.match(/\bREG_(?:EXPAND_)?SZ\s+(.*)$/)?.slice(1) ?? [],
+              )
+            : lines.filter((line) => /^HKEY_/i.test(line)),
+        );
+      },
+    );
+  });
+}
+
 function uniquePath(parts: string[]): string {
   return [
     ...new Set(
