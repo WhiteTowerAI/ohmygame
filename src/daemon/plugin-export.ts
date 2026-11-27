@@ -3,7 +3,7 @@ import path from "node:path";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { pluginPublishingFiles, pluginTemplateIssue } from "../shared/plugin-template.js";
 import { PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
-import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { indexPluginPackage, pluginDisplayNameIssues, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 
 // "Export as a package": a plugin made in the Plugin Builder, `personal/<name>`,
 // copied out as a package its author can publish: under their publisher, with
@@ -87,7 +87,8 @@ export async function stageExport(entry: PluginIndexEntry, publisher: string, st
     await writeFile(destination, text);
   }
   const checked = await indexPluginPackage(staging);
-  if (!checked.ok) throw new PluginExportError(`The exported package isn't valid: ${checked.issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
+  const issues = checked.ok ? pluginDisplayNameIssues(checked.entry) : checked.issues;
+  if (issues.length) throw new PluginExportError(`The exported package isn't valid: ${issues.slice(0, 3).map((item) => `${item.path} ${item.message}`.trim()).join("; ")}`);
 }
 
 async function hideGitignores(directory: string): Promise<void> {

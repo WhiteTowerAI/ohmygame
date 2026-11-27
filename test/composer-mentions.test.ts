@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
+import { parsePluginMentions, serializePluginMentions } from "../src/shared/plugins.js";
 import { skillMentionRanges } from "../src/shared/skill-mentions.js";
 
 const capabilities: ConversationCapabilities = {
@@ -41,15 +42,42 @@ describe("composer mentions", () => {
     expect(insertMention("Use @im now", query, { type: "plugin", value: capabilities.plugins[0] })).toEqual({
       value: "Use @Image Generation now",
       cursor: 21,
+      plugin: { name: "image-generation", marketplaceId: "ohmygame", displayName: "Image Generation" },
     });
     const scoped = { ...capabilities.plugins[0], name: "@scope/plugin", displayName: "Scoped Plugin" };
     expect(insertMention("@s", mentionQuery("@s", 2)!, { type: "plugin", value: scoped }).value).toBe("@Scoped Plugin ");
   });
 
+  it("tells plugins that share a display name apart by publisher, or by ID within one publisher", () => {
+    const plugin = (id: string, displayName = "像素画") => {
+      const [marketplaceId, name] = id.split("/") as [string, string];
+      return { id, name, displayName, description: "", marketplaceId, marketplaceDisplayName: marketplaceId };
+    };
+    const plugins = [plugin("alice/pixel"), plugin("bob/pixel"), plugin("bob/sprites"), plugin("carol/maps", "地图")];
+    const insert = (value: string, picked: (typeof plugins)[number]) =>
+      insertMention(value, { start: value.length, end: value.length, trigger: "@", query: "" }, { type: "plugin", value: picked }, plugins);
+    const first = insert("", plugins[0]!);
+    const second = insert(first.value, plugins[1]!);
+    const third = insert(second.value, plugins[2]!);
+    expect(third.value).toBe("@像素画 (alice) @像素画 (bob/pixel) @像素画 (bob/sprites) ");
+    expect(insert("", plugins[3]!).value).toBe("@地图 ");
+    // A label that is another plugin's display name falls back to the ID.
+    expect(toPluginMention(plugins[0]!, [...plugins, plugin("dave/pixel", "像素画 (alice)")]).displayName).toBe("像素画 (alice/pixel)");
+
+    const mentions = [first.plugin!, second.plugin!, third.plugin!];
+    const wire = serializePluginMentions(third.value.trim(), mentions);
+    expect(wire).toBe("[@像素画 (alice)](plugin://pixel@alice) [@像素画 (bob/pixel)](plugin://pixel@bob) [@像素画 (bob/sprites)](plugin://sprites@bob)");
+    expect(parsePluginMentions(wire)).toEqual({ text: third.value.trim(), mentions });
+    // The picker finds plugins by ID too.
+    expect(matchingMentions({ plugins, skills: [] }, mentionQuery("@bob/", 5)!)).toHaveLength(2);
+  });
+
   it("keeps only menu-selected plugins that remain in the prompt", () => {
     const mention = toPluginMention(capabilities.plugins[0]);
     expect(activePluginMentions("Use @Image Generation", [mention])).toEqual([mention]);
+    expect(activePluginMentions("用 @Image Generation，画一张图", [mention])).toEqual([mention]);
     expect(activePluginMentions("Use images", [mention])).toEqual([]);
+    expect(activePluginMentions("Use @Image Generations", [mention])).toEqual([]);
   });
 
   it("separates a leading skill from its prompt without changing the wire text", () => {

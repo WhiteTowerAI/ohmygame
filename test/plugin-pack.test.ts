@@ -148,6 +148,7 @@ describe("plugin template", () => {
   });
 
   it("refuses the Plugin Builder's publisher, and names that can't be ids", async () => {
+    expect(() => pluginTemplate({ publisher: "acme", name: "maker", displayName: " ", description: "Makes", parts: [] })).toThrow(/displayName/);
     const make = (publisher: string, name = "maker") => () => pluginTemplate({ publisher, name, displayName: "Maker", description: "Makes", parts: [] });
     expect(make("personal")).toThrow("kept for OhMyGame");
     // OhMyGame makes its own plugins for its npm scope, and the check takes them.

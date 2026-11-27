@@ -13,7 +13,7 @@ import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from ".
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
 import { useComposerContextMenu, type ComposerPluginCommands } from "./composer-context-menu.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
-import { activePluginMentions, formatPluginInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { activePluginMentions, formatPluginInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
@@ -267,9 +267,9 @@ export function Composer({
 
   function insertSelectedMention(mention: ComposerMention, query?: ComposerMentionQuery) {
     // Plugins and Skills go where they are typed, any number of each.
-    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
-    if (mention.type === "plugin") {
-      const selected = toPluginMention(mention.value);
+    const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention, capabilities.plugins);
+    const selected = inserted.plugin;
+    if (selected) {
       changePrompt(inserted.value, [...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId), selected]);
     } else {
       changePrompt(inserted.value);

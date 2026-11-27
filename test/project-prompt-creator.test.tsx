@@ -194,6 +194,23 @@ describe("Home prompt box", () => {
     expect(onSubmit.mock.calls[0]![0].turnOn).toBeUndefined();
   });
 
+  it("tells apart plugins that share a display name by their publisher", async () => {
+    capabilities.plugins.push(plugin("blender", "Blender", { id: "blender@studio", marketplaceId: "studio", marketplaceDisplayName: "Studio", description: "Studio's Blender" }));
+    await render();
+    await mention("@Blen", "Blender description");
+    await mention(`${promptText(container)}and @Blen`, "Studio's Blender");
+    expect(promptChips(container)).toEqual(["Blender (bundled)", "Blender (studio)"]);
+    await type(`${promptText(container)}Make an island`);
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "@Blender (bundled) and @Blender (studio) Make an island",
+      mentions: [
+        { name: "blender", displayName: "Blender (bundled)", marketplaceId: "bundled" },
+        { name: "blender", displayName: "Blender (studio)", marketplaceId: "studio" },
+      ],
+    }), expect.any(Function));
+  });
+
   it("turns a mentioned plugin that's off on in the new project, which allows it, without asking", async () => {
     await render();
     await mention("@Spr", "Sprites");

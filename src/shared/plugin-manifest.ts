@@ -49,6 +49,13 @@ const SnakeId = Type.String({
   pattern: "^[a-z][a-z0-9_]*$",
   maxLength: 64,
 });
+const PLUGIN_DISPLAY_NAME_MAX = 80;
+export function pluginDisplayNameIssue(name: string): string | undefined {
+  if (!name || name.trim() !== name || /[\r\n\u0085\u2028\u2029]/u.test(name) || [...name].length > PLUGIN_DISPLAY_NAME_MAX)
+    return "displayName must be a single line of 1 to " + PLUGIN_DISPLAY_NAME_MAX + " characters without surrounding whitespace";
+  return undefined;
+}
+
 /** Shown in the UI: literal text, or a `%key%` from the plugin's locales. */
 const Text = (maxLength = 200) => Type.String({ minLength: 1, maxLength });
 const HttpsUrl = Type.String({ pattern: "^https://[^\\s]+$", maxLength: 500 });
@@ -1192,7 +1199,7 @@ export const PluginManifestV2Schema = Type.Object(
       { "ohmygame-api": VersionRange },
       { additionalProperties: false },
     ),
-    displayName: Text(80),
+    displayName: Text(PLUGIN_DISPLAY_NAME_MAX),
     description: Text(300),
     /** The plugin's page shows it under About. */
     longDescription: Type.Optional(Text(2000)),

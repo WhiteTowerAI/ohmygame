@@ -1019,7 +1019,10 @@ and `everyProjectSkills` give the plugins on in every project, and their Skills,
 for a kind of project. A project's Skills come in order: the type's plugin,
 then the others by id. They have no per-Skill switches. Mentions keep
 `{name, marketplaceId}`, with the publisher as `marketplaceId`, so
-`plugin://web-game-studio@ohmygame` names a preinstalled one.
+`plugin://web-game-studio@ohmygame` names a preinstalled one. A mention is
+matched in the message by its label, so when two plugins share a display name
+the picker adds the publisher, or the full ID within one publisher:
+`@Pixel Art (alice)`, `@Pixel Art (bob)`.
 
 A project that names an older version keeps running it, in place of the newest.
 
@@ -1822,6 +1825,16 @@ repository's `stars`, `avatar` and `createdAt`.
   in the dialog, so a card doesn't wait on GitHub.
 
 ## More manifest fields
+
+A plugin keeps the same `publisher/name` ID in every language. Its
+`displayName` can be literal text or a key such as `%plugin.name%`. Define
+that key in `locales/en.json` and optionally in `locales/zh-CN.json`.
+A missing Chinese translation falls back to English. Use one line of 1–80
+Unicode code points without surrounding whitespace for each name. The CLI
+warns on existing packages and requires valid names to pack a release.
+The Plugin Builder checks drafts and exports against the same rule. The scaffold
+checks the name before creating files. Its GitHub release workflow packs
+the plugin with the CLI.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `categories` sorts it on the

@@ -1,4 +1,4 @@
-import { PERSONAL_PUBLISHER, PLUGIN_HOST_API_VERSION, PLUGIN_MANIFEST_SCHEMA_URL } from "./plugin-manifest.js";
+import { pluginDisplayNameIssue, PERSONAL_PUBLISHER, PLUGIN_HOST_API_VERSION, PLUGIN_MANIFEST_SCHEMA_URL } from "./plugin-manifest.js";
 
 // The files of a new plugin package, for `npm create ohmygame-plugin` and the
 // package the Plugin Builder exports: the manifest, a package.json whose
@@ -34,7 +34,7 @@ const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect 
 
 /** The new package's files by path, `/`-separated. */
 export function pluginTemplate(options: PluginTemplateOptions): Record<string, string> {
-  const issue = pluginTemplateIssue(options);
+  const issue = pluginTemplateIssue(options) ?? pluginDisplayNameIssue(options.displayName);
   if (issue) throw new Error(issue);
   const files = pluginPackageFiles(options);
   // npm publishes the plugin's own folders.
@@ -259,10 +259,9 @@ jobs:
           version=$(node -p "require('./.ohmygame-plugin/plugin.json').version")
           if [ "$GITHUB_REF_NAME" != "v$version" ]; then echo "::error::The tag $GITHUB_REF_NAME isn't v$version, the plugin's version"; exit 1; fi
       - run: npm install
-      - run: npm run check
       - name: Pack what package.json lists, at the top of a .zip
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
+          npm run pack -- --pack-destination "$RUNNER_TEMP"
           mkdir "$RUNNER_TEMP/unpacked"
           tar -xzf "$RUNNER_TEMP"/*.tgz -C "$RUNNER_TEMP/unpacked"
           cd "$RUNNER_TEMP/unpacked/package" && zip -qrX "$RUNNER_TEMP/$PACKAGE" .
