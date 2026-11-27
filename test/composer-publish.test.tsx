@@ -151,6 +151,14 @@ describe("composer status line", () => {
     const details = document.querySelector(".composer-status-popover")?.textContent;
     expect(details).toContain("81 tok/s");
     expect(details).toContain("Cache hit 86%");
+    expect(container.querySelector(".composer-status-ring circle:last-child")?.getAttribute("stroke-dasharray")).toMatch(/^0 /);
+  });
+
+  it("fills the ring to the fullest quota when only a coding agent's quota is known", async () => {
+    const onContextUsage = vi.fn(async () => ({ tokens: null, contextWindow: 0, percent: null, limits: [{ id: "primary", usedPercent: 20 }, { id: "secondary", usedPercent: 50 }] }));
+    await render({ initialDraft: undefined, onContextUsage });
+    const [used, length] = container.querySelector(".composer-status-ring circle:last-child")!.getAttribute("stroke-dasharray")!.split(" ").map(Number);
+    expect(used / length).toBeCloseTo(0.5);
   });
 });
 

@@ -6013,15 +6013,18 @@ button {
 }
 
 .canvas-toolbar .canvas-zoom-value {
+  display: inline-flex;
   width: auto;
-  min-width: 44px;
-  padding: 0 4px;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px 0 8px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
-.canvas-toolbar button.is-active {
+.canvas-toolbar button.is-active,
+.canvas-toolbar button[aria-expanded="true"] {
   background: var(--color-selected, var(--color-hover));
   color: var(--color-text);
 }
@@ -10309,8 +10312,13 @@ summary.work-summary:hover {
   gap: 8px;
 }
 
+/* Narrow, plan mode keeps its icon and ×, so it never runs under the model. */
 @container prompt-toolbar (max-width: 360px) {
-  .composer-plan-mode button > span {
+  .composer-plan-mode {
+    padding-left: 6px;
+  }
+
+  .composer-plan-mode-label {
     display: none;
   }
 }
@@ -10321,6 +10329,11 @@ summary.work-summary:hover {
   min-width: 0;
   align-items: center;
   gap: 6px;
+}
+
+/* + and plan mode keep their size; the model's name shortens instead. */
+.prompt-box-leading {
+  flex: none;
 }
 
 .prompt-box-actions {

@@ -397,13 +397,13 @@ export function CodingAgentDetail({
       {agent.installed && agent.id !== "opencode-cli" && !agent.plugin ? (
         // OpenCode bills each model provider; its account has no quota of its own.
         <SettingsGroup title={t("agentUsage.title")}>
-          <div className="settings-pad">
-            {agent.limits?.length ? (
-              <AgentUsageDetails limits={agent.limits} />
-            ) : (
+          {agent.limits?.length ? (
+            <AgentUsageDetails limits={agent.limits} />
+          ) : (
+            <div className="settings-pad">
               <p className="settings-muted">{t("agentUsage.empty", { name: agent.name })}</p>
-            )}
-          </div>
+            </div>
+          )}
         </SettingsGroup>
       ) : null}
       <SettingsGroup title={t("codingAgents.configuration")} description={agent.installed ? t("codingAgents.cliConfigHint", { name: agent.name }) : undefined}>

@@ -9,9 +9,9 @@ interface PlanModeIndicatorProps {
 /** Plan mode while it is on: a chip beside the + button, closed with its ×. */
 export function PlanModeIndicator({ disabled, onExit }: PlanModeIndicatorProps) {
   return (
-    <span className="composer-plan-mode" aria-label={t("planMode.active")}>
+    <span className="composer-plan-mode" aria-label={t("planMode.active")} title={t("planMode.active")}>
       <ClipboardList size="sm" aria-hidden="true" />
-      {t("planMode.mode")}
+      <span className="composer-plan-mode-label">{t("planMode.mode")}</span>
       <button type="button" disabled={disabled} onClick={onExit} title={t("planMode.exit")} aria-label={t("planMode.exit")}>
         <X size="xs" aria-hidden="true" />
       </button>

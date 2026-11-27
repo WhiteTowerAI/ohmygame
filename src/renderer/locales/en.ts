@@ -4252,6 +4252,7 @@ const en = {
     fit: "Fit view",
     zoomOut: "Zoom out",
     resetZoom: "Reset zoom",
+    zoom: "Zoom",
     zoomIn: "Zoom in",
   },
   modelPreview: {

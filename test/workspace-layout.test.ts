@@ -2,7 +2,7 @@
 import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, PanelToolbar, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
+import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, PanelToolbar, showPanel, Titlebar, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
 import { PanelTool, PanelToolsMenu } from "../src/renderer/panel-tools.js";
 import { fitLayout, gamePanelAddable, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
 
@@ -287,6 +287,24 @@ describe("the panel layout", () => {
     expect(container.querySelector(".dock-area-right .dock-tools-more")).toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>(".own-more")!.click());
     expect([...document.querySelectorAll('[role="menu"] button')].map((item) => item.textContent)).toEqual(["Grid", "Export"]);
+  });
+
+  it("stops resizing the chat where the title bar would no longer fit beside it", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    const onChange = vi.fn();
+    const titlebar = { start: document.createElement("div"), end: document.createElement("div"), release: () => {} };
+    const show = (size: number) => act(async () => root.render(createElement(Titlebar.Provider, { value: titlebar },
+      createElement(PanelLayout, { layout: { ...layout, left: { ...layout.left, size }, right: { panels: [], size: 280 } }, panels: panels.slice(0, 2), onChange, empty: null }))));
+    const press = (key: string) => act(async () => container.querySelector(".dock-resizer-left")!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
+    // The center ends the title bar and keeps 560px of the 1000: the chat grows to 439px.
+    await show(432);
+    expect(container.querySelector(".dock-title-end")).not.toBeNull();
+    await press("ArrowRight");
+    expect(onChange.mock.lastCall![0].left.size).toBe(439);
+    // The chat starts it beside the window's controls and keeps 280px.
+    await show(288);
+    await press("ArrowLeft");
+    expect(onChange.mock.lastCall![0].left.size).toBe(280);
   });
 
   it("gives a maximized side area the whole layout", async () => {

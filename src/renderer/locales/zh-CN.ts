@@ -4184,6 +4184,7 @@ const zhCN: typeof en = {
     fit: "适应视图",
     zoomOut: "缩小",
     resetZoom: "重置缩放",
+    zoom: "缩放",
     zoomIn: "放大",
   },
   modelPreview: {
