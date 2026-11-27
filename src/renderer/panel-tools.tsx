@@ -163,7 +163,6 @@ export function PanelTool({
 }) {
   const scope = useContext(ScopeContext);
   const latest = useRef(menu);
-  latest.current = menu;
   useLayoutEffect(() => {
     if (!scope) return;
     scope.register(id, { priority, menu: () => latest.current });
@@ -177,30 +176,11 @@ export function PanelTool({
     () => scope?.isFolded(id) ?? false,
     () => false,
   );
-  // A folded tool's entries change with it, a choice's check for one: the
-  // menu showing them reads them again.
-  const shown = useRef("");
   useLayoutEffect(() => {
-    const signature = folded ? menuSignature(menu) : "";
-    if (signature === shown.current) return;
-    shown.current = signature;
+    latest.current = menu;
     if (folded) scope?.notify();
-  });
+  }, [menu, folded, scope]);
   return folded ? null : <>{children}</>;
-}
-
-function menuSignature(entries: readonly MenuEntry[]): string {
-  return JSON.stringify(
-    entries.map((entry) =>
-      typeof entry === "string" || "heading" in entry
-        ? entry
-        : [
-            typeof entry.label === "string" ? entry.label : "",
-            entry.checked,
-            entry.disabled,
-          ],
-    ),
-  );
 }
 
 /**

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, PanelToolbar, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
@@ -217,8 +217,15 @@ describe("the panel layout", () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
     const resize = (next: number) => act(async () => { width = next; for (const callback of resized) callback(); });
     const zoom = vi.fn(), grid = vi.fn();
+    let changeZoom: (value: number) => void;
+    function ZoomTool() {
+      const [value, setValue] = useState(1);
+      changeZoom = setValue;
+      return createElement(PanelTool, { id: "zoom", priority: 1, menu: [{ label: "Zoom", onSelect: () => zoom(value) }] },
+        createElement("button", { className: "tool", onClick: () => zoom(value) }, "Zoom"));
+    }
     const tools = createElement(PanelToolbar, null,
-      createElement(PanelTool, { id: "zoom", priority: 1, menu: [{ label: "Zoom", onSelect: zoom }] }, createElement("button", { className: "tool", onClick: zoom }, "Zoom")),
+      createElement(ZoomTool),
       createElement(PanelTool, { id: "grid", menu: [{ label: "Grid", checked: true, onSelect: grid }] }, createElement("button", { className: "tool", onClick: grid }, "Grid")));
     const withTools = panels.map((panel) => panel.id === "code" ? { ...panel, content: tools } : panel);
     const shown = () => [...container.querySelectorAll(".dock-area-right .tool")].map((tool) => tool.textContent);
@@ -242,8 +249,9 @@ describe("the panel layout", () => {
     expect(shown()).toEqual([]);
     expect(await menu()).toEqual(["Zoom", "Grid*"]);
     await act(async () => more()!.click());
+    await act(async () => changeZoom(2));
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')][0]!.click());
-    expect(zoom).toHaveBeenCalledOnce();
+    expect(zoom).toHaveBeenCalledWith(2);
 
     // Each comes back once the toolbar has the room it lacked: Zoom at 40, then Grid at 80.
     await resize(60);
