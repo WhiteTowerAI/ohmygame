@@ -29,12 +29,18 @@ const electron = vi.hoisted(() => {
     permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void;
     downloadHandler?: (event: { preventDefault(): void }) => void;
     requestErrorHandler?: (details: Record<string, unknown>) => void;
+    requestStartHandler?: (details: Record<string, unknown>, callback: (response: object) => void) => void;
+    requestDoneHandler?: (details: Record<string, unknown>) => void;
     proxy?: { proxyRules: string; proxyBypassRules: string };
     setProxy = vi.fn(async (config: { proxyRules: string; proxyBypassRules: string }) => { this.proxy = config; });
     setPermissionCheckHandler = vi.fn((handler) => { this.permissionCheckHandler = handler; });
     setPermissionRequestHandler = vi.fn((handler) => { this.permissionHandler = handler; });
     on = vi.fn((event: string, handler) => { if (event === "will-download") this.downloadHandler = handler; });
-    readonly webRequest = { onErrorOccurred: vi.fn((handler) => { this.requestErrorHandler = handler; }) };
+    readonly webRequest = {
+      onErrorOccurred: vi.fn((handler) => { this.requestErrorHandler = handler; }),
+      onBeforeRequest: vi.fn((handler) => { this.requestStartHandler = handler; }),
+      onCompleted: vi.fn((handler) => { this.requestDoneHandler = handler; }),
+    };
   }
 
   const windows: FakeWindow[] = [];
@@ -47,6 +53,7 @@ const electron = vi.hoisted(() => {
     navigateHandler?: (event: { preventDefault(): void }, url: string) => void;
     redirectHandler?: (event: { preventDefault(): void }, url: string) => void;
     consoleHandler?: (details: { level: "error"; message: string; sourceId: string; lineNumber: number }) => void;
+    navigationStartHandler?: (event: { isMainFrame: boolean; isSameDocument: boolean }) => void;
     closeHandler?: (event: { preventDefault(): void }) => void;
     closedHandler?: () => void;
     readonly setContentSize = vi.fn();
@@ -79,6 +86,7 @@ const electron = vi.hoisted(() => {
         if (event === "will-navigate") this.navigateHandler = handler;
         if (event === "will-redirect") this.redirectHandler = handler;
         if (event === "console-message") this.consoleHandler = handler;
+        if (event === "did-start-navigation") this.navigationStartHandler = handler;
         if (event === "did-finish-load" || event === "did-fail-load") {
           if (!this.loadListeners.has(event)) this.loadListeners.set(event, new Set());
           this.loadListeners.get(event)!.add(handler);
@@ -322,6 +330,37 @@ describe("electron playtest driver", () => {
     expect(pointerLock).toHaveBeenCalledWith(true);
     expect(keyboardLock).toHaveBeenCalledWith(true);
     expect(crossOrigin).toHaveBeenCalledWith(false);
+    driver.close();
+  });
+
+  it("doesn't report what a page dropped by leaving as failed requests", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    const session = window.session;
+    const webContentsId = window.webContents.id;
+    const start = (id: number, url: string) => session.requestStartHandler!({ id, url, webContentsId }, vi.fn());
+    const fail = (id: number, url: string, error: string) => session.requestErrorHandler!({ id, url, error, webContentsId, timestamp: Date.now() });
+
+    start(1, "http://127.0.0.1:43123/__ohmygame_preview_bridge__.js?document=1&events=1");
+    start(2, "http://127.0.0.1:43123/battle.mp3");
+    start(3, "http://127.0.0.1:43123/missing.png");
+    window.navigationStartHandler!({ isMainFrame: true, isSameDocument: true });
+    fail(3, "http://127.0.0.1:43123/missing.png", "net::ERR_FAILED");
+    // Leaving for the sign-in page drops what the page was still loading.
+    window.navigationStartHandler!({ isMainFrame: true, isSameDocument: false });
+    fail(1, "http://127.0.0.1:43123/__ohmygame_preview_bridge__.js?document=1&events=1", "net::ERR_FAILED");
+    fail(2, "http://127.0.0.1:43123/battle.mp3", "net::ERR_ABORTED");
+    start(4, "http://127.0.0.1:43124/sign-in.css");
+    fail(4, "http://127.0.0.1:43124/sign-in.css", "net::ERR_FAILED");
+
+    const inspected = await driver.request({ operation: "inspect", sessionId: opened.snapshot.sessionId });
+    if (inspected.operation !== "inspect") throw new Error("Expected inspect result");
+    expect((inspected.snapshot as PlaytestSnapshot).failedRequests.map(({ url, error }) => ({ url, error }))).toEqual([
+      { url: "http://127.0.0.1:43123/missing.png", error: "net::ERR_FAILED" },
+      { url: "http://127.0.0.1:43124/sign-in.css", error: "net::ERR_FAILED" },
+    ]);
     driver.close();
   });
 

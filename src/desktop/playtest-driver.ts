@@ -57,6 +57,8 @@ type FrameElements = Pick<PlaytestSnapshot, "elements"> & { text: string };
 
 const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
+/** How Chromium reports a request its page dropped by leaving. */
+const LEFT_PAGE_ERRORS = new Set(["net::ERR_FAILED", "net::ERR_ABORTED"]);
 const MAX_SESSIONS = 4;
 /** Sessions the agent leaves open are closed after this long without a request. */
 const IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -200,8 +202,24 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
         details.isMainFrame && sameOrigin(details.requestingUrl, state.origin));
     });
     webContents.session.on("will-download", (event) => event.preventDefault());
+    // A page that leaves, for the local sign-in page or a reload, drops what it was still loading, such as
+    // the bridge's event stream or a sound. Chromium reports those as ERR_FAILED or ERR_ABORTED, which the game
+    // didn't cause, so a request that started before the page last began to leave doesn't fail that way.
+    let pageLoad = 0;
+    const startedOnPage = new Map<number, number>();
+    webContents.on("did-start-navigation", (event) => {
+      if (event.isMainFrame && !event.isSameDocument) pageLoad += 1;
+    });
+    webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      if (details.webContentsId === undefined || details.webContentsId === webContentsId) startedOnPage.set(details.id, pageLoad);
+      callback({});
+    });
+    webContents.session.webRequest.onCompleted((details) => startedOnPage.delete(details.id));
     webContents.session.webRequest.onErrorOccurred((details) => {
       if (details.webContentsId !== undefined && details.webContentsId !== webContentsId) return;
+      const startedOn = startedOnPage.get(details.id);
+      startedOnPage.delete(details.id);
+      if (startedOn !== undefined && startedOn < pageLoad && LEFT_PAGE_ERRORS.has(details.error)) return;
       state.failedRequests.push({
         url: details.url,
         error: details.error,
