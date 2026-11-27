@@ -28,6 +28,7 @@ import { createdProjectView, settingsHash } from "./routes.js";
 import { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } from "./project-type-images.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { Button, Dialog } from "./ui/index.js";
+import { leave } from "./app-navigation.js";
 import { t } from "./i18n.js";
 import "./new-game.css";
 
@@ -123,15 +124,23 @@ export function NewGameHost({
     return () => window.removeEventListener(OPEN_EVENT, onOpenRequest);
   }, []);
 
+  function openExisting(projectId: string): void {
+    setCreating(undefined);
+    setOpen(undefined);
+    leave(() => onOpen(projectId));
+  }
+
   // An existing folder opens its project if it has one, or becomes a new project's workspace.
   async function importFolder(): Promise<void> {
     setError(undefined);
     try {
       const picked = await pickProjectFolder();
       if (!picked) return;
-      setOpen(undefined);
-      if ("owner" in picked) onOpen(picked.owner.id);
-      else setCreating({ workspacePath: picked.path });
+      if ("owner" in picked) openExisting(picked.owner.id);
+      else {
+        setOpen(undefined);
+        setCreating({ workspacePath: picked.path });
+      }
     } catch (cause) {
       setOpen((current) => current ?? { type: NEW_GAME_TYPES[0] });
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -172,11 +181,7 @@ export function NewGameHost({
           initialType={creating.type}
           initialWorkspacePath={creating.workspacePath}
           onClose={() => setCreating(undefined)}
-          onOpenProject={(projectId) => {
-            setCreating(undefined);
-            setOpen(undefined);
-            onOpen(projectId);
-          }}
+          onOpenProject={openExisting}
           onCreated={(project, start) => {
             setCreating(undefined);
             setOpen(undefined);

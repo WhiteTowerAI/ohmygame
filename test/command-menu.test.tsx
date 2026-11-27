@@ -10,7 +10,8 @@ const project = (id: string, name: string, updatedAt: string) => ({ id, name, ty
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   listProjects: async () => [project("old", "Old Garden", "2026-10-01T00:00:00Z"), project("new", "New Rocket", "2026-10-20T00:00:00Z")],
 }));
-const { CommandMenuHost, openCommandMenu, useCommands, useLeaveGuard } = await import("../src/renderer/command-menu.js");
+const { CommandMenuHost, openCommandMenu, useCommands } = await import("../src/renderer/command-menu.js");
+const { useLeaveGuard } = await import("../src/renderer/app-navigation.js");
 const { sendApplicationMenuLabels } = await import("../src/renderer/desktop-window-frame.js");
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
@@ -37,9 +38,9 @@ const options = () => [...document.querySelectorAll('[role="option"]')].map((opt
 const option = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes(label))!;
 
 /** A page that adds a command and, when given one, guards leaving. */
-function Page({ guard }: { guard?: (go: () => void) => void }) {
+function Page({ guard }: { guard?: () => Promise<void> }) {
   useCommands(() => [{ id: "show-code", group: "Panels", label: "Show Code", run: () => navigate("#code") }]);
-  useLeaveGuard(guard ?? ((go) => go()));
+  useLeaveGuard(() => guard?.(), (error) => { throw error; });
   return null;
 }
 
@@ -80,7 +81,7 @@ it("uses Ctrl elsewhere", async () => {
 it("waits for an open dialog to close before it opens or a shortcut leaves", async () => {
   const pending: (() => void)[] = [];
   const render = (dialog: boolean) => act(async () => root.render(<>
-    <Page guard={(go) => pending.push(go)} />
+    <Page guard={() => new Promise<void>((resolve) => pending.push(resolve))} />
     {dialog ? <div role="dialog" aria-modal="true" /> : null}
     <CommandMenuHost navigate={navigate} />
   </>));
@@ -127,18 +128,19 @@ it("drops a page's commands from the open menu when the page goes", async () => 
   expect(options()).not.toContain("Show Code");
 });
 
-it("leaves the page through its guard, from the menu and from ⌘N and ⌘,", async () => {
+it("guards navigation from the menu and ⌘, and opens New project in place", async () => {
   const pending: (() => void)[] = [];
   const newGame = vi.fn();
   window.addEventListener("ohmygame:new-game", newGame);
-  await act(async () => root.render(<><Page guard={(go) => pending.push(go)} /><CommandMenuHost navigate={navigate} /></>));
+  await act(async () => root.render(<><Page guard={() => new Promise<void>((resolve) => pending.push(resolve))} /><CommandMenuHost navigate={navigate} /></>));
   await press(",");
   await press("n");
   await act(async () => openCommandMenu());
   await act(async () => option("Library").click());
   // Nothing leaves until the page lets it, as an open project saves its design first.
   expect(navigate).not.toHaveBeenCalled();
-  expect(pending).toHaveLength(3);
+  expect(pending).toHaveLength(2);
+  expect(newGame).toHaveBeenCalledTimes(1);
   await act(async () => { for (const go of pending) go(); });
   // ⌘N opens the new game dialog over the page rather than going anywhere.
   expect(navigate.mock.calls.map(([hash]) => hash)).toEqual(["#/settings/general", "#/library"]);

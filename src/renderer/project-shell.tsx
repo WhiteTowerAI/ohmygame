@@ -171,7 +171,8 @@ import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { Button, Dialog, DropdownMenu, Empty, IconButton, Loading, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { openPluginWorkspace } from "./plugin-builder-navigation.js";
-import { useCommands, useLeaveGuard } from "./command-menu.js";
+import { leave, useLeaveGuard } from "./app-navigation.js";
+import { useCommands } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import { BrowserPanel, type BrowserOpenRequest } from "./browser-panel.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -1203,15 +1204,9 @@ export function ProjectShell({
     setConversations((items) => [restored, ...items.filter((item) => item.id !== restored.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   }
 
-  // Leaving the project saves the open design first.
-  function leave(go: () => void): void {
-    const save = saveDesign.current;
-    if (!save) { go(); return; }
-    void save().then(go).catch((cause) => {
-      dispatch({ type: "notice", message: errorMessage(cause) });
-    });
-  }
-  useLeaveGuard(leave);
+  useLeaveGuard(() => saveDesign.current?.(), (cause) => {
+    dispatch({ type: "notice", message: errorMessage(cause) });
+  });
 
   const [exporting, setExporting] = useState<"project" | "web">();
   const openProjectFile = window.ohMyGameDesktop?.openProjectFile;

@@ -902,7 +902,9 @@ Every project starts from the new game dialog (`src/renderer/new-game.tsx`),
 which a type card, the rail's **New project**, the command menu and **⌘N** all
 open. It grows out of the card it was opened from (it only fades with reduced
 motion), shows the type's picture, name and description, and switches type in
-place without losing the text typed. The dialog remembers the last type selected in its switcher.
+place without losing the text typed. The dialog remembers the last type selected in its switcher. When opened over a project,
+it saves the current design when the person confirms creation or opens an existing project.
+If saving fails, the person stays in the current project.
 Sending its prompt creates the project at
 once, with the prompt as its first message: the type comes from the dialog,
 the plugins from the prompt box, the name from the prompt, and the folder from

@@ -8,6 +8,31 @@ import {
 } from "./routes.js";
 import { t } from "./i18n.js";
 
+// Project navigation reports save failures on the current page. A creation
+// dialog awaits the same save and presents failures in its own retry flow.
+type LeaveGuard = { save: () => Promise<void> | undefined; onError: (cause: unknown) => void };
+let activeGuard: { current: LeaveGuard } | undefined;
+
+export function useLeaveGuard(save: LeaveGuard["save"], onError: LeaveGuard["onError"]): void {
+  const guard = useRef({ save, onError });
+  guard.current = { save, onError };
+  useEffect(() => {
+    activeGuard = guard;
+    return () => { if (activeGuard === guard) activeGuard = undefined; };
+  }, []);
+}
+
+export function saveBeforeLeaving(): Promise<void> | undefined {
+  return activeGuard?.current.save();
+}
+
+export function leave(go: () => void): void {
+  const guard = activeGuard?.current;
+  const saving = guard?.save();
+  if (guard && saving) void saving.then(go).catch(guard.onError);
+  else go();
+}
+
 interface NavigationLocation {
   hash: string;
   route: AppRoute;

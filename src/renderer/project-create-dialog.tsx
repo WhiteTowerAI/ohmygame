@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createConversation, createProject, getHomeComposerCapabilities, getProjectFolderType, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
+import { saveBeforeLeaving } from "./app-navigation.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, Spinner } from "./icons.js";
@@ -206,6 +207,8 @@ export function ProjectCreateDialog({
         ...(template ? { template: template.id } : {}),
         ...(workspacePath ? { workspacePath } : {}),
       };
+      await saveBeforeLeaving();
+      if (!mounted.current) return;
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };

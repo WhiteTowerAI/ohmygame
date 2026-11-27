@@ -5,6 +5,7 @@ import { setAppearance } from "./appearance.js";
 import { parseAppRoute, projectHash, settingsHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { SETTINGS_NAV } from "./settings-sections.js";
 import { CommandMenu, type Command } from "./ui/index.js";
+import { leave } from "./app-navigation.js";
 import { openNewGame } from "./new-game.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
@@ -42,21 +43,6 @@ export function useCommands(commands: () => Command[]): void {
   }, []);
 }
 
-// A page with work to save before it goes, such as an open project, guards
-// leaving it; the menu and the shortcuts leave through the guard.
-let leaveGuard: ((go: () => void) => void) | undefined;
-
-/** Runs `guard` before the menu or a shortcut leaves the calling component's page. */
-export function useLeaveGuard(guard: (go: () => void) => void): void {
-  const current = useRef(guard);
-  current.current = guard;
-  useEffect(() => {
-    const entry = (go: () => void) => current.current(go);
-    leaveGuard = entry;
-    return () => { if (leaveGuard === entry) leaveGuard = undefined; };
-  }, []);
-}
-
 // Escape while the menu is open is the menu's alone. This listens on the window
 // in the capture phase, ahead of an open popover's own Escape listener on the
 // document, even one that captures too.
@@ -82,12 +68,6 @@ function isModalDialog(dialog: Element): boolean {
   } catch {
     return true;
   }
-}
-
-/** Leaves the page in view through its guard, as the menu and the sidebar do. */
-export function leave(go: () => void): void {
-  if (leaveGuard) leaveGuard(go);
-  else go();
 }
 
 /** Typing keeps its keys: a shortcut doesn't fire from a field or an editor. */
@@ -147,7 +127,7 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       } else if (key === "n") {
         event.preventDefault();
         setOpen(false);
-        leave(newProject);
+        openNewGame();
       } else if ((key === "[" || key === "]") && !editableTarget(event.target)) {
         // Back and forward, as in a browser; the title bar has no buttons for them.
         event.preventDefault();
@@ -188,11 +168,6 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
     if (window.location.hash !== hash) latestNavigate.current(hash);
   }
 
-  // The new game dialog opens over whatever page is showing.
-  function newProject(): void {
-    openNewGame();
-  }
-
   const commands: Command[] = open ? [
     ...[...sources].flatMap((source) => source.current()),
     ...PAGES.map(({ page, label, icon: Icon }): Command => ({
@@ -201,7 +176,7 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
     })),
     {
       id: "new-project", group: t("commandMenu.goTo"), label: t("sidebar.newProject"), keywords: "new create", icon: <CirclePlus size="md" />,
-      shortcut: shortcut("n"), run: () => leave(newProject),
+      shortcut: shortcut("n"), run: () => openNewGame(),
     },
     ...projects.map((project): Command => ({
       id: `project-${project.id}`, group: t("commandMenu.projects"), label: project.name, keywords: `${project.type} ${projectTypeLabel(project.type)}`, icon: <ProjectTypeIcon type={project.type} size={16} />,

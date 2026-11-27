@@ -19,6 +19,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects: async () => projects,
   listProjectTypes: () => listTypes(),
+  listPluginStarters: async () => ({ plugins: [], commands: [] }),
+  listProjectTemplates: async () => [],
   readProjectTypeCover: async () => new Blob(["png"], { type: "image/png" }),
   readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,
@@ -45,6 +47,7 @@ vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
   </>),
 }));
 
+const { useLeaveGuard } = await import("../src/renderer/app-navigation.js");
 const { Home } = await import("../src/renderer/home.js");
 const { NewGameHost, openNewGame } = await import("../src/renderer/new-game.js");
 const { PLUGIN_TYPE_IMAGE, TYPE_IMAGES } = await import("../src/renderer/project-type-images.js");
@@ -62,12 +65,18 @@ afterEach(async () => {
 });
 
 /** Home with the app's new game dialog, as App mounts them. */
-async function renderHome(props: { onCreate?: () => void; onOpen?: (id: string) => void } = {}) {
+function Guard({ save }: { save: () => Promise<void> }) {
+  useLeaveGuard(save, (error) => { throw error; });
+  return null;
+}
+
+async function renderHome(props: { save?: () => Promise<void>; onCreate?: () => void; onOpen?: (id: string) => void } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => root!.render(<>
+    {props.save && <Guard save={props.save} />}
     <Home onNavigate={() => {}} onOpen={props.onOpen ?? (() => {})} />
     <NewGameHost onCreate={props.onCreate ?? (() => {})} onOpen={props.onOpen ?? (() => {})} />
   </>));
@@ -163,7 +172,9 @@ it("keeps the plugin type chosen on Home when starting a blank project", async (
 
 it("opens the new game dialog on a type card, keeps it while switching types, and creates the project from the prompt", async () => {
   const onCreate = vi.fn();
-  await renderHome({ onCreate });
+  const save = vi.fn(async () => {}).mockRejectedValueOnce(new Error("Canvas save conflict"));
+  createProject.mockClear();
+  await renderHome({ onCreate, save });
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
   const dialog = () => document.querySelector<HTMLElement>(".new-game-dialog");
 
@@ -189,7 +200,12 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(dialog()?.querySelector(".prompt-stand-in")?.textContent).toContain("Describe your web game");
 
   // The prompt names the project, so there is nothing to fill in.
+  expect(save).not.toHaveBeenCalled();
   await act(async () => button("Send prompt").click());
+  expect(document.querySelector(".new-project-error")?.textContent).toContain("Canvas save conflict");
+  expect(createProject).not.toHaveBeenCalled();
+  expect(onCreate).not.toHaveBeenCalled();
+  await act(async () => button("Create and start").click());
   expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
   expect(onCreate).toHaveBeenCalledWith(created, "first", "Make a maze", [], [], "normal", []);
   expect(dialog()).toBeNull();
