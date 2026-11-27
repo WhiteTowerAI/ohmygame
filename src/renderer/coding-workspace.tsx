@@ -505,6 +505,7 @@ export function CodingWorkspace({
         error={filesError}
         revision={workspaceRevision + filesRevision}
         onShowInCode={openCode}
+        onFilesChanged={() => setFilesRevision((value) => value + 1)}
       />,
     },
   };
@@ -1761,6 +1762,8 @@ export function AssetsView(props: {
   error?: string;
   revision: number;
   onShowInCode: (path: string) => void;
+  /** Lists the project's files again, as after an add or a trim. */
+  onFilesChanged?: () => void;
 }) {
   const generation = useReadyRuntimeGeneration();
   const [sources, setSources] = useState<LibrarySource[]>([]);
@@ -1789,14 +1792,14 @@ export function AssetsView(props: {
   if (!source) return <ProjectAssets {...props} tabs={tabs} shown={shown} />;
   return (
     <div className="assets-view">
-      <div className="library-filter-row assets-filter-row">
-        {tabs}
-        <span className="library-filter-spacer" />
-        <div className="assets-search"><SearchInput size="sm" value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
-      </div>
+      <div className="library-filter-row assets-filter-row">{tabs}</div>
       <AssetSourceBrowser key={source.id} source={source} query={query} projectId={props.projectId!}
+        search={<div className="assets-search"><SearchInput size="sm" value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>}
         added={added.get(source.id) ?? new Map()}
-        onAdded={(item, path) => setAdded((current) => new Map(current).set(source.id, new Map(current.get(source.id)).set(item, path)))}
+        onAdded={(item, path) => {
+          setAdded((current) => new Map(current).set(source.id, new Map(current.get(source.id)).set(item, path)));
+          props.onFilesChanged?.();
+        }}
         onShow={(path) => { setTab(PROJECT_ASSETS); setShown({ path }); }} />
     </div>
   );
@@ -1811,6 +1814,7 @@ function ProjectAssets({
   onShowInCode,
   tabs,
   shown,
+  onFilesChanged,
 }: {
   projectId?: string;
   files: WorkspaceFile[];
@@ -1821,6 +1825,7 @@ function ProjectAssets({
   tabs: ReactNode;
   /** An asset to open, as one just added from a source; a new object opens it again. */
   shown?: { path: string };
+  onFilesChanged?: () => void;
 }) {
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
@@ -1880,6 +1885,7 @@ function ProjectAssets({
           loadSource: () => getWorkspaceAsset(projectId, selectedAsset.path),
           onSave: async (video, trim) => {
             const saved = await saveTrimmedVideo(video, trim, { name: fileName(selectedAsset.path), ...(selectedAsset.libraryAssetId ? { libraryAssetId: selectedAsset.libraryAssetId } : {}) }, { projectId });
+            onFilesChanged?.();
             if (saved.projectPath) setSelectedPath(saved.projectPath);
           },
         } : undefined}

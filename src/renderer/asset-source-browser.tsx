@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LibrarySource, LibrarySourceItem } from "../shared/contracts.js";
 import { addSourceItemToProject, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
@@ -15,9 +15,11 @@ type Media = LibrarySource["media"][number];
  * A plugin's source in a project's Assets: its search results, a page at a
  * time, and adding one to the project. Nothing downloads until it is added.
  */
-export function AssetSourceBrowser({ source, query, projectId, added, onAdded, onShow }: {
+export function AssetSourceBrowser({ source, query, search, projectId, added, onAdded, onShow }: {
   source: LibrarySource;
   query: string;
+  /** The search box, shown beside Refresh. */
+  search: ReactNode;
   projectId: string;
   /** The project file for each of this source's items added while the panel is open. */
   added: ReadonlyMap<string, string>;
@@ -177,6 +179,7 @@ export function AssetSourceBrowser({ source, query, projectId, added, onAdded, o
         ...source.media.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} /> })),
       ]} /> : null}
       <span className="library-filter-spacer" />
+      {search}
       <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} disabled={phase === "loading"} onClick={searchAgain}>{t("common.refresh")}</Button>
     </div>
     {source.description ? <p className="library-source-description">{source.description} · {t("assetSources.sourceBy", { plugin: source.pluginName })}</p> : null}

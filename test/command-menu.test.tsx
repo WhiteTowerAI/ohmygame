@@ -136,14 +136,14 @@ it("guards navigation from the menu and ⌘, and opens New project in place", as
   await press(",");
   await press("n");
   await act(async () => openCommandMenu());
-  await act(async () => option("Library").click());
+  await act(async () => option("Plugins").click());
   // Nothing leaves until the page lets it, as an open project saves its design first.
   expect(navigate).not.toHaveBeenCalled();
   expect(pending).toHaveLength(2);
   expect(newGame).toHaveBeenCalledTimes(1);
   await act(async () => { for (const go of pending) go(); });
   // ⌘N opens the new game dialog over the page rather than going anywhere.
-  expect(navigate.mock.calls.map(([hash]) => hash)).toEqual(["#/settings/general", "#/library"]);
+  expect(navigate.mock.calls.map(([hash]) => hash)).toEqual(["#/settings/general", "#/plugins"]);
   expect(newGame).toHaveBeenCalledTimes(1);
   window.removeEventListener("ohmygame:new-game", newGame);
   // The page's own commands don't leave it, so they run at once.

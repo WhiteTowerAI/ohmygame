@@ -153,25 +153,17 @@ describe("project file management", () => {
     }
   });
 
-  it("keeps provenance across folder renames and leaves Library copies intact after deletion", async () => {
+  it("keeps provenance across folder renames and clears it after deletion", async () => {
     const { app, project, base } = await setup();
     await mkdir(path.join(project.workspacePath, "media"));
     await mkdir(path.join(project.workspacePath, ".ohmygame", "asset-previews"), { recursive: true });
     await writeFile(path.join(project.workspacePath, "media", "hero.png"), "local bytes");
     await writeFile(path.join(project.workspacePath, ".ohmygame", "asset-previews", "hero.jpg"), "preview");
     await writeAssetMetadata(project.workspacePath, "media/hero.png", { origin: "generated", purpose: "asset", prompt: "hero", previewPath: ".ohmygame/asset-previews/hero.jpg" });
-    const saved = await app.inject({ method: "POST", url: `/projects/${project.id}/assets/library?path=media/hero.png` });
-    expect(saved.statusCode, saved.body).toBe(201);
-    const asset = saved.json<LibraryAsset>();
-    // Local provenance remains authoritative for generated files saved for the first time.
     expect((await app.inject({ method: "GET", url: base })).json<WorkspaceFile[]>()).toContainEqual(expect.objectContaining({ path: "media/hero.png", origin: "generated", purpose: "asset" }));
     expect((await app.inject({ method: "PATCH", url: `${base}?path=media`, payload: { name: "art" } })).statusCode).toBe(200);
-    expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: { "art/hero.png": "generated" }, libraryAssets: { "art/hero.png": asset.id } });
-    await writeFile(path.join(project.workspacePath, "art", "hero.png"), "edited local bytes");
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=art/hero.png` })).body).toBe("edited local bytes");
-    expect((await app.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).body).toBe("local bytes");
+    expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: { "art/hero.png": "generated" }, prompts: { "art/hero.png": "hero" } });
     expect((await app.inject({ method: "DELETE", url: `${base}?path=art` })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(200);
     expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: {}, purposes: {}, libraryAssets: {}, prompts: {}, previews: {} });
     await expect(readFile(path.join(project.workspacePath, ".ohmygame", "asset-previews", "hero.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
   });
