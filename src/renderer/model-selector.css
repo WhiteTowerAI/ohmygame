@@ -51,11 +51,17 @@
   cursor: default;
 }
 
+/* The name gives way first when the composer is narrow. */
 .model-selector-trigger .model-selector-name {
+  min-width: 0;
+  overflow: hidden;
   font-weight: var(--weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-selector-trigger .model-selector-reasoning-value {
+  flex: none;
   color: var(--color-text-tertiary);
 }
 

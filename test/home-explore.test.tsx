@@ -220,7 +220,7 @@ it("opens the new game dialog on a type card, keeps it while switching types, an
   expect(button("Choose project")).toBeUndefined();
 });
 
-it("shows Continue to returning people as one row of cards, and folds it to a line", async () => {
+it("shows Continue to returning people as one row of cards under New project", async () => {
   projects = ["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl", "Cat Cafe"].map((name, index) => ({ ...created, id: `p${index}`, name }));
   const onOpen = vi.fn();
   await renderHome({ onOpen });
@@ -238,18 +238,9 @@ it("shows Continue to returning people as one row of cards, and folds it to a li
   expect([...section()!.querySelectorAll(".home-continue-body .project-card-name")].map((name) => name.textContent)).toEqual(["Storm Ruins", "Ghost Courier", "Cloud Run", "Kitchen Brawl"]);
   await act(async () => section()!.querySelector<HTMLButtonElement>(".project-card-open")!.click());
   expect(onOpen).toHaveBeenCalledWith("p0");
-
-  // Folded, it is one line that still opens the latest project.
-  await act(async () => section()!.querySelector<HTMLButtonElement>('[aria-label="Collapse"]')!.click());
-  expect(section()?.classList.contains("is-collapsed")).toBe(true);
-  expect(section()?.querySelector(".home-continue-line-name")?.textContent).toBe("Storm Ruins");
-  expect(localStorage.getItem("ohmygame:home-continue")).toBe("collapsed");
-
-  // It can only be folded, not hidden; expanding brings it back.
-  expect(section()!.querySelector('[aria-label="Continue options"]')).toBeNull();
-  await act(async () => section()!.querySelector<HTMLButtonElement>('[aria-label="Expand"]')!.click());
-  expect(section()?.classList.contains("is-collapsed")).toBe(false);
-  expect(localStorage.getItem("ohmygame:home-continue")).toBeNull();
+  // Starting comes first; the latest projects follow, always open.
+  expect([...container!.querySelectorAll(".home-section")].map((item) => item.classList[1])).toEqual(["home-new", "home-continue", "home-explore"]);
+  expect(section()!.querySelector(".home-section-head [aria-expanded]")).toBeNull();
 });
 
 it.each([

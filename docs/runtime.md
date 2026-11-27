@@ -878,11 +878,10 @@ font; both are stored in the renderer and applied as `data-palette` and
 screen: the older colour variables at the top of `styles.css` point at the
 design tokens in `ui/tokens.css`.
 
-Home leads with **Recent projects** for people with projects: one row of project
-cards, latest first, on the same grid as Explore below, so a single project
-sits at the row's start; with two or more, **All projects** sits beside the
-heading. Its chevron folds it to one line that still opens the
-latest project; the choice stays in that browser. **New project** shows a card per
+Home leads with **New project**; **Recent projects** follows for people with
+projects: one row of project cards, latest first, on the same grid as Explore
+below, so a single project sits at the row's start; with two or more, **All
+projects** sits beside the heading. **New project** shows a card per
 project type, plugin types included: the type's icon, name and line on the
 left, and its picture filling the right, cut off by the card's edges and
 dissolving in from its left edge in fine grain, so the words stay on the

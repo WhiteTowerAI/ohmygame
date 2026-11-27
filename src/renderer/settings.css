@@ -995,6 +995,11 @@
   padding: var(--space-3) var(--space-4);
 }
 
+/* In a row, the reset time lines up with the window's name above it. */
+.settings-body .cloud-quota-row > .cloud-quota-note {
+  padding: 0;
+}
+
 .settings-body .settings-method-row {
   display: flex;
   align-items: center;

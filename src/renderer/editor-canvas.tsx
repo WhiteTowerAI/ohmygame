@@ -24,7 +24,8 @@ import {
   type CanvasAlignmentGuides,
   type CanvasAlignmentNode,
 } from "./canvas-alignment.js";
-import { Hand, Maximize, Minus, MousePointer2, Plus } from "./icons.js";
+import { ChevronDown, Hand, Maximize, Minus, MousePointer2, Plus } from "./icons.js";
+import { DropdownMenu } from "./ui/index.js";
 // React Flow's own layout rules, loaded with the one canvas both editors use,
 // since either editor may be the first to load.
 import "@xyflow/react/dist/style.css";
@@ -198,6 +199,7 @@ export function EditorCanvas<N extends Node>({
       <Panel className="canvas-toolbar" position="bottom-center">
         {addControl}
         {selectionAction}
+        <span className="canvas-toolbar-separator" aria-hidden="true" />
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size="md" />
         </button>
@@ -205,8 +207,7 @@ export function EditorCanvas<N extends Node>({
           <Hand size="md" />
         </button>
         <span className="canvas-toolbar-separator" aria-hidden="true" />
-        <ZoomControls />
-        <FitViewButton />
+        <ZoomMenu />
       </Panel>
       <DeleteKeys keys={deleteKeyCode} canvas={wrapper} />
       {children}
@@ -458,18 +459,6 @@ export function isTextEntry(target: EventTarget | null): boolean {
     && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));
 }
 
-function FitViewButton() {
-  const { fitView, getNodes, setViewport } = useReactFlow();
-  async function fitCanvas(): Promise<void> {
-    if (getNodes().length === 0) {
-      await setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
-      return;
-    }
-    await fitView({ padding: 0.2, duration: 200 });
-  }
-  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size="md" /></button>;
-}
-
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
   const { zoom } = useViewport();
   if (!guides) return null;
@@ -517,16 +506,33 @@ function canvasViewportZoom(canvas: HTMLElement | null): number {
   }
 }
 
-/** The zoom, in the bottom toolbar after the tools. */
-function ZoomControls() {
-  const { zoomIn, zoomOut, zoomTo } = useReactFlow();
+/** The zoom, which opens zooming in and out, back to 100% and fitting the nodes in view. */
+function ZoomMenu() {
+  const { zoomIn, zoomOut, zoomTo, fitView, getNodes, setViewport } = useReactFlow();
   const { zoom } = useViewport();
+  async function fitCanvas(): Promise<void> {
+    if (getNodes().length === 0) {
+      await setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
+      return;
+    }
+    await fitView({ padding: 0.2, duration: 200 });
+  }
   return (
-    <>
-      <button type="button" data-tooltip={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size="md" /></button>
-      <button className="canvas-zoom-value" type="button" data-tooltip={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" data-tooltip={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size="md" /></button>
-    </>
+    <DropdownMenu
+      placement="top"
+      items={[
+        { label: t("editorCanvas.zoomIn"), icon: <Plus size="sm" />, onSelect: () => void zoomIn() },
+        { label: t("editorCanvas.zoomOut"), icon: <Minus size="sm" />, onSelect: () => void zoomOut() },
+        "separator",
+        { label: t("editorCanvas.resetZoom"), onSelect: () => void zoomTo(1) },
+        { label: t("editorCanvas.fit"), icon: <Maximize size="sm" />, onSelect: () => void fitCanvas() },
+      ]}
+      trigger={(props) => (
+        <button {...props} className="canvas-zoom-value" type="button" aria-label={t("editorCanvas.zoom")}>
+          {Math.round(zoom * 100)}%<ChevronDown size="sm" />
+        </button>
+      )}
+    />
   );
 }
 

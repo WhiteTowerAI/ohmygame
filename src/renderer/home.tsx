@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ChevronDown, ChevronUp, CircleHelp, Plus, RefreshCw } from "./icons.js";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { CircleHelp, Plus, RefreshCw } from "./icons.js";
+import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { listPluginStarters, listProjects, waitForRuntime } from "./api.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -10,10 +10,9 @@ import { commandPrompt, PluginPanelToolbar } from "./project-plugin-contribution
 import { ExampleShelf, useExamples } from "./examples.js";
 import { publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
-import { ProjectCard, projectTime, useProjectActions } from "./project-card.js";
+import { ProjectCard, useProjectActions } from "./project-card.js";
 import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
 import { usePluginProjectTypes } from "./project-type-choices.js";
-import { GENERAL_PREFERENCES_EVENT, readGeneralPreferences, setGeneralPreference, type HomeContinue } from "./general-preferences.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
@@ -32,8 +31,8 @@ interface HomeProps {
   onOpen: (projectId: string, view?: "design") => void;
 }
 
-// Home is where projects start and continue: 继续 reopens the latest ones, and
-// 新建游戏's type cards open the new game dialog (new-game.tsx) on their type.
+// Home is where projects start and continue: 新建游戏's type cards open the new
+// game dialog (new-game.tsx) on their type, and 继续 below them reopens the latest ones.
 /** Plugins' ways to start (`home.starters`): their prompt waits in the new game dialog's box. */
 function PluginStarters() {
   const generation = useReadyRuntimeGeneration();
@@ -71,7 +70,6 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   const { sectionRef, columns } = useProjectShelfLayout();
   const projectActions = useProjectActions(loadProjects);
   const { types: pluginTypes = [] } = usePluginProjectTypes();
-  const continueMode = useHomeContinue();
 
   async function loadProjects() {
     setPhase("loading");
@@ -127,17 +125,6 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
             {loadError}{" "}
             <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
           </p> : null}
-          {phase === "loading" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
-          {phase === "ready" && projects.length > 0 ? <ContinueSection
-            projects={projects}
-            mode={continueMode}
-            columns={columns}
-            activity={activity}
-            actionsFor={projectActions.actionsFor}
-            onOpen={onOpen}
-            onAll={() => onNavigate("projects")}
-          /> : null}
-          {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
 
           {/* On first run the big heading above names this section and holds its actions. */}
           <section ref={sectionRef} className="home-section home-new" aria-labelledby={firstRun ? "home-first-heading" : "home-new-heading"}>
@@ -151,6 +138,17 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
             </div>
             <div className="home-starts"><PluginStarters /></div>
           </section>
+
+          {phase === "loading" ? <div className="home-continue-skeleton" aria-label={t("projects.loading")} /> : null}
+          {phase === "ready" && projects.length > 0 ? <ContinueSection
+            projects={projects}
+            columns={columns}
+            activity={activity}
+            actionsFor={projectActions.actionsFor}
+            onOpen={onOpen}
+            onAll={() => onNavigate("projects")}
+          /> : null}
+          {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
 
           {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
             <header className="home-section-head">
@@ -166,21 +164,8 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   );
 }
 
-/** Home's 继续: shown in full, or folded to one line. */
-function useHomeContinue(): HomeContinue {
-  return useSyncExternalStore((change) => {
-    window.addEventListener(GENERAL_PREFERENCES_EVENT, change);
-    window.addEventListener("storage", change);
-    return () => {
-      window.removeEventListener(GENERAL_PREFERENCES_EVENT, change);
-      window.removeEventListener("storage", change);
-    };
-  }, () => readGeneralPreferences().homeContinue);
-}
-
-function ContinueSection({ projects, mode, columns, activity, actionsFor, onOpen, onAll }: {
+function ContinueSection({ projects, columns, activity, actionsFor, onOpen, onAll }: {
   projects: ProjectState[];
-  mode: HomeContinue;
   /** How many cards fit a row of the shelf below, so 继续 lines up with it. */
   columns: number;
   activity: ReturnType<typeof useProjectActivity>;
@@ -188,33 +173,21 @@ function ContinueSection({ projects, mode, columns, activity, actionsFor, onOpen
   onOpen: (projectId: string) => void;
   onAll: () => void;
 }) {
-  const [latest] = projects;
-  const collapsed = mode === "collapsed";
-  const toggle = () => setGeneralPreference("homeContinue", collapsed ? "shown" : "collapsed");
-  const latestStatus = activity.get(latest.id);
   return (
-    <section className={`home-section home-continue${collapsed ? " is-collapsed" : ""}`} aria-labelledby="home-continue-heading">
+    <section className="home-section home-continue" aria-labelledby="home-continue-heading">
       <header className="home-section-head">
         <h2 id="home-continue-heading">{t("home.continue")}</h2>
-        {collapsed ? <span className="home-continue-line">
-          <span className="home-continue-line-name">{latest.name}</span>
-          <span className="home-continue-line-time">{latestStatus ? t("projectCard.working") : projectTime(latest.updatedAt)}</span>
-          <Button size="sm" onClick={() => onOpen(latest.id)}>{t("home.open")}</Button>
-        </span> : null}
-        <span className="home-section-actions">
-          {collapsed || projects.length < 2 ? null : <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>}
-          <IconButton size="sm" label={collapsed ? t("home.expandContinue") : t("home.collapseContinue")} aria-expanded={!collapsed} onClick={toggle}>
-            {collapsed ? <ChevronDown size="md" /> : <ChevronUp size="md" />}
-          </IconButton>
-        </span>
+        {projects.length < 2 ? null : <span className="home-section-actions">
+          <Button size="sm" variant="ghost" onClick={onAll}>{t("home.allProjects")}</Button>
+        </span>}
       </header>
       {/* One row of cards the size of 探索's, so a single project sits at the
           row's start like any shelf instead of stretching across it. */}
-      {collapsed ? null : <div className="home-continue-body">
+      <div className="home-continue-body">
         {projects.slice(0, columns).map((project) => (
           <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)} onOpen={() => onOpen(project.id)} actions={actionsFor(project)} />
         ))}
-      </div>}
+      </div>
     </section>
   );
 }

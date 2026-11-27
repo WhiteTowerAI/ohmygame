@@ -958,9 +958,6 @@ const en = {
     firstHint: "Pick one to start. You can change anything as you go.",
     newGame: "New project",
     continue: "Recent projects",
-    open: "Open",
-    collapseContinue: "Collapse",
-    expandContinue: "Expand",
     randomIdea: "Random idea",
     ideas: {
       web: {
@@ -4288,6 +4285,7 @@ const en = {
     fit: "Fit view",
     zoomOut: "Zoom out",
     resetZoom: "Reset zoom",
+    zoom: "Zoom",
     zoomIn: "Zoom in",
   },
   modelPreview: {

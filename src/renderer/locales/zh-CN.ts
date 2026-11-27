@@ -943,9 +943,6 @@ const zhCN: typeof en = {
     firstHint: "选一种开始，做的过程中随时能改。",
     newGame: "新建项目",
     continue: "最近项目",
-    open: "打开",
-    collapseContinue: "收起",
-    expandContinue: "展开",
     randomIdea: "随机灵感",
     ideas: {
       web: {
@@ -4220,6 +4217,7 @@ const zhCN: typeof en = {
     fit: "适应视图",
     zoomOut: "缩小",
     resetZoom: "重置缩放",
+    zoom: "缩放",
     zoomIn: "放大",
   },
   modelPreview: {

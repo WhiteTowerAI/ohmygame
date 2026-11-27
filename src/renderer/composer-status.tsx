@@ -13,10 +13,10 @@ export function formatTokens(value: number): string {
 }
 
 /**
- * Beside the chat's send button: one ring for how full the context is. It
- * opens the details: the context, how fast the latest response came, how much
- * of its prompt the provider's cache served, and a coding agent's quota where
- * it reports one.
+ * Beside the chat's send button: one ring for how full the context is, or the
+ * quota when the context size is unknown. It opens the details: the context,
+ * how fast the latest response came, how much of its prompt the provider's
+ * cache served, and a coding agent's quota where it reports one.
  */
 export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   const ring = useRef<HTMLButtonElement>(null);
@@ -32,6 +32,8 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
   const percent = usage?.percent == null ? undefined : Math.max(0, Math.min(100, usage.percent));
   const limits = usage?.limits ?? [];
   if (!last && percent === undefined && !limits.length) return null;
+  // Without a context size, the ring shows the fullest quota, or stays empty.
+  const ringPercent = percent ?? Math.min(100, Math.max(0, ...limits.map((limit) => limit.usedPercent)));
   const shown = percent === undefined ? undefined : percent < 1 && percent > 0 ? "<1" : String(Math.round(percent));
   const speed = last?.tokensPerSecond;
   const cache = last?.cacheHitPercent;
@@ -40,7 +42,7 @@ export function ComposerStatus({ usage }: { usage?: AgentContextUsage }) {
       <button ref={ring} type="button" className="composer-status-context" aria-expanded={open}
         aria-label={percent !== undefined ? t("composerStatus.contextUsed", { percent: shown }) : limits.length ? t("agentUsage.title") : t("composerStatus.details")}
         onClick={() => setOpen((value) => !value)} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
-        {percent !== undefined ? <ContextRing percent={percent} /> : <Gauge size="sm" aria-hidden="true" />}
+        <ContextRing percent={ringPercent} />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchor={ring} placement="top" className="composer-status-popover" label={t("composerStatus.details")}>
         <div onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
