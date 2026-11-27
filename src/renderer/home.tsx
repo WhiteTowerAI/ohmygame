@@ -97,8 +97,7 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   }, [start, inert]);
 
   const firstRun = phase === "ready" && projects.length === 0;
-  // Up to two full rows, so no example sits alone on a row; Home scrolls when the window is short.
-  const visibleExamples = examples.slice(0, Math.min(columns * 2, Math.max(columns, examples.length - (examples.length % columns))));
+  const visibleExamples = examples.slice(0, columns * 2);
 
   // + opens the dialog without choosing a type (also ⌘N). Plugins can add types; the mark
   // only says so, so Home doesn't send the person off to Plugins.

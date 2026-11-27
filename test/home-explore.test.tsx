@@ -6,9 +6,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ExampleSummary } from "../src/shared/examples.js";
 
 const examples: ExampleSummary[] = [
-  ...["circuit", "tidal", "ember", "wetland", "garden"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
+  ...["circuit", "tidal", "ember", "wetland"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
   { id: "last-bus", type: "web-game", name: "Last Bus", description: "" },
-  ...["harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
+  ...["garden", "harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
 ];
 
 vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), async (original) => ({
@@ -86,7 +86,7 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   await renderHome();
 
   const shown = [...container!.querySelectorAll(".home-explore-card")].map((card) => card.textContent);
-  // Four columns by default: eight cards, including Last Bus in sixth place.
+  // Four columns by default: eight cards, including Last Bus in fifth place.
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
@@ -96,11 +96,12 @@ it("shows two rows of examples in Explore, above Asset templates, so an example 
   expect(container!.querySelector(".home-explore-card small")).toBeNull();
 });
 
-it("leaves no example alone on a row: five examples show the first four", async () => {
+it("keeps Last Bus visible when the fifth example starts a partial row", async () => {
   const all = examples.splice(5);
   try {
     await renderHome();
-    expect(container!.querySelectorAll(".home-explore-card")).toHaveLength(4);
+    const titles = [...container!.querySelectorAll(".home-explore-card strong")].map((title) => title.textContent);
+    expect(titles).toEqual(examples.map((example) => example.name));
   } finally {
     examples.push(...all);
   }
