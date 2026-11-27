@@ -5,8 +5,9 @@ import { ApiError, request, ServiceUnreachableError } from "../src/renderer/api.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addPlugin, inspectAddedPlugin, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, addLibrarySourceItem, listLibrarySources, searchLibrarySource, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, removeLibraryAsset, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
-import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
+import { exportProject, saveProjectDownload, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
+import type { ServiceDownloadResult } from "../src/shared/desktop-runtime.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -67,6 +68,31 @@ describe("renderer event stream", () => {
     });
     await expect(exportProject(id, "old-editor-version")).rejects.toMatchObject({ code: "workspace_stale" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("has the desktop app save a project file or web build to disk, never holding it in the window", async () => {
+    const save = vi.fn(async (): Promise<ServiceDownloadResult> => ({ status: "saved" }));
+    vi.stubGlobal("window", { ohMyGameDesktop: { saveServiceDownload: save }, setTimeout, clearTimeout });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const id = "archive-saved-project";
+    observeWorkspaceVersion(id, "current-version");
+
+    await expect(saveProjectDownload("project", id, "Moon Garden.zip")).resolves.toBe(true);
+    expect(save).toHaveBeenLastCalledWith(`/projects/${id}/export`, "current-version", "Moon Garden.zip");
+    await expect(saveProjectDownload("web", id, "Moon Garden (web).zip", "current-version")).resolves.toBe(true);
+    expect(save).toHaveBeenLastCalledWith(`/projects/${id}/build`, "current-version", "Moon Garden (web).zip");
+    await expect(saveProjectDownload("web", id, "old.zip", "old-editor-version")).rejects.toMatchObject({ code: "workspace_stale" });
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    save.mockResolvedValueOnce({ status: "canceled" });
+    await expect(saveProjectDownload("project", id, "Moon Garden.zip")).resolves.toBe(false);
+    save.mockResolvedValueOnce({ status: "refused", code: 409, body: { error: "Wait for the agent to finish before exporting" } });
+    await expect(saveProjectDownload("project", id, "Moon Garden.zip")).rejects.toMatchObject({
+      status: 409,
+      message: "Wait for the agent to finish before exporting",
+    });
   });
 
   it("saves the configured project startup directory", async () => {

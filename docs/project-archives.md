@@ -90,7 +90,10 @@ its actual bytes, including ZIP headers and compression overhead. Both size
 checks finish before a download starts. The completed file streams to the
 response and is removed after the download finishes or is cancelled. Export
 requires temporary disk space for the ZIP; it does not hold the archive in memory.
-The desktop app and browser still collect the download before saving it.
+In the desktop app, the app asks where to save the archive and writes it to
+that file as it arrives, so a large project saves without first being held
+in memory; the web build from Publish saves the same way. A browser collects
+the download before saving it.
 
 ## Import
 

@@ -7,7 +7,7 @@ import type { GameRecordingState } from "../shared/game-recording.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { PreviewColorFilter } from "../shared/preview-filter.js";
 import type { BrowserCommand, BrowserMenuLabels, BrowserState, ProjectBrowser } from "../shared/browser.js";
-import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
+import type { DaemonRuntime, DesktopRuntimeState, ServiceDownloadResult } from "../shared/desktop-runtime.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget, AgentResultRead } from "../shared/agent-notifications.js";
 
 function desktopRuntime(): { daemonUrl: string; token: string } {
@@ -94,6 +94,8 @@ if (process.isMainFrame) {
     removeProject: (projectId: string) => ipcRenderer.invoke("ohmygame:remove-project", projectId) as Promise<void>,
     openLogsDirectory: () => ipcRenderer.invoke("ohmygame:open-logs-directory") as Promise<void>,
     exportDiagnostics: () => ipcRenderer.invoke("ohmygame:export-diagnostics") as Promise<Uint8Array<ArrayBuffer>>,
+    saveServiceDownload: (route: string, version: string | undefined, fileName: string) =>
+      ipcRenderer.invoke("ohmygame:save-service-download", route, version, fileName) as Promise<ServiceDownloadResult>,
     clipboard: Object.freeze({
       files: () => ipcRenderer.invoke("ohmygame:clipboard-files") as Promise<DesktopClipboardFile[]>,
       paste: () => ipcRenderer.invoke("ohmygame:paste-native") as Promise<void>,

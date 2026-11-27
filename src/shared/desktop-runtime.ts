@@ -21,3 +21,10 @@ export interface DesktopRuntimeService {
   restart(options?: { safeMode?: boolean }): Promise<DesktopRuntimeState>;
   onState(listener: (state: DesktopRuntimeState) => void): () => void;
 }
+
+/** How saving a file the background service builds, such as a project's archive, ended. */
+export type ServiceDownloadResult =
+  | { status: "saved" }
+  | { status: "canceled" }
+  /** The service answered with an error: its status and body, for the window to explain. */
+  | { status: "refused"; code: number; body: unknown };
