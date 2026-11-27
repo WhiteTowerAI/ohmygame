@@ -65,6 +65,7 @@ import {
   type ConversationDetail,
   type ConversationSummary,
   type ProjectRunSettings,
+  type ProjectFileEditor,
   type ProjectFileOpenMode,
   type ProjectActivitySnapshot,
   type ProjectAppearance,
@@ -187,6 +188,8 @@ declare global {
         onState: (listener: (state: { maximized: boolean }) => void) => () => void;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
+      /** The code editors installed here, of those `openProjectFile` can open. */
+      installedEditors?: () => Promise<ProjectFileEditor[]>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       browseAccountDirectory?: (runtime: AccountRuntimeId, profileId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;

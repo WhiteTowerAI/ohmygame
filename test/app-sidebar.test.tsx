@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthState } from "../src/renderer/auth.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
+const duplicateProject = vi.hoisted(() => vi.fn(async () => undefined));
 const auth = vi.hoisted(() => ({
   state: { status: "signed-out" } as AuthState,
   openSignIn: vi.fn(),
@@ -55,6 +56,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   ],
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
+  duplicateProject,
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
 const { ProjectRail } = await import("../src/renderer/app-sidebar.js");
@@ -125,6 +127,22 @@ it("lists the sections without the studios and marks the current one", async () 
   expect(container.querySelector(".page-sheet")?.textContent).toBe("Page");
   await render("library");
   expect(sections()).toEqual(["Home", "Projects", "Library", "Community", "Plugins"]);
+});
+
+it("gives a Quick access project its card's menu on right-click, and tells the page listing projects", async () => {
+  await render();
+  await act(async () => publishSidebarProjects(projects));
+  const row = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].find((item) => item.textContent === "Old Garden")!;
+  await act(async () => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+  expect(menuLabels()).toEqual(["Open", "Rename", "Duplicate", "Export project", "Remove from OhMyGame"]);
+  const changed = vi.fn();
+  window.addEventListener("ohmygame:projects-changed", changed);
+  await act(async () => button("Duplicate")!.click());
+  window.removeEventListener("ohmygame:projects-changed", changed);
+  expect(duplicateProject).toHaveBeenCalledWith("old");
+  expect(changed).toHaveBeenCalledOnce();
+  // The menu's click doesn't also open the project.
+  expect(window.location.hash).toBe("");
 });
 
 const quickAccess = () =>
@@ -430,6 +448,27 @@ describe("in a project", () => {
     await key("Escape");
     expect(document.querySelector(".rail-popover")).toBeNull();
     expect(document.activeElement).toBe(icon);
+  });
+
+  it("gives another project its card's menu on right-click, and the open one its title bar's", async () => {
+    const rightClick = (label: string) => act(async () => {
+      button(label)!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    await rightClick("Old Garden");
+    expect(menuLabels()).toEqual(["Open", "Rename", "Duplicate", "Export project", "Remove from OhMyGame"]);
+    expect(document.querySelector(".rail-popover")).toBeNull();
+    // Opening it leaves this project the way the icon does, saving first.
+    await act(async () => button("Open")!.click());
+    expect(onLeave).toHaveBeenCalledOnce();
+    expect(window.location.hash).toBe("#/projects/old");
+
+    const settings = vi.fn();
+    await act(async () => root.render(<ProjectRail projectId="new" onNavigate={onNavigate} onLeave={onLeave}
+      menu={[{ label: "Project settings", onSelect: settings }]} conversations={{ items: [], onOpen, onNew }} />));
+    await rightClick("New Rocket");
+    expect(menuLabels()).toEqual(["Project settings"]);
+    await act(async () => button("Project settings")!.click());
+    expect(settings).toHaveBeenCalledOnce();
   });
 
   it("doesn't pull focus into a list that loads after the keyboard left", async () => {

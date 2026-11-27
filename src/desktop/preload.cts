@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
-import type { ProjectFileOpenMode } from "../shared/contracts.js";
+import type { ProjectFileEditor, ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { GameRecordingState } from "../shared/game-recording.js";
@@ -86,6 +86,7 @@ if (process.isMainFrame) {
     allowLibraryEmbed: (url: string) => ipcRenderer.invoke("ohmygame:library-embed", url) as Promise<void>,
     openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>
       ipcRenderer.invoke("ohmygame:open-project-file", projectId, filePath, mode) as Promise<void>,
+    installedEditors: () => ipcRenderer.invoke("ohmygame:installed-editors") as Promise<ProjectFileEditor[]>,
     browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("ohmygame:browse-plugin-directory", pluginId) as Promise<void>,
     browseAccountDirectory: (runtime: string, profileId: string) => ipcRenderer.invoke("ohmygame:browse-account-directory", runtime, profileId) as Promise<void>,
     revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("ohmygame:reveal-plugin-skill", pluginId, skillId) as Promise<void>,

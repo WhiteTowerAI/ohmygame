@@ -33,6 +33,9 @@ export function isPreviewViewport(value: unknown): value is PreviewViewport {
 }
 export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
 export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
+/** The code editors a project's files open in, by the names people know them by. */
+export const PROJECT_FILE_EDITORS = { vscode: "VS Code", zed: "Zed" } as const;
+export type ProjectFileEditor = keyof typeof PROJECT_FILE_EDITORS;
 
 /** One quota window of a coding agent's account, such as its 5-hour or weekly limit. */
 export interface AgentUsageLimit {

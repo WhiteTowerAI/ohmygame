@@ -11805,45 +11805,6 @@ summary.work-summary:hover {
   white-space: normal;
 }
 
-.workspace-tree-context-menu {
-  position: fixed;
-  z-index: 1200;
-  display: grid;
-  width: 196px;
-  outline: 0;
-}
-
-.workspace-tree-context-menu > button {
-  display: grid;
-  width: 100%;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.workspace-tree-context-menu > button > svg {
-  justify-self: center;
-}
-
-.workspace-tree-context-menu > button > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-tree-context-menu > button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.workspace-tree-context-menu > hr {
-  width: 100%;
-}
-
 .file-action-error {
   margin: 8px 12px;
   color: var(--danger);
@@ -12907,7 +12868,7 @@ summary.work-summary:hover {
  * body's size and colour, the kit's hover and hairline separators. Their own
  * rules above keep only placement, size and behaviour; the look is set here.
  */
-:is(.workspace-tree-context-menu, .file-open-menu, .canvas-context-menu, .canvas-context-submenu, .canvas-context-branch-menu, .library-dialog-actions-menu, .canvas-add-node-menu, .canvas-add-node-submenu, .selected-text-menu, .canvas-chip-menu) {
+:is(.file-open-menu, .canvas-context-menu, .canvas-context-submenu, .canvas-context-branch-menu, .library-dialog-actions-menu, .canvas-add-node-menu, .canvas-add-node-submenu, .selected-text-menu, .canvas-chip-menu) {
   padding: var(--space-1);
   border: 0;
   border-radius: var(--radius-lg);
@@ -12918,7 +12879,6 @@ summary.work-summary:hover {
 .selected-text-menu { padding: 0; }
 
 :is(
-  .workspace-tree-context-menu,
   .file-open-menu,
   .canvas-context-menu,
   .canvas-context-submenu,
@@ -12946,13 +12906,13 @@ summary.work-summary:hover {
     color: var(--color-text-secondary);
   }
 
-  & [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled),
-  & [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible),
-  & [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled) > svg {
+  & [role="menuitem"]:is(.is-danger, .library-action-delete):not(:disabled),
+  & [role="menuitem"]:is(.is-danger, .library-action-delete):not(:disabled):is(:hover, :focus-visible),
+  & [role="menuitem"]:is(.is-danger, .library-action-delete):not(:disabled) > svg {
     color: var(--danger);
   }
 
-  & [role="menuitem"]:is(.is-danger, .workspace-file-delete, .library-action-delete):not(:disabled):is(:hover, :focus-visible) {
+  & [role="menuitem"]:is(.is-danger, .library-action-delete):not(:disabled):is(:hover, :focus-visible) {
     background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 

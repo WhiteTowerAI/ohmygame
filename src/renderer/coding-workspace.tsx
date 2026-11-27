@@ -41,11 +41,11 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { usePluginSlot } from "./project-plugin-contributions.js";
-import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
-import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
-import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS, PROJECT_FILE_EDITORS } from "../shared/contracts.js";
+import type { PreviewViewport, ProjectFileEditor, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
@@ -82,7 +82,7 @@ import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./work
 import type { PanelNodes } from "./panel-layout.js";
 import { PanelTool, PanelTools, PanelToolsMenu } from "./panel-tools.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, Loading, MediaTile, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, Empty, ErrorDetails, IconButton, Loading, MediaTile, MenuAtPoint, SearchInput, Tabs, type MenuEntry, type MenuItem } from "./ui/index.js";
 import { GameIcon } from "./game-icon.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -1093,6 +1093,7 @@ export function WorkspaceFileBrowser({
   const selectedMedia = selectedEntry && hasMediaType(selectedEntry) ? selectedEntry : undefined;
   const [treeElement, setTreeElement] = useState<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu>();
+  const editors = useInstalledEditors();
   // The tree renders its children as the row component, so a new function on
   // each render would remount every row. The menu reads the latest state instead.
   const rowMenu = useRef({ busy: false, onSelect });
@@ -1178,6 +1179,29 @@ export function WorkspaceFileBrowser({
     }
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
+  }
+  // A right-clicked entry's actions; empty space in the tree offers the first two.
+  function entryMenu(entry: WorkspaceContextMenu): MenuEntry[] {
+    const act = (action: WorkspaceEntryAction) => () => entryAction(action, entry);
+    const media = files.find((file) => file.path === entry.path)?.mediaType;
+    const openExternal = entry.path ? onOpenExternal : undefined;
+    const openOptions = openExternal ? projectEntryOpenOptions(entry.directory, editors) : [];
+    return [
+      { label: t("workspace.newFile"), icon: <Plus size="sm" />, onSelect: act("new-file") },
+      { label: t("workspace.newFolder"), icon: <FolderPlus size="sm" />, onSelect: act("new-folder") },
+      ...(entry.path ? [
+        "separator" as const,
+        { label: t("common.rename"), icon: <Pencil size="sm" />, onSelect: act("rename") },
+        { label: t("workspace.copyPath"), icon: <Copy size="sm" />, onSelect: act("copy-path") },
+        ...(media ? [{ label: t("workspace.saveToLibrary"), icon: <Layers3 size="sm" />, onSelect: act("save-library") }] : []),
+      ] : []),
+      ...(openOptions.length ? ["separator" as const] : []),
+      ...openOptions.map(({ mode, label, icon: Icon }) => ({ label, icon: <Icon size="sm" />, onSelect: () => {
+        setActionError(undefined);
+        void openExternal!(entry.path, mode).catch((cause: unknown) => setActionError(errorMessage(cause)));
+      } })),
+      ...(entry.path ? ["separator" as const, { label: t("common.delete"), icon: <Trash2 size="sm" />, danger: true, onSelect: act("delete") }] : []),
+    ];
   }
   const shownFile = openFile && !showChanges ? openFile : undefined;
   const fileTools = shownFile ? <>
@@ -1310,7 +1334,7 @@ export function WorkspaceFileBrowser({
         ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="md" />} label={t("workspace.selectFile")} />}
       </div>
     </div>
-    {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
+    <MenuAtPoint point={contextMenu} items={contextMenu ? entryMenu(contextMenu) : []} onClose={() => setContextMenu(undefined)} />
     {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? t("workspace.renameEntry", { name: fileName(entryDialog.path) }) : entryDialog.kind === "file" ? t("workspace.newFile") : t("workspace.newFolder")} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
       const entry = entryDialog;
       setEntryDialog(undefined);
@@ -1433,8 +1457,7 @@ function WorkspaceCodeContent({ projectId, revision, openFileRequest, toolbarTar
 function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string, mode: ProjectFileOpenMode) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
-  const platform = typeof window === "undefined" ? "" : window.ohMyGameDesktop?.platform;
-  const options = projectEntryOpenOptions(platform, false);
+  const options = projectEntryOpenOptions(false, useInstalledEditors());
   const opener = useProjectEntryOpener(path, onOpen, () => setOpen(false), () => setOpen(true));
 
   useEffect(() => {
@@ -1473,85 +1496,6 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
   );
 }
 
-function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
-  menu: WorkspaceContextMenu;
-  file?: WorkspaceFile;
-  onClose: () => void;
-  onOpen?: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
-  onAction: (action: WorkspaceEntryAction) => void;
-}) {
-  const root = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ x: menu.x, y: menu.y });
-  const platform = window.ohMyGameDesktop?.platform;
-  const options = onOpen && menu.path ? projectEntryOpenOptions(platform, menu.directory) : [];
-  const opener = useProjectEntryOpener(menu.path, onOpen, onClose);
-
-  useLayoutEffect(() => {
-    const bounds = root.current?.getBoundingClientRect();
-    if (!bounds) return;
-    setPosition({
-      x: Math.max(6, Math.min(menu.x, window.innerWidth - bounds.width - 6)),
-      y: Math.max(6, Math.min(menu.y, window.innerHeight - bounds.height - 6)),
-    });
-    root.current?.focus();
-  }, [menu.x, menu.y]);
-
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) onClose();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    const closeOnLayout = () => onClose();
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("scroll", closeOnLayout, true);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", closeOnLayout);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("scroll", closeOnLayout, true);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", closeOnLayout);
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      ref={root}
-      className="workspace-tree-context-menu"
-      role="menu"
-      aria-label={menu.directory ? t("workspace.folderActions") : t("workspace.fileActions")}
-      tabIndex={-1}
-      style={{ left: position.x, top: position.y }}
-      onContextMenu={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        const items = [...(root.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-        if (!items.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        const current = items.indexOf(document.activeElement as HTMLButtonElement);
-        const index = current < 0 && event.key === "ArrowUp" ? 0 : current;
-        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        items[next]?.focus();
-      }}
-    >
-      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size="sm" /><span>{t("workspace.newFile")}</span></button>
-      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size="sm" /><span>{t("workspace.newFolder")}</span></button>
-      {menu.path ? <>
-        <hr />
-        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
-        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size="sm" /><span>{t("workspace.copyPath")}</span></button>
-        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size="sm" /><span>{t("workspace.saveToLibrary")}</span></button> : null}
-      </> : null}
-      {options.length ? <hr /> : null}
-      {options.map(({ mode, label, icon: Icon }) => (
-        <button type="button" role="menuitem" disabled={opener.opening} key={mode} onClick={() => void opener.choose(mode)}><Icon size={14} /><span>{label}</span></button>
-      ))}
-      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size="sm" /><span>{t("common.delete")}</span></button></> : null}
-      {opener.error ? <p className="file-open-error" role="alert">{opener.error}</p> : null}
-    </div>,
-    document.body,
-  );
-}
-
 function useProjectEntryOpener(
   path: string,
   onOpen: ((path: string, mode: ProjectFileOpenMode) => Promise<void>) | undefined,
@@ -1579,19 +1523,33 @@ function useProjectEntryOpener(
   return { opening, error, choose };
 }
 
-function projectEntryOpenOptions(platform: string | undefined, directory: boolean): Array<{ mode: ProjectFileOpenMode; label: string; icon: IconComponent }> {
-  const fileManager = platform === "darwin" ? "Finder" : platform === "win32" ? t("workspace.fileExplorer") : t("workspace.fileManager");
+// Where a file or folder opens outside the app. A folder opens in the file
+// manager itself; a file opens in its default app or shows in its folder.
+function projectEntryOpenOptions(directory: boolean, editors: readonly ProjectFileEditor[]): Array<{ mode: ProjectFileOpenMode; label: string; icon: IconComponent }> {
+  const platform = window.ohMyGameDesktop?.platform;
   return [
-    { mode: "default", label: directory ? t("workspace.openIn", { app: fileManager }) : t("workspace.defaultApp"), icon: ExternalLink },
-    { mode: "reveal", label: directory ? t("workspace.showInFolder") : t("workspace.showIn", { app: fileManager }), icon: FolderOpen },
-    { mode: "vscode", label: directory ? t("workspace.openFolderIn", { app: "VS Code" }) : t("workspace.openIn", { app: "VS Code" }), icon: Code2 },
-    { mode: "zed", label: directory ? t("workspace.openFolderIn", { app: "Zed" }) : t("workspace.openIn", { app: "Zed" }), icon: Code2 },
+    ...(directory ? [{ mode: "default" as const, label: t("workspace.openFolder"), icon: FolderOpen }] : [
+      { mode: "default" as const, label: t("workspace.openDefault"), icon: ExternalLink },
+      { mode: "reveal" as const, label: t("workspace.showInFolder"), icon: FolderOpen },
+    ]),
+    ...editors.map((editor) => ({ mode: editor, label: t("workspace.openIn", { app: PROJECT_FILE_EDITORS[editor] }), icon: Code2 })),
     ...(!directory && (platform === "darwin" || platform === "win32") ? [{
       mode: "text-editor" as const,
-      label: t("workspace.openIn", { app: platform === "darwin" ? t("workspace.textEdit") : t("workspace.notepad") }),
+      label: platform === "darwin" ? t("workspace.openInTextEdit") : t("workspace.openInNotepad"),
       icon: FileText,
     }] : []),
   ];
+}
+
+/** The code editors installed on this computer, as the desktop app finds them. */
+function useInstalledEditors(): readonly ProjectFileEditor[] {
+  const [editors, setEditors] = useState<readonly ProjectFileEditor[]>([]);
+  useEffect(() => {
+    let live = true;
+    void window.ohMyGameDesktop?.installedEditors?.().then((found) => { if (live) setEditors(found); }, () => undefined);
+    return () => { live = false; };
+  }, []);
+  return editors;
 }
 
 function WorkspaceMediaPreview({ projectId, file, revision, imageRevision }: {

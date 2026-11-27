@@ -65,7 +65,7 @@ function SelectMark({ project, selection }: { project: ProjectState; selection: 
  * the folder, export and delete. `error` is the last failure from an item
  * that runs here (open folder, export).
  */
-function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: ProjectCardActions): { menu?: MenuEntry[]; error?: string } {
+export function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: ProjectCardActions): { menu?: MenuEntry[]; error?: string } {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string>();
   const openProjectFile = typeof window !== "undefined" ? window.ohMyGameDesktop?.openProjectFile : undefined;
@@ -253,7 +253,6 @@ export function useProjectActions(reload: () => Promise<unknown>): {
     onDelete: () => setRemoving(project),
   });
 
-  const removal = removing ? projectRemoval(removing) : undefined;
   const dialogs = (
     <>
       {renaming ? <ProjectRenameDialog name={renaming.name} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
@@ -262,19 +261,30 @@ export function useProjectActions(reload: () => Promise<unknown>): {
         const name = input.trim();
         if (name && name !== project.name) void run(() => renameProject(project.id, name));
       }} /> : null}
-      <Dialog open={!!removing} onClose={() => setRemoving(undefined)} size="sm"
-        title={removal?.title ?? ""} description={removal?.description}
-        footer={<>
-          <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
-          <Button variant={removal?.deletes ? "danger" : "primary"} onClick={() => {
-            const project = removing!;
-            setRemoving(undefined);
-            void run(() => deleteProject(project.id));
-          }}>{removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}</Button>
-        </>} />
+      <ProjectRemovalDialog project={removing} onClose={() => setRemoving(undefined)} onConfirm={(project) => {
+        setRemoving(undefined);
+        void run(() => deleteProject(project.id));
+      }} />
     </>
   );
   return { actionsFor, dialogs, error };
+}
+
+/** Asks before a project is removed, saying whether its files go too. */
+export function ProjectRemovalDialog({ project, onClose, onConfirm }: {
+  project?: ProjectState;
+  onClose: () => void;
+  onConfirm: (project: ProjectState) => void;
+}) {
+  const removal = project ? projectRemoval(project) : undefined;
+  return <Dialog open={!!project} onClose={onClose} size="sm"
+    title={removal?.title ?? ""} description={removal?.description}
+    footer={<>
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button variant={removal?.deletes ? "danger" : "primary"} onClick={() => onConfirm(project!)}>
+        {removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}
+      </Button>
+    </>} />;
 }
 
 /** A project's cover, or the default template when it has none or chose the template. */

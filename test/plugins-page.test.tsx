@@ -21,6 +21,8 @@ const api = {
   readPluginStatus: vi.fn(async () => ({ safeMode: false })),
   inspectAddedPlugin: vi.fn<(source: unknown) => Promise<PluginAddPreview>>(),
   addPlugin: vi.fn(async () => ({ id: "acme/maker", version: "1.1.0" })),
+  readPluginUninstall: vi.fn(async () => ({ last: true, settings: 0, dataBytes: 0, projectFiles: [], projects: [] })),
+  uninstallStorePlugin: vi.fn(async (id: string) => { store = store.filter((plugin) => plugin.id !== id); }),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -169,6 +171,35 @@ describe("PluginsSettings", () => {
       expect(cards()).toEqual(["Alpha", "Beta", "Gamma"]);
       expect(scopes()).toHaveLength(0);
       expect(host.querySelector('[role="switch"][aria-label="Turn Alpha on in every project"]')?.getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("offers a row's update and management on right-click, and uninstalls it there", async () => {
+      store = [{ ...store[0]!, everyProject: true }, { ...store[1]!, bundled: true }];
+      market = { ...market, plugins: market.plugins.filter((plugin) => plugin.id === "acme/alpha") };
+      await renderInstalled("acme/alpha");
+      const menuFor = async (name: string) => {
+        const row = [...host.querySelectorAll(".installed-plugin-row")].find((item) => item.querySelector(".installed-plugin-name")?.textContent === name)!;
+        await act(async () => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+        return [...document.querySelectorAll<HTMLButtonElement>(".ui-popover-menu [role^='menuitem']")];
+      };
+      // A plugin that comes with OhMyGame, with nothing newer, can't go.
+      expect((await menuFor("Beta")).map((item) => item.textContent)).toEqual(["On in every project", "View log"]);
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+      let items = await menuFor("Alpha");
+      expect(items.map((item) => item.textContent)).toEqual(["Update", "On in every project", "View log", "Uninstall"]);
+      expect(items[1]!.getAttribute("aria-checked")).toBe("true");
+      await act(async () => items[1]!.click());
+      expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/alpha", false);
+      items = await menuFor("Alpha");
+      await act(async () => items.at(-1)!.click());
+      const dialog = document.querySelector('[role="dialog"]')!;
+      expect(dialog.textContent).toContain("Alpha");
+      await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Uninstall")!.click());
+      expect(api.uninstallStorePlugin).toHaveBeenCalledWith("acme/alpha", "1.0.0", { keepData: false });
+      // Its page was open, so the list comes back.
+      expect(onPluginChange).toHaveBeenLastCalledWith();
+      await renderInstalled();
+      expect(cards()).toEqual(["Beta"]);
     });
 
     it("keeps each plugin's selected tab and settings draft when switching editors", async () => {

@@ -104,7 +104,7 @@ async function openProject(
     ComponentProps<
       typeof import("../src/renderer/project-shell.js").ProjectShell
     >,
-    "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation" | "view"
+    "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation" | "onNavigate" | "view"
   >> & { wrap?: (shell: ReactNode) => ReactNode } = {},
 ) {
   const { wrap = (shell: ReactNode) => shell, ...props } = shellProps;
@@ -469,6 +469,27 @@ describe("project shell layout", () => {
     await settle();
     expect(tabs("center")).toEqual(["Code", "Design", "Canvas", "Assets", "*Game"]);
     expect(container.querySelector(".project-top-play")).toBeNull();
+  });
+
+  it("removes the project from its own menu and then goes home, staying when the daemon refuses", async () => {
+    const onNavigate = vi.fn();
+    let refuse = true;
+    const daemon = await openProject((route, init) => init.method === "DELETE" && route === "/projects/project"
+      ? refuse ? Response.json({ error: "Wait for the agent to finish before deleting this project" }, { status: 409 }) : new Response(null, { status: 204 })
+      : undefined, undefined, { onNavigate });
+    const remove = async () => {
+      await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((item) => item.textContent?.trim() === "Remove from OhMyGame")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-dialog button")].find((item) => item.textContent === "Delete")!.click());
+      await settle();
+    };
+    await remove();
+    expect(daemon.requests.filter((request) => request.method === "DELETE")).toHaveLength(1);
+    expect(container.textContent).toContain("Wait for the agent to finish before deleting this project");
+    expect(onNavigate).not.toHaveBeenCalled();
+    refuse = false;
+    await remove();
+    expect(onNavigate).toHaveBeenCalledWith("home");
   });
 });
 
