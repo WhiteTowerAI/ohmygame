@@ -506,7 +506,6 @@ function canvasViewportZoom(canvas: HTMLElement | null): number {
   }
 }
 
-/** The zoom, in the bottom toolbar after the tools. */
 /** The zoom, which opens zooming in and out, back to 100% and fitting the nodes in view. */
 function ZoomMenu() {
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, setViewport } = useReactFlow();

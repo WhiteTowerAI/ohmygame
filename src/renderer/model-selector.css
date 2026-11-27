@@ -62,9 +62,6 @@
 
 .model-selector-trigger .model-selector-reasoning-value {
   flex: none;
-}
-
-.model-selector-trigger .model-selector-reasoning-value {
   color: var(--color-text-tertiary);
 }
 

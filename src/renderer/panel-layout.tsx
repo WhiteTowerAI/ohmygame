@@ -318,12 +318,12 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
   // With the title bar along the areas, a side stops where it would no longer
   // fit, so letting go never moves the title and actions to a row of their own.
   // A window too narrow for any such split keeps the usual limits.
-  function sizeRange(area: (typeof SIDES)[number], width: number): [number, number] {
+  function sizeRange(area: (typeof SIDES)[number]): [number, number] {
     let low = MIN_SIZE, high = Infinity;
     if (inTitlebar && area !== "bottom") {
       if (area === "left" && (layout.left.active ?? shown("left")[0]) === "chat") low = Math.max(low, CHAT_TITLEBAR_MIN);
       if (area === endArea) low = Math.max(low, TITLEBAR_END_MIN);
-      else if (endArea === "center") high = width - TITLEBAR_END_MIN - SIDES.filter((side) => side !== area && side !== "bottom" && has(side)).reduce((sum, side) => sum + layout[side].size + GAP, GAP);
+      else if (endArea === "center") high = layout[area].size + endWidth - TITLEBAR_END_MIN;
       if (low > high) return [MIN_SIZE, Infinity];
     }
     return [low, high];
@@ -333,7 +333,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
     if (!drag || drag.area !== area) return;
     const { bounds } = drag;
     const raw = area === "left" ? event.clientX - bounds.left : area === "right" ? bounds.right - event.clientX : bounds.bottom - event.clientY;
-    const [low, high] = sizeRange(area, bounds.width);
+    const [low, high] = sizeRange(area);
     const limit = Math.min(high, (area === "bottom" ? bounds.height : bounds.width) * 0.6);
     drag.size = Math.round(Math.min(limit, Math.max(low, raw)));
     root.current?.style.setProperty(`--drag-${area}`, `${drag.size}px`);
@@ -473,7 +473,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                   const shrink = area === "left" ? "ArrowLeft" : area === "right" ? "ArrowRight" : "ArrowDown";
                   if (event.key !== grow && event.key !== shrink) return;
                   event.preventDefault();
-                  const [low, high] = sizeRange(area, width ?? Infinity);
+                  const [low, high] = sizeRange(area);
                   const size = layout[area].size + (event.key === grow ? 16 : -16);
                   onChange({ ...layout, [area]: { ...layout[area], size: Math.min(high, Math.max(low, size)) } });
                 }} />
