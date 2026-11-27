@@ -61,7 +61,9 @@ const BUILT_IN_TOOLS: Record<string, { icon: IconComponent; key: ToolTexts }> = 
   game_sdk_setup: { icon: Gamepad2, key: "gameSdk" },
   multiplayer_setup: { icon: UsersGroupRounded, key: "multiplayerSetup" },
   multiplayer_rules_test: { icon: UsersGroupRounded, key: "multiplayerTest" },
-  // The Library's tools, by the names older conversations keep.
+  asset_search: { icon: Search, key: "assetSearch" },
+  asset_use: { icon: Import, key: "assetUse" },
+  // Their names before the Library became the project's assets, kept by older conversations.
   library_search: { icon: Search, key: "assetSearch" },
   library_use: { icon: Import, key: "assetUse" },
 };
