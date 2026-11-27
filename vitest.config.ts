@@ -3,9 +3,9 @@ import { mergeConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import baseConfig from "./vite.config.js";
 
-// The default path hash put the three longest Windows suites on one runner.
-// File sizes are available on a cold checkout and agree across both shards.
-class WindowsTestSequencer extends BaseSequencer {
+// The default path hash left one shard with most of the long suites.
+// File sizes are available on a cold checkout and agree across every shard.
+class SizeBalancedSequencer extends BaseSequencer {
   override async shard(
     files: TestSpecification[],
   ): Promise<TestSpecification[]> {
@@ -27,5 +27,5 @@ class WindowsTestSequencer extends BaseSequencer {
 }
 
 export default mergeConfig(baseConfig, {
-  test: { sequence: { sequencer: WindowsTestSequencer } },
+  test: { sequence: { sequencer: SizeBalancedSequencer } },
 });
