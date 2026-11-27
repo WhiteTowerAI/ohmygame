@@ -1702,7 +1702,6 @@ const en = {
       "Describe your game in the agent panel to create a playable build.",
     allowPopups: "Allow popups to play this game in a new window.",
     windowClosed: "The game window was closed.",
-    views: "Workspace views",
   },
   browser: {
     tabs: "Browser tabs",
@@ -1907,7 +1906,6 @@ const en = {
   },
   canvasSettings: {
     projectFileSuffix: "project",
-    canvasFormat: "Canvas format",
   },
   library: {
     title: "Library",
@@ -2391,7 +2389,6 @@ const en = {
     previous: "Previous question",
     position: "{{current}} of {{total}}",
     next: "Next question",
-    other: "Type another answer",
     submit: "Submit answer",
     multiple: "Select one or more",
     typeAnswer: "Type your answer",
