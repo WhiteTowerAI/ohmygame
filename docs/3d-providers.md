@@ -114,7 +114,7 @@ in the running daemon. The reused rig is also recorded in the new job's journal.
 Custom connections reuse their adapter while
 the endpoint, settings, authentication and headers remain unchanged.
 
-Canvas and tool jobs have no retry: generating again creates a new logical job.
+Canvas jobs have no retry: generating again creates a new logical job.
 The journal still records upload, generation, refine, rig-check, rig and animation
 stages, and a provider call that finds a stage for its recovery ID resumes it
 instead of paying again. If a submission response was lost before its task ID

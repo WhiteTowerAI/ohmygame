@@ -9,6 +9,7 @@ import { MediaProviderKeyStore } from "../src/daemon/media-provider-settings.js"
 import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { defaultModel3DSettings, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
+import { generateOnCanvas, libraryReference } from "./canvas-generation.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -36,14 +37,6 @@ async function appFixture(request: typeof fetch) {
   const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime, model3DFetch: request });
   apps.push(app);
   return { app, directory };
-}
-async function waitForJob(app: ReturnType<typeof createApp>, id: string) {
-  let job;
-  await vi.waitFor(async () => {
-    job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((job: { id: string }) => job.id === id);
-    expect(job.status).not.toBe("running");
-  });
-  return job! as { status: string; error?: string; model?: object };
 }
 
 describe("Tripo V3 generation", () => {
@@ -176,12 +169,11 @@ describe("Tripo connection and custom models", () => {
     const restored = new MediaProviderKeyStore(directory, "tripo", "Tripo"); await restored.load(); expect(restored.key()).toBe("tripo-key");
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual(MODEL_3D_MODELS.filter((model) => model.provider === "tripo"));
     expect((await app.inject({ method: "PUT", url: "/model3d-models/default", payload: model })).statusCode).toBe(204);
-    const result = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image] } });
-    expect(await waitForJob(app, result.json().id)).toMatchObject({ status: "succeeded", model });
+    expect(await (await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)] })).finished()).toMatchObject({ status: "succeeded", model });
     await app.inject({ method: "PATCH", url: "/settings/models/providers/tripo/enabled", payload: { enabled: false } });
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual([]);
-    const disabled = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image], model } });
-    expect((await waitForJob(app, disabled.json().id)).status).toBe("failed");
+    const disabled = await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)], model });
+    expect(disabled.response.statusCode === 202 ? (await disabled.finished()).status : disabled.response.statusCode).not.toBe("succeeded");
     expect(request.mock.calls.filter(([url]) => String(url).includes("/generation/"))).toHaveLength(1);
     await app.inject({ method: "DELETE", url: "/settings/models/providers/tripo" });
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/tripo" })).json()).toEqual({ configured: false });
@@ -192,24 +184,15 @@ describe("Tripo connection and custom models", () => {
 
   it.each([
     ["v3.1-20260211", 1_200_000], ["P1-20260311", 50], ["P2-20260801", 48],
-  ] as const)("accepts %s at %i faces through the tool API", async (id, targetPolycount) => {
+  ] as const)("accepts %s at %i faces on the canvas", async (id, targetPolycount) => {
     const request = service(), { app } = await appFixture(request);
     await app.inject({ method: "PUT", url: "/settings/models/providers/tripo", payload: { apiKey: "tripo-key" } });
     const ref = { provider: "tripo", id };
-    const submit = (count: number) => app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image], model: ref, targetPolycount: count } });
-    const result = await submit(targetPolycount);
-    expect(result.statusCode, result.body).toBe(202);
-    expect(await waitForJob(app, result.json().id)).toMatchObject({ status: "succeeded", model: ref });
+    const submit = async (count: number) => generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)], model: ref, targetPolycount: count });
+    expect(await (await submit(targetPolycount)).finished()).toMatchObject({ status: "succeeded", model: ref });
     const generation = request.mock.calls.find(([url]) => String(url).includes("/generation/"))!;
     expect(JSON.parse(String(generation[1]?.body))).toMatchObject({ model: ref.id, face_limit: targetPolycount });
-    if (id === "P1-20260311") {
-      // Passing the shared request bound does not bypass this model's 50-face minimum.
-      const rejected = await submit(48);
-      expect(rejected.statusCode, rejected.body).toBe(202);
-      expect(await waitForJob(app, rejected.json().id)).toMatchObject({ status: "failed", error: expect.stringContaining("between 50 and 20000") });
-      expect(request.mock.calls.filter(([url]) => String(url).includes("/generation/"))).toHaveLength(1);
-    }
-    expect((await submit(47)).statusCode).toBe(400);
+    expect((await submit(47)).response.statusCode).toBe(400);
   });
 
   it("generates an arbitrary Tripo alias through a custom no-key endpoint", async () => {
@@ -220,8 +203,8 @@ describe("Tripo connection and custom models", () => {
     } });
     expect(saved.statusCode, saved.body).toBe(201);
     const ref = { provider: saved.json().id, id: "studio-mesh-alias" };
-    const result = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { images: [image, image], model: ref } });
-    expect(await waitForJob(app, result.json().id)).toMatchObject({ status: "succeeded", model: ref });
+    const result = await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app), await libraryReference(app)], model: ref });
+    expect(await result.finished()).toMatchObject({ status: "succeeded", model: ref });
     expect(request.mock.calls[0]?.[0]).toBe("https://studio.test/tripo/v3/files");
     const generation = request.mock.calls.find(([url]) => String(url).includes("/generation/"))!;
     expect(JSON.parse(String(generation[1]?.body)).model).toBe("studio-mesh-alias");

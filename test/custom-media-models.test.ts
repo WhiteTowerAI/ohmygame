@@ -9,6 +9,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../src/shared/custom-models.js";
 import type { CustomProviderModel, SaveCustomProviderRequest, ToolId } from "../src/shared/contracts.js";
+import { generateOnCanvas, libraryReference, TINY_PNG } from "./canvas-generation.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -18,7 +19,7 @@ afterEach(async () => {
 });
 
 const connection = { name: "My studio", baseUrl: "https://studio.test/v1", api: "openai-completions", authentication: "api_key" as const, apiKey: "studio-test-key" };
-const reference = { mediaType: "image/png", data: Buffer.from("reference").toString("base64") };
+const reference = TINY_PNG;
 const model = (id: string, usages: CustomProviderModel["usages"]): CustomProviderModel => ({
   id, name: id, api: "openai-completions", contextWindow: 32_000, maxTokens: 4_000, reasoning: false, supportsImages: false, usages,
 });
@@ -38,15 +39,16 @@ async function fixture(request: typeof fetch = vi.fn(async () => Response.json({
   };
   return { app, runtime, directory, save };
 }
+/** Generates on a canvas node from a tool-shaped request; inline images become Library references. */
+async function start(app: ReturnType<typeof createApp>, tool: ToolId, { projectId, nodeId: _, imageModel, images, ...data }: Record<string, unknown>) {
+  const type = tool === "generate-image" ? "image" : tool === "generate-video" ? "video" : "model-3d";
+  const references = Array.isArray(images) ? await Promise.all(images.map((image) => libraryReference(app, image))) : undefined;
+  return generateOnCanvas(app, type, { ...data, ...(imageModel ? { model: imageModel } : {}), ...(references ? { images: references } : {}) } as never,
+    typeof projectId === "string" ? { projectId } : {});
+}
 async function generate(app: ReturnType<typeof createApp>, tool: ToolId, payload: Record<string, unknown>) {
-  const result = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload });
-  expect(result.statusCode, result.body).toBe(202);
-  // Asset processing and persistence can outlast vi.waitFor's 1s default on CI.
-  await vi.waitFor(async () => {
-    const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
-    const job = jobs.find((job: { id: string }) => job.id === result.json().id);
-    expect(job?.status, job?.error).toBe("succeeded");
-  }, { timeout: 10_000 });
+  const job = await (await start(app, tool, payload)).finished();
+  expect(job.status, job.error).toBe("succeeded");
 }
 
 describe("unified custom media models", () => {
@@ -60,8 +62,8 @@ describe("unified custom media models", () => {
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0]?.[0]).toBe(`${connection.baseUrl}/images/edits`);
     expect((request.mock.calls[0]?.[1]?.body as FormData).getAll("image[]")).toHaveLength(16);
-    const rejected = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { ...payload, images: [...images, reference] } });
-    expect(rejected.statusCode).toBe(400);
+    const rejected = await start(app, "generate-image", { ...payload, images: [...images, reference] });
+    expect(rejected.response.statusCode).toBe(400);
     expect(request).toHaveBeenCalledTimes(1);
   });
 
@@ -71,14 +73,10 @@ describe("unified custom media models", () => {
     const { id } = await save([model("gpt-image-2", { image: { ...defaultImageSettings("openai-images", "gpt-image-2"), maxReferenceImages: 1 } })]);
     const catalog = (await app.inject({ method: "GET", url: "/image-models/catalog" })).json();
     expect(catalog.models).toContainEqual(expect.objectContaining({ provider: id, id: "gpt-image-2", maxReferenceImages: 1 }));
-    const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: {
+    const created = await start(app, "generate-image", {
       prompt: "Compose references", resolution: "1K", aspectRatio: "1:1", imageModel: { provider: id, id: "gpt-image-2" }, images: [reference, reference],
-    } });
-    expect(created.statusCode).toBe(202);
-    await vi.waitFor(async () => {
-      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
-      expect(jobs.find((job: { id: string }) => job.id === created.json().id)).toMatchObject({ status: "failed", error: "The selected image model supports up to 1 reference images" });
     });
+    expect(await created.finished()).toMatchObject({ status: "failed", error: "The selected image model supports up to 1 reference images" });
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -188,7 +186,7 @@ describe("unified custom media models", () => {
     expect(copied.mediaModelDefaults).toEqual({ [usage]: ref("project") });
     const tool = usage === "3d" ? "image-to-3d" : usage === "image" ? "generate-image" : "generate-video";
     const key = usage === "image" ? "imageModel" : "model";
-    const input = usage === "3d" ? { images: [reference] } : usage === "image" ? { prompt: "Icon", resolution: "1K", aspectRatio: "1:1" } : { prompt: "Trailer" };
+    const input = usage === "3d" ? { images: [reference] } : usage === "image" ? { prompt: "Icon", resolution: "1K", aspectRatio: "1:1" } : { prompt: "Trailer", aspectRatio: "16:9" };
     const sentModels = () => request.mock.calls.filter(([, init]) => init?.method === "POST").map(([, init]) => { const body = JSON.parse(String(init?.body)); return body.model ?? body.ai_model; });
     await generate(app, tool, { ...input, projectId, nodeId: "node-1", [key]: ref("node") });
     await generate(app, tool, { ...input, projectId, nodeId: "node-2" });
@@ -198,11 +196,8 @@ describe("unified custom media models", () => {
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("project") } })).statusCode).toBe(200);
     await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/models/visibility`, payload: { ids: ["project"], visible: false } });
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("project") } })).statusCode).toBe(200);
-    const unavailable = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { ...input, projectId, nodeId: "node-4" } });
-    await vi.waitFor(async () => {
-      const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((job: { id: string }) => job.id === unavailable.json().id);
-      expect(job.status).toBe("failed");
-    });
+    const unavailable = await start(app, tool, { ...input, projectId });
+    expect(unavailable.response.statusCode === 202 ? (await unavailable.finished()).status : unavailable.response.statusCode).not.toBe("succeeded");
     expect(sentModels()).toEqual(["node", "project", "global"]);
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("unknown") } })).statusCode).toBe(400);
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { language: ref("global") } })).statusCode).toBe(400);

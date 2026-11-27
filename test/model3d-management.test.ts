@@ -10,6 +10,7 @@ import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 import { normalizeModel3DConfig, resolveModel3D } from "../src/shared/generation-config.js";
 import { defaultModel3DSettings } from "../src/shared/custom-models.js";
 import { normalizeCustomProviderModel } from "../src/daemon/provider-model-settings.js";
+import { generateOnCanvas, libraryReference } from "./canvas-generation.js";
 
 const directories: string[] = [], apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => {
@@ -36,15 +37,8 @@ async function fixture(provider: "meshy" | "tripo" | "hyper3d", directory?: stri
   const root = `/settings/models/providers/${provider}/models`;
   return { app, directory, request, root };
 }
-async function generate(app: ReturnType<typeof createApp>, provider: string, id: string, options?: { texture?: boolean; pbr?: boolean }) {
-  const result = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", payload: { model: { provider, id }, images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], ...options } });
-  expect(result.statusCode, result.body).toBe(202);
-  let job: { status: string; error?: string } | undefined;
-  await vi.waitFor(async () => {
-    job = (await app.inject("/tool-jobs")).json().find((job: { id: string }) => job.id === result.json().id);
-    expect(job?.status).not.toBe("running");
-  }, { timeout: 10_000 });
-  return job!;
+async function generate(app: ReturnType<typeof createApp>, provider: string, id: string, options?: { targetPolycount?: number; texture?: boolean; pbr?: boolean }) {
+  return (await generateOnCanvas(app, "model-3d", { model: { provider, id }, images: [await libraryReference(app)], ...options })).finished();
 }
 
 describe("native 3D model management", () => {
@@ -102,7 +96,8 @@ describe("native 3D model management", () => {
     expect(added.json().models).toContainEqual(expect.objectContaining({ id: definition.id, visible: true, custom: true, source: "custom" }));
     expect((await app.inject({ method: "POST", url: `${root}/custom`, payload: definition })).statusCode).toBe(409);
     await app.inject({ method: "PUT", url: "/model3d-models/default", payload: { provider, id: definition.id } });
-    expect(await generate(app, provider, definition.id)).toMatchObject({ status: "succeeded" });
+    // The canvas fills a new node from the selected model's defaults.
+    expect(await generate(app, provider, definition.id, { targetPolycount: 1_200, texture: false, pbr: false })).toMatchObject({ status: "succeeded" });
     const submitted = request.mock.calls.find(([url, init]) => init?.method === "POST" && !String(url).endsWith("/files"));
     if (provider === "hyper3d") {
       const form = submitted?.[1]?.body as FormData;

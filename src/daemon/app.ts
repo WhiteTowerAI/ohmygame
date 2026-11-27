@@ -42,7 +42,7 @@ import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { isGamepadKeyMap } from "../shared/preview-input.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type BuiltinProjectType, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_MAX_REFERENCE_IMAGES, PLUGIN_PREVIEW_DEVICE_PATTERN, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, type BuiltinProjectType, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunImageToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectEngaged, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -114,10 +114,9 @@ import type { NetworkSettings } from "../shared/network-settings.js";
 import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
-import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES, MODEL_3D_MIN_POLYCOUNT } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, MEDIA_MODEL_USAGES } from "../shared/contracts.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { CloudModelsClient } from "./cloud-models.js";
-import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
@@ -133,7 +132,6 @@ import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
 import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
-import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { ElevenLabsSettingsStore } from "./elevenlabs-settings.js";
 import { DoubaoSpeechProvider } from "./doubao-speech-provider.js";
@@ -590,79 +588,6 @@ const setConversationReasoningSchema = {
   },
 } as const;
 
-const toolRunSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    minProperties: 1,
-    properties: {
-      prompt: { type: "string", minLength: 1, maxLength: AUDIO_PROMPT_MAX_LENGTH },
-      imageModel: modelRefSchema,
-      model: modelRefSchema,
-      size: { type: "string", enum: [...IMAGE_SIZES] },
-      resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
-      aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
-      outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
-      duration: { type: "integer", minimum: 1, maximum: 30 },
-      durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
-      loop: { type: "boolean" },
-      instrumental: { type: "boolean" },
-      kind: { enum: [...AUDIO_KINDS] },
-      referenceMode: { enum: ["frame", "reference"] },
-      operation: { enum: ["image", "text", "retexture", "remesh"] },
-      sourceAssetId: { type: "string", minLength: 1, maxLength: 100 },
-      // ToolRunner validates option names and support for the selected operation.
-      options: { type: "object" },
-      targetPolycount: { type: "integer", minimum: MODEL_3D_MIN_POLYCOUNT, maximum: MODEL_3D_MAX_POLYCOUNT },
-      texture: { type: "boolean" },
-      pbr: { type: "boolean" },
-      title: { type: "string", minLength: 1, maxLength: 80 },
-      projectId: { type: "string", minLength: 1, maxLength: 200 },
-      nodeId: { type: "string", minLength: 1, maxLength: 200 },
-      assetId: { type: "string", minLength: 1, maxLength: 100 },
-      actionIds: { type: "array", minItems: 1, maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { type: "integer", minimum: 0 } },
-      heightMeters: { type: "number", exclusiveMinimum: 0, maximum: 100 },
-      image: {
-        type: "object",
-        additionalProperties: false,
-        required: ["mediaType", "data"],
-        properties: {
-          mediaType: { enum: ["image/png", "image/jpeg", "image/webp"] },
-          data: { type: "string", minLength: 1 },
-        },
-      },
-      images: {
-        type: "array",
-        maxItems: IMAGE_MAX_REFERENCE_IMAGES,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["mediaType", "data"],
-          properties: {
-            mediaType: { enum: ["image/png", "image/jpeg", "image/webp"] },
-            data: { type: "string", minLength: 1 },
-          },
-        },
-      },
-      references: {
-        type: "array",
-        maxItems: 30,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["type", "assetId"],
-          properties: {
-            type: { enum: ["image", "video", "audio"] },
-            assetId: { type: "string", minLength: 1, maxLength: 100 },
-          },
-        },
-      },
-      ...AUDIO_SETTINGS_PROPERTIES,
-    },
-  },
-} as const;
-
-const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 /** Why a story made before web stories cannot play, build, or publish yet. */
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Plugins pages opened this soon after a check reuse it, so npm and GitHub aren't asked on every visit. */
@@ -1068,7 +993,7 @@ export function createApp(options: AppOptions = {}) {
       if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
       return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
     },
-    busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id) || tools.jobs().some((job) => job.context?.projectId === project.id && job.status === "running"),
+    busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id),
     announce: (project, version, changed) => events.publish(project.id, "workspace.restored", { version, changed }),
   });
   // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
@@ -3368,7 +3293,7 @@ export function createApp(options: AppOptions = {}) {
     store: checkpoints,
     snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events,
     pageToolRunning: (projectId, plugin, panel) => pageTools.running(projectId, plugin, panel),
-    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
+    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id),
   });
 
   const networkSettingsSchema = {
@@ -3572,48 +3497,6 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.ready();
     const entry = pluginServices.index.get(request.params.pluginId);
     return entry && !bundledPluginEntry(entry.root) ? { path: entry.root } : reply.code(404).send({ error: "Local plugin not found" });
-  });
-
-  app.get("/tool-jobs", async () => tools.jobs());
-
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
-    "/tools/:toolId/jobs",
-    {
-      schema: toolRunSchema,
-      bodyLimit: TOOL_RUN_BODY_LIMIT,
-      preValidation: async (request, reply) => {
-        if (request.params.toolId !== "generate-audio" && request.body && typeof request.body === "object" && "prompt" in request.body && typeof request.body.prompt === "string" && request.body.prompt.length > 32_000)
-          return reply.code(400).send({ error: "Prompt must contain at most 32000 characters" });
-        if (request.params.toolId !== "generate-audio" || !request.body || typeof request.body !== "object") return;
-        const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
-        if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
-      },
-    },
-    async (request, reply) => {
-      try {
-        const { title, projectId, nodeId, ...input } = request.body;
-        if (Boolean(projectId) !== Boolean(nodeId)) {
-          throw new ToolRunError("Project and node context must be provided together", 400);
-        }
-        if (projectId && !projects.get(projectId)) throw new ToolRunError("Project not found", 404);
-        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, {
-          title: title?.trim(),
-          ...(projectId && nodeId ? { context: { projectId, nodeId } } : {}),
-        }));
-      } catch (cause) {
-        if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
-        throw cause;
-      }
-    },
-  );
-
-  app.post<{ Params: { jobId: string } }>("/tool-jobs/:jobId/cancel", async (request, reply) => {
-    try {
-      return reply.send(tools.cancelJob(request.params.jobId));
-    } catch (cause) {
-      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
   });
 
   // The type a folder chosen to open names, so the new-project dialog starts on it.
@@ -5703,7 +5586,6 @@ export function createApp(options: AppOptions = {}) {
     await (await pluginUi?.catch(() => undefined))?.close();
     await cloudModels.setSession(null);
     await canvasStore.close();
-    await tools.close();
     modelAuth.close();
     await agents.close();
     await agentRuntimes.close();

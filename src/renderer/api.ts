@@ -74,10 +74,6 @@ import {
   type PublishProjectRequest,
   type PublishResult,
   type RuntimeEvent,
-  type RunToolRequest,
-  type ToolId,
-  type ToolJob,
-  type ToolJobContext,
   type VideoModel,
   type PromptImage,
   type PromptAttachment,
@@ -1135,18 +1131,6 @@ export async function readPluginSkill(pluginId: string, skillId: string): Promis
   return request(`/plugins/${encodeURIComponent(pluginId)}/skill-content?id=${encodeURIComponent(skillId)}`);
 }
 
-
-export async function startToolJob(toolId: ToolId, input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
-  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}), ...(context ? { projectId: context.projectId, nodeId: context.nodeId } : {}) }) });
-}
-
-export async function listToolJobs(): Promise<ToolJob[]> {
-  return request("/tool-jobs");
-}
-
-export async function cancelToolJob(jobId: string): Promise<ToolJob> {
-  return request(`/tool-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
-}
 
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
   const body: PublishProjectRequest = { accessToken, ...metadata };

@@ -250,7 +250,7 @@ describe("MiniMax migration inspection", () => {
       expect(report.blockers).toContain("media-journals-require-ownership-review");
       expect(JSON.stringify(report)).not.toContain(secret);
       expect(await snapshot(directory)).toEqual(before);
-    } finally { await runner.close(); await rm(directory, { recursive: true, force: true }); }
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
   it("counts saved references and unfinished jobs without interrupting or claiming them", async () => {

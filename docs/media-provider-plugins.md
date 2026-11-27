@@ -72,15 +72,14 @@ step. The host retains receipts through output storage and later canvas import
 failures, until profile removal. Local stop, timeout and app shutdown preserve
 remote ownership; the host does not call the adapter's `cancel` for this operation.
 
-Canvas and tool jobs have no retry, and keep no input once they finish. A new
-direct agent call, or generating a canvas node again, starts new work with a new
+Canvas jobs have no retry, and keep no input once they finish. A new direct
+agent call, or generating a canvas node again, starts new work with a new
 recovery ID. The image providers still take a `resuming` option, which may only
 use an existing receipt: an old non-recoverable task, a missing receipt, or an
 attempt that failed before recording a task is never reinterpreted as new paid
 work, and changed input/account or an unconfirmed response refuses a replacement
-submission. No job passes it now. Tool-job history saved by earlier versions may
-hold a `resuming: true` flag; loading drops it, and an unsupported value refuses
-the file rather than rewriting it.
+submission. No job passes it now. The tool-job history earlier versions kept
+in `tools/jobs.json` is no longer read; the file is left as it is.
 
 ### Saved image workflows
 

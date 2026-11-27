@@ -1,4 +1,4 @@
-import { mediaJobNotice, migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
+import { migratedAudioSelection, migratedModel3DSelection, type MediaMigrationState } from "./media-model-migration.js";
 import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles } from "../shared/audio.js";
 import { migrateLegacyAudioJob } from "../shared/audio-legacy.js";
 import { randomUUID } from "node:crypto";
@@ -29,8 +29,6 @@ import {
   type RunVideoToolRequest,
   type RunToolRequest,
   type ToolId,
-  type ToolJob,
-  type ToolJobContext,
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
@@ -38,7 +36,7 @@ import { ImageGenerationError, type ImageGenerator, type ImageGenerationRecovery
 import { sniffImageType } from "./image-format.js";
 import { BACKGROUND_IMAGE_MAX_BYTES } from "./image-background.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
-import { GenerationShutdown, inspectMediaTaskJournal, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
+import { inspectMediaTaskJournal, mediaTaskJournal, type MediaTaskJournal } from "./media-task-journal.js";
 import { model3DJournal } from "./model3d-journal.js";
 import type { NativeModel3DRecovery } from "./model3d-native-recovery.js";
 import { inspectModel3D } from "./model3d-inspect.js";
@@ -52,27 +50,10 @@ import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js
 import type { AudioGenerationRequest } from "../shared/audio.js";
 
 const VIDEO_DEFAULT_DURATION = 6;
-const HISTORY_LIMIT = 20;
-/** A job the app stopped by quitting; there is no retry, so it is started again. */
-const INTERRUPTED = "Generation interrupted. Generate again to start a new request.";
-
-interface ToolJobRecord extends ToolJob {
-  recoveryId: string;
-  /** Kept while the job runs. Earlier versions also kept it after a failure, for retry. */
-  input?: RunToolRequest;
-  metadata: ToolJobMetadata;
-  controller: AbortController;
-  prepared: boolean;
-}
 
 interface StoredToolRun extends ToolRun {
   version: 1;
   preview?: { fileName: string; mediaType: "image/png" | "image/jpeg" };
-}
-
-interface ToolJobMetadata {
-  title?: string;
-  context?: ToolJobContext;
 }
 
 export class ToolRunError extends Error {
@@ -83,9 +64,6 @@ export class ToolRunError extends Error {
 
 export class ToolRunner {
   readonly #runsDirectory: string;
-  readonly #jobs = new Map<string, ToolJobRecord>();
-  #jobWrites = Promise.resolve();
-  #closed = false;
   #log?: GenerationLogger;
 
   constructor(
@@ -119,117 +97,6 @@ export class ToolRunner {
 
   async load(): Promise<void> {
     await mkdir(this.#runsDirectory, { recursive: true });
-    try {
-      // compat: since beta.5.12, remove from beta.7 and 2026-12-26. Records kept `resuming` for a retry that no longer exists.
-      const jobs: Array<ToolJobRecord & { resuming?: unknown }> = JSON.parse(await readFile(path.join(this.#runsDirectory, "../jobs.json"), "utf8"));
-      if (jobs.some(job => job.resuming !== undefined && job.resuming !== true)) throw new ToolRunError("Unsupported generation retry state", 409);
-      for (const { resuming: _, ...job } of jobs.map(migrateLegacyAudioJob)) this.#jobs.set(job.id, { ...job, controller: new AbortController(),
-        ...(job.status === "running" ? { status: "cancelled", error: INTERRUPTED } : {}) });
-    } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
-  }
-  #saveJobs(): Promise<void> {
-    this.#jobWrites = this.#jobWrites.catch(() => {}).then(async () => {
-      const file = path.join(this.#runsDirectory, "../jobs.json");
-      const temporary = `${file}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, JSON.stringify([...this.#jobs.values()].map(({ controller: _, ...job }) => job)), { mode: 0o600 });
-        await rename(temporary, file);
-      } finally { await rm(temporary, { force: true }).catch(() => {}); }
-    });
-    return this.#jobWrites;
-  }
-  async #saveJobsSafely(): Promise<void> {
-    await this.#saveJobs().catch((cause) => console.error("Could not save generation history", cause));
-  }
-
-  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}): ToolJob {
-    if (this.#closed) throw new ToolRunError("Generation is shutting down", 503);
-    if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
-    const id = randomUUID();
-    const controller = new AbortController();
-    const job: ToolJobRecord = {
-      id,
-      recoveryId: randomUUID(),
-      toolId,
-      createdAt: new Date().toISOString(),
-      status: "running",
-      title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
-      ...(metadata.context ? { context: metadata.context } : {}),
-      input: structuredClone(input),
-      prepared: false,
-      metadata,
-      controller,
-    };
-    this.#jobs.set(id, job);
-    void this.#execute(job);
-    return publicJob(job);
-  }
-
-  jobs(): ToolJob[] {
-    return [...this.#jobs.values()]
-      .reverse()
-      .map(job => publicJob(mediaJobNotice(job, this.mediaMigrations)));
-  }
-
-  cancelJob(jobId: string): ToolJob {
-    const job = this.#jobs.get(jobId);
-    if (!job) throw new ToolRunError("Generation job not found", 404);
-    if (job.status === "running") {
-      job.status = "cancelled";
-      job.error = "Generation cancelled";
-      job.controller.abort();
-      void this.#saveJobsSafely();
-    }
-    return publicJob(job);
-  }
-
-  async close(): Promise<void> {
-    this.#closed = true;
-    let changed = false;
-    for (const job of this.#jobs.values()) {
-      if (job.status === "running") { changed = true; job.status = "cancelled"; job.error = INTERRUPTED; job.controller.abort(new GenerationShutdown()); }
-    }
-    if (changed) await this.#saveJobsSafely();
-    else await this.#jobWrites.catch((cause) => console.error("Could not save generation history", cause));
-  }
-
-  async #execute(job: ToolJobRecord): Promise<void> {
-    try {
-      job.run = await this.#withGenerationLog(job.toolId, () => job.input!, job.controller.signal, job.context?.projectId, async () => {
-        await this.#saveJobs();
-        if (!job.prepared) {
-          job.input = await this.#prepare(job.toolId, job.input!, job.context?.projectId);
-          job.prepared = true;
-        }
-        await this.#saveJobs();
-        job.model = selectedModel(job.toolId, job.input!);
-        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
-      });
-      if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
-        await this.removeRun(job.run.id);
-      }
-      job.status = "succeeded";
-    } catch (cause) {
-      if (job.controller.signal.aborted || cause instanceof Error && cause.name === "AbortError") {
-        job.status = "cancelled";
-        job.error = "Generation cancelled";
-      } else {
-        job.status = "failed";
-        job.error = cause instanceof Error ? cause.message : String(cause);
-      }
-    } finally {
-      // Nothing starts a finished job again, and its input can hold reference images.
-      job.input = undefined;
-      this.#pruneJobs();
-      if (!this.#closed) await this.#saveJobsSafely();
-    }
-  }
-
-  #pruneJobs(): void {
-    const terminal = [...this.#jobs.values()]
-      .filter((job) => job.status !== "running")
-      .reverse();
-    for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
   async backgroundRemovalModels() {
@@ -790,18 +657,6 @@ function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun 
   return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
-function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, recoveryId: _____, ...job }: ToolJobRecord): ToolJob {
-  return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
-}
-
-function toolName(toolId: ToolId): string {
-  if (toolId === "generate-video") return "Generated Video";
-  if (toolId === "image-to-3d") return "Generated 3D Model";
-  if (toolId === "animate-3d") return "Animated 3D Model";
-  if (toolId === "generate-audio") return "Generated Audio";
-  return "Generated Image";
-}
-
 /**
  * What a generation is called in the Library and in the project it is copied
  * to: the start of its prompt, such as `red-dragon-sprite.png`, rather than
@@ -812,12 +667,6 @@ function mediaName(prompt: string, fileName: string): string {
   if (!stem) return fileName;
   const index = /^output(-\d+)\./.exec(fileName)?.[1] ?? "";
   return `${stem}${index}${path.extname(fileName)}`;
-}
-
-function promptTitle(value?: string): string | undefined {
-  const prompt = value?.replace(/\s+/g, " ").trim();
-  if (!prompt) return undefined;
-  return prompt.length > 60 ? `${prompt.slice(0, 57).trimEnd()}...` : prompt;
 }
 
 function assertOnlyKeys(input: RunToolRequest, allowed: readonly string[]): void {

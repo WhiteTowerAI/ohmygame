@@ -10,6 +10,7 @@ import type { CodingSession } from "../src/daemon/agent.js";
 import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
+import { generateOnCanvas } from "./canvas-generation.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -1700,24 +1701,19 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { "sound-effect": eleven } })).statusCode).toBe(400);
     expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { speech: seed } })).json().mediaModelDefaults).toEqual({ speech: seed });
 
-    const run = async (payload: Record<string, unknown>) => {
-      const response = await app.inject({ method: "POST", url: "/tools/generate-audio/jobs", payload: { prompt: "Welcome", ...payload } });
-      expect(response.statusCode, response.body).toBe(202);
-      await vi.waitFor(async () => {
-        const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((entry: { id: string }) => entry.id === response.json().id);
-        expect(job?.status, job?.error).toBe("succeeded");
-      }, { timeout: 10_000 });
+    // Without a project, a new project with no defaults of its own.
+    const run = async ({ projectId: project, ...data }: Record<string, unknown>) => {
+      const job = await (await generateOnCanvas(app, "audio", { prompt: "Welcome", ...data }, typeof project === "string" ? { projectId: project } : {})).finished();
+      expect(job.status, job.error).toBe("succeeded");
       return generate.mock.calls.at(-1)![0].model;
     };
-    expect(await run({ kind: "speech", projectId, nodeId: "line" })).toEqual(seed);
+    expect(await run({ kind: "speech", projectId })).toEqual(seed);
     expect(await run({ kind: "speech" })).toEqual(eleven);
     expect(await run({ kind: "speech", model: tts })).toEqual(tts);
     const flash = { provider: "elevenlabs", id: "eleven_flash_v2_5" };
     expect(await run({ model: flash, prompt: "a".repeat(40_000) })).toEqual(flash);
     expect(generate.mock.calls.at(-1)![0].prompt).toHaveLength(40_000);
-    for (const [tool, length] of [["generate-audio", 40_001], ["generate-image", 32_001]] as const) {
-      expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "a".repeat(length) } })).statusCode).toBe(400);
-    }
+    expect((await generateOnCanvas(app, "audio", { prompt: "a".repeat(40_001) }, { projectId })).response.statusCode).toBe(400);
     // Without a kind, as for an audio node with no model, the speech default applies.
     expect(await run({})).toEqual(eleven);
     // Without a default for music, the automatic choice stands; a disconnected default is skipped.
@@ -1736,11 +1732,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/doubao-voice", payload: { apiKey: "key" } })).statusCode).toBe(404);
     for (const file of ["audio.audio.json", "audio.srt", "audio.vtt"]) expect((await app.inject({ method: "GET", url: `/library/assets/unused/audio/${file}` })).statusCode).toBe(404);
     for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
-      const response = await app.inject({ method: "POST", url: "/tools/generate-audio/jobs", payload: { prompt: "rain", ...removed } });
-      expect(response.statusCode).toBe(400);
+      expect((await generateOnCanvas(app, "audio", { prompt: "rain", ...removed })).response.statusCode).toBe(400);
     }
-    // The per-kind tools merged into generate-audio.
-    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music"]) expect((await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { prompt: "rain" } })).statusCode).toBe(404);
     expect(generate).not.toHaveBeenCalled();
   });
 

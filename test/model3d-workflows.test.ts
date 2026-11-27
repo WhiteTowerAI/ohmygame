@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NodeIO } from "@gltf-transform/core";
@@ -157,17 +157,15 @@ describe("3D operation contracts", () => {
       nativeModels: (id) => [...MODEL_3D_PRESETS[id]], isEnabled: () => true, isVisible: () => true, defaultModel: () => undefined });
     const runner = new ToolRunner(location, { generate: vi.fn() }, providers, undefined, library); await runner.load();
     const options = { rigModel: "v3.0-20260909" as const, rigType: "biped" as const };
-    try {
-      expect(await provider.animations(undefined, undefined, options)).toContainEqual(expect.objectContaining({ id: "preset:walk" }));
-      await runner.run("animate-3d", { assetId: source.id, model: tripoModel, actionIds: ["preset:idle", "preset:walk"], options });
-      const rig = request.mock.calls.find(([url]) => String(url).endsWith("/animations/rig"))!;
-      expect(JSON.parse(String(rig[1]!.body))).toMatchObject({ model: options.rigModel, rig_type: "biped", spec: "tripo", out_format: "glb" });
-      const retarget = request.mock.calls.find(([url]) => String(url).endsWith("/animations/retarget"))!;
-      expect(JSON.parse(String(retarget[1]!.body))).toMatchObject({ animations: ["preset:idle", "preset:walk"] });
-      request.mockClear();
-      await expect(provider.animate({ model: TEST_GLB, actionIds: ["preset:biped:walk"], options })).rejects.toThrow("selected Tripo rig");
-      expect(request).not.toHaveBeenCalled();
-    } finally { await runner.close(); }
+    expect(await provider.animations(undefined, undefined, options)).toContainEqual(expect.objectContaining({ id: "preset:walk" }));
+    await runner.run("animate-3d", { assetId: source.id, model: tripoModel, actionIds: ["preset:idle", "preset:walk"], options });
+    const rig = request.mock.calls.find(([url]) => String(url).endsWith("/animations/rig"))!;
+    expect(JSON.parse(String(rig[1]!.body))).toMatchObject({ model: options.rigModel, rig_type: "biped", spec: "tripo", out_format: "glb" });
+    const retarget = request.mock.calls.find(([url]) => String(url).endsWith("/animations/retarget"))!;
+    expect(JSON.parse(String(retarget[1]!.body))).toMatchObject({ animations: ["preset:idle", "preset:walk"] });
+    request.mockClear();
+    await expect(provider.animate({ model: TEST_GLB, actionIds: ["preset:biped:walk"], options })).rejects.toThrow("selected Tripo rig");
+    expect(request).not.toHaveBeenCalled();
   });
   it("sends the required singular Hyper3D image/model fields and text prompts without images", async () => {
     const request = hyperService(), provider = new Hyper3DProvider(() => "key", request, 0), model = { provider: "hyper3d", id: MODEL_3D_PRESETS.hyper3d[0]!.id };
@@ -218,15 +216,13 @@ describe("durable 3D tasks and asset preflight", () => {
     const recovery = new NativeModel3DRecovery(location, [record], authorize, request);
     const runner = new ToolRunner(location, { generate: vi.fn() }, { generate, resolveOperationModel: async () => selected }, undefined, undefined, undefined, undefined, { model3D: [record.references] }, recovery);
     const input = { model: original, images: [image] };
-    try {
-      await runner.run("image-to-3d", input);
-      expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: record.references.target, id: original.id } }), undefined);
-      expect(authorize).not.toHaveBeenCalled();
-      const retry = await runner.prepare("image-to-3d", input, undefined, { hooksApplied: true });
-      expect(retry).toEqual(input);
-      await expect(runner.runPrepared("image-to-3d", retry, undefined, { recoveryId: "missing-original" })).rejects.toThrow("original 3D task stage is missing");
-      expect(generate).toHaveBeenCalledTimes(1); expect(request).not.toHaveBeenCalled();
-    } finally { await runner.close(); }
+    await runner.run("image-to-3d", input);
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: record.references.target, id: original.id } }), undefined);
+    expect(authorize).not.toHaveBeenCalled();
+    const retry = await runner.prepare("image-to-3d", input, undefined, { hooksApplied: true });
+    expect(retry).toEqual(input);
+    await expect(runner.runPrepared("image-to-3d", retry, undefined, { recoveryId: "missing-original" })).rejects.toThrow("original 3D task stage is missing");
+    expect(generate).toHaveBeenCalledTimes(1); expect(request).not.toHaveBeenCalled();
   });
 
   it("maps implicit fresh animation and its action catalog but retains an implicit saved owner", async () => {
@@ -234,27 +230,23 @@ describe("durable 3D tasks and asset preflight", () => {
     const animations = vi.fn().mockResolvedValue([{ id: 0, name: "Idle" }]);
     const runner = new ToolRunner(await directory(), { generate: vi.fn() }, { generate: vi.fn(), animations }, undefined, undefined, undefined, undefined, { model3D: [record.references] });
     const input = { assetId: "character", actionIds: [0] }, model = { provider: record.references.target, id: "connection" };
-    try {
-      expect(await runner.prepare("animate-3d", input)).toEqual({ ...input, model });
-      expect(await runner.prepare("animate-3d", input, undefined, { hooksApplied: true })).toEqual(input);
-      await runner.animationActions();
-      expect(animations).toHaveBeenCalledWith(undefined, model, undefined);
-    } finally { await runner.close(); }
+    expect(await runner.prepare("animate-3d", input)).toEqual({ ...input, model });
+    expect(await runner.prepare("animate-3d", input, undefined, { hooksApplied: true })).toEqual(input);
+    await runner.animationActions();
+    expect(animations).toHaveBeenCalledWith(undefined, model, undefined);
   });
 
   it("keeps malformed model selections for request validation instead of migrating them", async () => {
     const record = migration("meshy");
     record.references.processing = { id: "connection", operations: ["retexture", "remesh", "animate"] };
     const runner = new ToolRunner(await directory(), { generate: vi.fn() }, undefined, undefined, undefined, undefined, undefined, { model3D: [record.references] });
-    try {
-      for (const model of [null, false, 0, "", { provider: "meshy" }, { provider: "meshy", id: 1 }]) {
-        for (const operation of ["image", "text", "retexture", "remesh", "animate"] as const) {
-          const input = { model, operation, images: [image] };
-          expect(await runner.prepare(operation === "animate" ? "animate-3d" : "image-to-3d", input as never)).toEqual(input);
-        }
-        await expect(runner.run("image-to-3d", { model, images: [image] } as never)).rejects.toMatchObject({ statusCode: 400 });
+    for (const model of [null, false, 0, "", { provider: "meshy" }, { provider: "meshy", id: 1 }]) {
+      for (const operation of ["image", "text", "retexture", "remesh", "animate"] as const) {
+        const input = { model, operation, images: [image] };
+        expect(await runner.prepare(operation === "animate" ? "animate-3d" : "image-to-3d", input as never)).toEqual(input);
       }
-    } finally { await runner.close(); }
+      await expect(runner.run("image-to-3d", { model, images: [image] } as never)).rejects.toMatchObject({ statusCode: 400 });
+    }
   });
 
   it("can continue a later stage when authorization rejected it before dispatch", async () => {
@@ -274,15 +266,13 @@ describe("durable 3D tasks and asset preflight", () => {
       if (!key) throw new Model3DGenerationError("Plugin access revoked", 409); return key;
     }, request);
     const runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn() }, undefined, undefined, undefined, undefined, {}, recovery);
-    try {
-      phase = "revoked";
-      await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).rejects.toThrow();
-      expect(posts(request)).toHaveLength(1);
-      expect(JSON.parse(await readFile(path.join(journalDirectory, "refinement.json"), "utf8"))).not.toHaveProperty("refine");
-      key = "key"; phase = "restored";
-      await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).resolves.toBeDefined();
-      expect(posts(request).map(([, init]) => JSON.parse(String(init?.body)).mode)).toEqual(["preview", "refine"]);
-    } finally { await runner.close(); }
+    phase = "revoked";
+    await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).rejects.toThrow();
+    expect(posts(request)).toHaveLength(1);
+    expect(JSON.parse(await readFile(path.join(journalDirectory, "refinement.json"), "utf8"))).not.toHaveProperty("refine");
+    key = "key"; phase = "restored";
+    await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "refinement" })).resolves.toBeDefined();
+    expect(posts(request).map(([, init]) => JSON.parse(String(init?.body)).mode)).toEqual(["preview", "refine"]);
   });
 
   it("resumes a removed custom model using its original mode and defaults", async () => {
@@ -305,7 +295,7 @@ describe("durable 3D tasks and asset preflight", () => {
     await expect(restarted.runPrepared("image-to-3d", input, undefined, { recoveryId: "custom" })).resolves.toMatchObject({ model: input.model });
     expect(posts(request)).toHaveLength(1);
     expect(JSON.parse(String(posts(request)[0]![1]!.body))).toMatchObject({ ai_model: definition.id, target_polycount: 2000, should_texture: false });
-    expect(current.generate).not.toHaveBeenCalled(); await original.close(); await restarted.close();
+    expect(current.generate).not.toHaveBeenCalled();
   });
 
   it.each(["cleared", "changed", "revoked-during-poll"])("refuses %s plugin credentials without falling back to a retained native key", async (mode) => {
@@ -322,7 +312,6 @@ describe("durable 3D tasks and asset preflight", () => {
     const runner = new ToolRunner(location, { generate: vi.fn() }, { generate: vi.fn() }, undefined, undefined, undefined, undefined, {}, recovery);
     await expect(runner.runPrepared("image-to-3d", input, undefined, { recoveryId: "old" })).rejects.toMatchObject({ statusCode: 409 });
     expect(request.mock.calls.length - before).toBe(mode === "revoked-during-poll" ? 1 : 0);
-    await runner.close();
   });
 
   it.each(["meshy", "tripo", "hyper3d"] as const)("resumes %s downloads after recreating the journal without new paid submissions", async (protocol) => {
@@ -403,48 +392,17 @@ describe("durable 3D tasks and asset preflight", () => {
   });
 });
 
-describe("3D jobs and persistence failures", () => {
-  it("reuses a rig across tool jobs", async () => {
+describe("3D rig reuse", () => {
+  it("reuses a rig across animations", async () => {
     const location = await directory(), library = new AssetLibrary(location); await library.load();
     const source = await library.add("hero.glb", TEST_GLB);
     const request = meshyService();
     const runner = new ToolRunner(location, { generate: vi.fn() }, new MeshyProvider(() => "key", request, 0), undefined, library); await runner.load();
     await runner.run("animate-3d", { assetId: source.id, actionIds: [0], heightMeters: 1.6 });
-    runner.start("animate-3d", { assetId: source.id, actionIds: [30], heightMeters: 1.6 });
-    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded")); await runner.close();
+    await runner.run("animate-3d", { assetId: source.id, actionIds: [30], heightMeters: 1.6 });
     expect(posts(request).filter(([url]) => String(url).endsWith("/rigging"))).toHaveLength(1);
     const animationBodies = posts(request).filter(([url]) => String(url).endsWith("/animations")).map(([, init]) => JSON.parse(String(init!.body)));
     expect(animationBodies).toEqual([{ rig_task_id: "meshy-1", action_ids: [0] }, { rig_task_id: "meshy-1", action_ids: [30] }]);
-  });
-  it("reports history write failures without submitting generation and generates again after storage recovers", async () => {
-    const location = await directory(), generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
-    const runner = new ToolRunner(location, { generate }); await runner.load();
-    const file = path.join(location, "tools", "jobs.json"); await mkdir(file);
-    const report = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      runner.start("generate-image", { prompt: "Icon" });
-      await expect.poll(() => runner.jobs()[0]?.status).toBe("failed");
-      await expect.poll(() => report.mock.calls.length).toBeGreaterThan(0);
-      expect(generate).not.toHaveBeenCalled();
-      expect((await readdir(path.dirname(file))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
-      await rm(file, { recursive: true }); runner.start("generate-image", { prompt: "Icon" });
-      await expect.poll(() => runner.jobs()[0]?.status).toBe("succeeded");
-      expect(generate).toHaveBeenCalledTimes(1);
-    } finally { await runner.close(); report.mockRestore(); }
-  });
-  it("handles cancellation and shutdown when generation history becomes unwritable", async () => {
-    const location = await directory();
-    const generate = vi.fn((_input: unknown, signal?: AbortSignal) => new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true })));
-    const runner = new ToolRunner(location, { generate }); await runner.load();
-    const report = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const job = runner.start("generate-image", { prompt: "Icon" });
-      await vi.waitFor(() => expect(generate).toHaveBeenCalled());
-      const file = path.join(location, "tools", "jobs.json"); await rm(file); await mkdir(file);
-      expect(runner.cancelJob(job.id).status).toBe("cancelled");
-      await vi.waitFor(() => expect(report).toHaveBeenCalled());
-      await expect(runner.close()).resolves.toBeUndefined();
-    } finally { await runner.close(); report.mockRestore(); }
   });
 });
 
@@ -465,7 +423,6 @@ describe("operation capability discovery", () => {
         images: provider === "hyper3d" ? [image] : [], ...(provider === "hyper3d" ? {} : { prompt: "Stone" }), targetPolycount: 1_200_000 });
       expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider, operation: "retexture" });
     }
-    await runner.close();
   });
   it("keeps animation available with hidden generation models and requires custom opt-in", async () => {
     const location = await directory(), runtime = await ModelRuntime.create({ authPath: path.join(location, "auth.json"), modelsPath: path.join(location, "models.json"), modelsStorePath: path.join(location, "catalog.json"), allowModelNetwork: false });

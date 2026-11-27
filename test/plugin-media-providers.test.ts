@@ -448,7 +448,7 @@ describe("opted-in image recovery", () => {
 
   const imagesFor = (media: PluginMediaProviders) => new ProviderImages(async () => { throw new Error("no runtime"); }, fetch, () => undefined, () => true, { pluginImages: media });
 
-  it("refuses unsupported retry state without rewriting canvas or tool-job history", async () => {
+  it("refuses unsupported retry state without rewriting canvas history", async () => {
     const record = JSON.stringify([{ id: "future", toolId: "generate-image", status: "failed", resuming: 2,
       context: { projectId: "p", boardId: "b", nodeId: "n" }, futureData: { keep: true } }]);
     const workspace = path.join(root, "project");
@@ -457,13 +457,6 @@ describe("opted-in image recovery", () => {
     await writeFile(canvasHistory, record);
     await expect(readCanvasJobHistory(workspace, "p")).rejects.toThrow("Invalid generation history");
     expect(await readFile(canvasHistory, "utf8")).toBe(record);
-    await mkdir(path.join(root, "tools"));
-    const toolHistory = path.join(root, "tools/jobs.json");
-    await writeFile(toolHistory, record);
-    const tools = new ToolRunner(root, { generate: vi.fn() });
-    await expect(tools.load()).rejects.toThrow("Unsupported generation retry state");
-    await tools.close();
-    expect(await readFile(toolHistory, "utf8")).toBe(record);
   });
 
   const workflowConfiguration = {
@@ -573,7 +566,7 @@ describe("opted-in image recovery", () => {
       const sent = (JSON.parse(requests.filter(request => request.method === "POST")[1]!.body!) as { references: Array<{ mediaType: string; base64: string }> }).references[0]!;
       expect(sent.mediaType).toBe("image/png");
       expect(await sharp(Buffer.from(sent.base64, "base64")).metadata()).toMatchObject({ format: "png", width: 64, height: 64 });
-    } finally { await store.close(); await tools.close(); await media.close(); }
+    } finally { await store.close(); await media.close(); }
   });
 
   it("retains a paid result after download failure and rejects changed input on retry", async () => {
@@ -2583,13 +2576,9 @@ describe("plugin 3D processing", () => {
     const library = new AssetLibrary(root); await library.load();
     const source = await library.add("source.glb", TEST_GLB);
     const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    try {
-      const job = runner.start("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
-      await expect.poll(() => runner.jobs().find(item => item.id === job.id)?.status).toBe("succeeded");
-      const result = runner.jobs().find(item => item.id === job.id)!;
-      expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
-      expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
-    } finally { await runner.close(); }
+    const run = await runner.run("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
+    expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
   });
 
   it("preserves declared controls and defaults without changing provider identity", async () => {
@@ -2696,15 +2685,13 @@ describe("plugin 3D animation", () => {
     const library = new AssetLibrary(root); await library.load();
     const source = await library.add("hero.glb", TEST_GLB);
     const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    try {
-      const input = { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, heightMeters: 1.6 };
-      const idle = await runner.run("animate-3d", { ...input, actionIds: [0] });
-      const walk = await runner.run("animate-3d", { ...input, actionIds: [1] });
-      expect(library.get(idle.files[0]!.assetId!)?.model3d?.animations).toEqual(["Idle"]);
-      expect(library.get(walk.files[0]!.assetId!)?.model3d?.animations).toEqual(["Walk"]);
-      expect(requests.filter(request => request.url.endsWith("/animate"))).toHaveLength(2);
-      expect(requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
-    } finally { await runner.close(); }
+    const input = { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, heightMeters: 1.6 };
+    const idle = await runner.run("animate-3d", { ...input, actionIds: [0] });
+    const walk = await runner.run("animate-3d", { ...input, actionIds: [1] });
+    expect(library.get(idle.files[0]!.assetId!)?.model3d?.animations).toEqual(["Idle"]);
+    expect(library.get(walk.files[0]!.assetId!)?.model3d?.animations).toEqual(["Walk"]);
+    expect(requests.filter(request => request.url.endsWith("/animate"))).toHaveLength(2);
+    expect(requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
   });
 
   it("shares a rig across simultaneous VMs when the first animation is cancelled", async () => {
@@ -2880,13 +2867,9 @@ describe("plugin 3D animation", () => {
     const library = new AssetLibrary(root); await library.load();
     const source = await library.add("hero.glb", TEST_GLB);
     const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    try {
-      const job = runner.start("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
-      await expect.poll(() => runner.jobs().find(item => item.id === job.id)?.status).toBe("succeeded");
-      const result = runner.jobs().find(item => item.id === job.id)!;
-      expect(library.get(result.run!.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
-      expect(requests.filter(request => request.method === "POST")).toHaveLength(3);
-    } finally { await runner.close(); }
+    const run = await runner.run("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
+    expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
+    expect(requests.filter(request => request.method === "POST")).toHaveLength(3);
   });
 });
 

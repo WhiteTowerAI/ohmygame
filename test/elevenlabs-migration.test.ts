@@ -25,6 +25,7 @@ import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
 import { ELEVENLABS_RETIRED_PROVIDER } from "../src/shared/media-migration-errors.js";
 import { mp3Fixture } from "./audio-fixtures.js";
+import { generateOnCanvas } from "./canvas-generation.js";
 
 const state = { elevenlabs: true };
 const target = "plugin.ohmygame.elevenlabs.elevenlabs";
@@ -167,31 +168,27 @@ describe("prepared ElevenLabs references", () => {
         undefined,
         state,
       );
-      try {
-        expect(await tools.prepare("generate-audio", selection)).toEqual({
-          ...selection,
-          model: { ...legacy, provider: target },
-        });
-        expect(resolved[0]).toEqual({
-          ...selection,
-          model: { ...legacy, provider: target },
-        });
+      expect(await tools.prepare("generate-audio", selection)).toEqual({
+        ...selection,
+        model: { ...legacy, provider: target },
+      });
+      expect(resolved[0]).toEqual({
+        ...selection,
+        model: { ...legacy, provider: target },
+      });
+      expect(
+        await tools.prepare("generate-audio", selection, undefined, {
+          hooksApplied: true,
+        }),
+      ).toBe(selection);
+      expect(resolved[1]).toBe(selection);
+      for (const malformed of [null, false, []])
         expect(
-          await tools.prepare("generate-audio", selection, undefined, {
-            hooksApplied: true,
-          }),
-        ).toBe(selection);
-        expect(resolved[1]).toBe(selection);
-        for (const malformed of [null, false, []])
-          expect(
-            await tools.prepare(
-              "generate-audio",
-              malformed as unknown as RunToolRequest,
-            ),
-          ).toBe(malformed);
-      } finally {
-        await tools.close();
-      }
+          await tools.prepare(
+            "generate-audio",
+            malformed as unknown as RunToolRequest,
+          ),
+        ).toBe(malformed);
     });
   });
 
@@ -300,13 +297,12 @@ describe("prepared ElevenLabs references", () => {
         expect(await readFile(file, "utf8")).toBe(bytes);
       } finally {
         await canvas.close();
-        await tools.close();
       }
     });
   });
 
-  it("notes a historical native task without generation and preserves the stored error and request bytes", async () => {
-    await fixture(async (directory) => {
+  it("notes a historical native task and leaves other jobs unchanged", async () => {
+    await fixture(async () => {
       const job = {
         id: "old",
         toolId: "generate-audio" as const,
@@ -320,40 +316,18 @@ describe("prepared ElevenLabs references", () => {
         prepared: true,
         metadata: {},
       };
-      await mkdir(path.join(directory, "tools"));
-      const file = path.join(directory, "tools/jobs.json");
-      const bytes = JSON.stringify([job]);
-      await writeFile(file, bytes);
-      const generate = vi.fn();
-      const tools = new ToolRunner(
-        directory,
-        { generate },
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { generate, catalog: vi.fn() },
-        state,
-      );
-      await tools.load();
-      try {
-        expect(tools.jobs()[0]).toMatchObject({
-          error: ELEVENLABS_RETIRED_RETRY,
-          model: legacy,
-        });
-        expect(generate).not.toHaveBeenCalled();
-        expect(mediaJobNotice(job, {})).toBe(job);
-        const done = { ...job, status: "succeeded" as const };
-        expect(mediaJobNotice(done, state)).toBe(done);
-        const plugin = {
-          ...job,
-          input: { ...selection, model: { ...legacy, provider: target } },
-        };
-        expect(mediaJobNotice(plugin, state)).toBe(plugin);
-      } finally {
-        await tools.close();
-      }
-      expect(await readFile(file, "utf8")).toBe(bytes);
+      expect(mediaJobNotice(job, state)).toMatchObject({
+        error: ELEVENLABS_RETIRED_RETRY,
+        model: legacy,
+      });
+      expect(mediaJobNotice(job, {})).toBe(job);
+      const done = { ...job, status: "succeeded" as const };
+      expect(mediaJobNotice(done, state)).toBe(done);
+      const plugin = {
+        ...job,
+        input: { ...selection, model: { ...legacy, provider: target } },
+      };
+      expect(mediaJobNotice(plugin, state)).toBe(plugin);
     });
   });
 });
@@ -497,7 +471,6 @@ describe("prepared ElevenLabs application ownership", () => {
         originalBoard.revision,
       );
       await oldCanvas.close();
-      await oldTools.close();
       await mkdir(path.join(directory, "tools"), { recursive: true });
       const oldJob = {
         id: "native-paid",
@@ -598,8 +571,6 @@ describe("prepared ElevenLabs application ownership", () => {
             error: ELEVENLABS_RETIRED_PROVIDER,
           });
         }
-        const listed = (await app.inject("/tool-jobs")).json();
-        expect(listed.find((job: { id: string }) => job.id === "native-paid")?.error).toBe(ELEVENLABS_RETIRED_RETRY);
         expect(await readFile(jobsFile, "utf8")).toBe(oldBytes);
         const board = (
           await app.inject(`/projects/${project.id}/canvas/boards/${boardId}`)
@@ -637,35 +608,25 @@ describe("prepared ElevenLabs application ownership", () => {
         expect(voices.json().voices).toEqual([
           { id: "voice-1", name: "Test voice" },
         ]);
-        const started = await app.inject({
-          method: "POST",
-          url: "/tools/generate-audio/jobs",
-          payload: {
-            model: nativeRef,
-            prompt: "你好",
-            voiceId: "voice-1",
-            speed: 20,
-            output: { format: "mp3", sampleRate: 44100 },
-          },
-        });
-        expect(started.statusCode, started.body).toBe(202);
-        let completed: any;
-        await expect
-          .poll(
-            async () => {
-              completed = (await app.inject("/tool-jobs"))
-                .json()
-                .find((job: { id: string }) => job.id === started.json().id);
-              return completed?.status;
+        const completed = await (
+          await generateOnCanvas(
+            app,
+            "audio",
+            {
+              model: nativeRef,
+              prompt: "你好",
+              voiceId: "voice-1",
+              speed: 20,
+              output: { format: "mp3", sampleRate: 44100 },
             },
-            { timeout: 10_000 },
+            { projectId: project.id },
           )
-          .not.toBe("running");
+        ).finished();
         expect(completed, JSON.stringify(completed)).toMatchObject({
           status: "succeeded",
           model: { ...nativeRef, provider: target },
         });
-        const assetId = completed.run.files[0].assetId;
+        const assetId = completed.assetId;
         expect(assetId).toBeTruthy();
         const transcript = await app.inject({
           method: "POST",
@@ -725,22 +686,13 @@ describe("prepared ElevenLabs application ownership", () => {
               model.provider === target || model.provider === "elevenlabs",
           ),
         ).toBe(false);
-        const result = await app.inject({
-          method: "POST",
-          url: "/tools/generate-audio/jobs",
-          payload: { prompt: "Hello", model: nativeRef, voiceId: "voice-1" },
+        const result = await generateOnCanvas(app, "audio", {
+          prompt: "Hello",
+          model: nativeRef,
+          voiceId: "voice-1",
         });
-        if (result.statusCode === 202) {
-          await expect
-            .poll(
-              async () =>
-                (await app.inject("/tool-jobs"))
-                  .json()
-                  .find((job: { id: string }) => job.id === result.json().id)
-                  ?.status,
-            )
-            .toBe("failed");
-        } else expect(result.statusCode).toBe(400);
+        // The canvas finds no audio model to run, so nothing starts.
+        expect(result.response.statusCode).toBe(503);
         expect(request).not.toHaveBeenCalled();
         expect(await readFile(nativeFile, "utf8")).toBe(
           "retained unreadable native data",
