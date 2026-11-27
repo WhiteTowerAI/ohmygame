@@ -101,7 +101,8 @@
   -webkit-line-clamp: 2;
 }
 
-/* A narrow card keeps its icon and a one-line name; the picture tells the rest. */
+/* Narrower, the name and description keep a line each; at the narrowest the
+   description goes and the picture tells the rest. */
 @container new-game-card (max-width: 300px) {
   .new-game-card-name {
     overflow: hidden;
@@ -109,6 +110,13 @@
     white-space: nowrap;
   }
 
+  .new-game-card-hint {
+    line-clamp: 1;
+    -webkit-line-clamp: 1;
+  }
+}
+
+@container new-game-card (max-width: 210px) {
   .new-game-card-hint {
     display: none;
   }
