@@ -19,7 +19,7 @@
 }
 
 .desktop-macos .project-frame {
-  --titlebar-controls: 76px;
+  --titlebar-controls: 68px;
 }
 
 .project-frame.is-rail-hidden {
@@ -316,6 +316,19 @@
 
 .project-frame .sidebar-head {
   height: 40px;
+}
+
+/* Without the macOS window controls, the rail's logo takes its corner of the
+   title bar, above the title bar's line. */
+.project-rail:not(:has(> .sidebar-titlebar)) {
+  padding-top: 0;
+}
+
+.project-rail:not(:has(> .sidebar-titlebar)) > .sidebar-head {
+  align-self: stretch;
+  height: var(--titlebar-height);
+  margin-inline: calc(var(--space-2) * -1);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* macOS: the title bar drags the window, except where it can be pressed. */

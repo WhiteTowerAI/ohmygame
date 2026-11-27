@@ -529,5 +529,11 @@ describe("in a project", () => {
     expect(container.querySelector(".project-top .project-name")?.textContent).toBe("Storm Ruins");
     expect(container.querySelector(".project-top .project-title-end")?.textContent).toBe("Publish");
     localStorage.removeItem("ohmygame-project-rail-hidden");
+
+    // Without the macOS window controls, the rail's logo takes their corner.
+    vi.stubGlobal("ohMyGameDesktop", { platform: "win32" });
+    await act(async () => frame(true));
+    expect(sidebar().querySelector(".sidebar-titlebar")).toBeNull();
+    expect(sidebar().firstElementChild?.classList.contains("sidebar-head")).toBe(true);
   });
 });

@@ -662,8 +662,9 @@ export function AppRail({ label, onNavigate, onLeave = (go) => go(), children }:
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   return (
     <nav className="sidebar project-rail" aria-label={label}>
-      {/* The rail's corner of the title bar, under the macOS window controls. */}
-      <div className="sidebar-titlebar" />
+      {/* The rail's corner of the title bar, under the macOS window controls;
+          elsewhere the logo below takes it. */}
+      {window.ohMyGameDesktop?.platform === "darwin" ? <div className="sidebar-titlebar" /> : null}
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
