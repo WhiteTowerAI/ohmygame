@@ -1,5 +1,6 @@
 import { isBrowserUrl } from "../shared/browser.js";
 import { QuestionnaireSettingsStore } from "./questionnaire-settings.js";
+import { FILE_HISTORY_AUTO_CLEAR_DAYS, FileHistorySettingsStore } from "./file-history-settings.js";
 import { migratedMediaModel, type MediaMigrationState } from "./media-model-migration.js";
 import { SettingsWrites } from "./settings-writes.js";
 import { PluginSessions } from "./plugin-sessions.js";
@@ -764,6 +765,7 @@ export function createApp(options: AppOptions = {}) {
   const browserSettings = new BrowserSettingsStore(dataDirectory);
   const projectBrowsers = new ProjectBrowserStore();
   const questionnaireSettings = new QuestionnaireSettingsStore(dataDirectory);
+  const fileHistorySettings = new FileHistorySettingsStore(dataDirectory);
   const agentInstructions = new AgentInstructionsStore(dataDirectory);
   const onboarding = new OnboardingStore(dataDirectory);
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
@@ -1072,19 +1074,63 @@ export function createApp(options: AppOptions = {}) {
     busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id) || tools.jobs().some((job) => job.context?.projectId === project.id && job.status === "running"),
     announce: (project, version, changed) => events.publish(project.id, "workspace.restored", { version, changed }),
   });
+  // The snapshots that the project's conversations and plugin changes name, which clearing the history keeps whole.
+  // With `before`, only what an entry of that time or later names, and a plugin's snapshot written then or later.
+  // `turns` then counts the turns that began before it and after any earlier clear, which lose their Undo.
+  const checkpointHistory = async (project: ProjectState, before?: number) => {
+    const history = { turns: 0 };
+    const checkpointIds: string[] = [];
+    const clearedBefore = before === undefined ? 0 : (await checkpoints.cleared(project)) ?? 0;
+    // A plugin change is judged by when it was made: it can begin with a snapshot much older than itself.
+    const plugins = await pluginWrites.snapshots(project, before);
+    const named = new Set([
+      ...await referencedSnapshots(sessionDirectory(project), before === undefined ? undefined : {
+        before,
+        turns: (taken, checkpointId) => {
+          if (taken >= clearedBefore) {
+            history.turns += 1;
+            checkpointIds.push(checkpointId);
+          }
+        },
+      }),
+      ...plugins,
+    ]);
+    return { named, turns: history.turns, checkpointIds };
+  };
+  /** Work besides agents and workspace writes that holds a project's files: publishing, the canvas, and tool jobs. */
+  const projectWorking = (id: string) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running");
   // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
   // project, Undo and Restore hold the workspace exclusively; a prune whose turn comes then is left for later.
-  const pruneCheckpoints = async (project: ProjectState) => {
+  // When the user chose to clear the file history automatically, the prune also clears what is older than that.
+  const pruneCheckpoints = async (project: ProjectState, interval = CHECKPOINT_PRUNE_INTERVAL_MS) => {
     const idle = () => !!projects.get(project.id) && !agents.isProjectBusy(project.id) && !projectWrites.isMutating(project.id);
     if (!idle()) return;
     try {
-      await checkpoints.prune(project, async () => new Set([...await referencedSnapshots(sessionDirectory(project)), ...await pluginWrites.snapshots(project)]), {
-        interval: CHECKPOINT_PRUNE_INTERVAL_MS,
-        proceed: idle,
+      const { autoClearDays } = await fileHistorySettings.get();
+      const before = autoClearDays ? Date.now() - autoClearDays * 24 * 60 * 60 * 1000 : undefined;
+      const earlier = await checkpoints.cleared(project);
+      // What the user cleared before is not kept for being named: its turns can no longer be undone.
+      // Read only when a prune is due, which is at most once a day: it reads every conversation of the project.
+      const result = await checkpoints.prune(project, async () => {
+        const cleared = await checkpoints.cleared(project);
+        const boundary = before === undefined ? cleared : Math.max(before, cleared ?? 0);
+        return (await checkpointHistory(project, boundary)).named;
+      }, {
+        interval,
+        // A clear, unlike a prune, also waits for whatever else holds the workspace, as one the user asks for does.
+        proceed: before === undefined ? idle : () => idle() && !projectWorking(project.id),
+        before,
       });
+      const cleared = await checkpoints.cleared(project);
+      // An open conversation shows the turns of that time as ones that can no longer be undone.
+      if (result && cleared !== undefined && cleared !== earlier) events.publish(project.id, "history.cleared", { before: cleared });
     } catch (err) {
       app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
     }
+  };
+  /** One prune of each project in turn, such as when the file history is to be cleared automatically from now on. */
+  const pruneAllCheckpoints = async (interval?: number) => {
+    for (const project of projects.list()) await pruneCheckpoints(project, interval);
   };
   /** Each project's plugin game runtime, while its type declares one; its conversations share it. */
   const pluginGames = new Map<string, PluginGameRuntime>();
@@ -1758,6 +1804,8 @@ export function createApp(options: AppOptions = {}) {
     // Read before pages can reach a project, and landed once plugins are known, so a panel's access is checked first.
     await pendingWrites.load();
     void pluginServicesReady.then(() => pendingWrites.start());
+    // Projects not run for a while are cleared too, at most once a day each, when the history is cleared automatically.
+    void fileHistorySettings.get().then(({ autoClearDays }) => autoClearDays ? pruneAllCheckpoints() : undefined);
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(pluginServices, pluginSources)) app.log.warn(error);
     // Plugins are checked for updates once at startup and when the Plugins page opens. Those from the market
@@ -3367,9 +3415,9 @@ export function createApp(options: AppOptions = {}) {
 
   registerCheckpointRoutes(app, {
     store: checkpoints,
-    snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events,
+    snapshot: snapshotWorkspace, settle: (project) => pluginWrites.settle(project), writes: projectWrites, projects, conversations, agents, previews, events, history: checkpointHistory,
     pageToolRunning: (projectId, plugin, panel) => pageTools.running(projectId, plugin, panel),
-    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
+    busy: projectWorking,
   });
 
   const networkSettingsSchema = {
@@ -3409,6 +3457,20 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
+
+  app.get("/settings/file-history", () => fileHistorySettings.get());
+  app.put<{ Body: { autoClearDays: number } }>("/settings/file-history", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["autoClearDays"], properties: { autoClearDays: { type: "integer", enum: [...FILE_HISTORY_AUTO_CLEAR_DAYS] } } } },
+  }, async (request, reply) => {
+    try {
+      const result = await fileHistorySettings.set(request.body.autoClearDays);
+      // The choice takes effect now for every project, not only at the next prune after a run.
+      if (result.autoClearDays) void pruneAllCheckpoints(0);
+      return result;
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.get("/settings/questions", () => questionnaireSettings.get());
   app.put<{ Body: { delaySeconds: number } }>("/settings/questions", {
@@ -4865,7 +4927,7 @@ export function createApp(options: AppOptions = {}) {
       // millisecond in which a message that waited for that starts the next run.
       const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && (entry.customType === TURN_END_ENTRY || entry.customType === CHECKPOINT_UNDONE_ENTRY));
       const loadedItems = [
-        ...conversationItems(branch.filter(before), !currentRun),
+        ...conversationItems(branch.filter(before), !currentRun, await checkpoints.cleared(project)),
         // A reset must be a complete snapshot. Replaying from the active turn's
         // start is unsafe once a chat produces more events than the replay buffer.
         ...(currentRun ? activeItems : []),

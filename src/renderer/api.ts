@@ -24,6 +24,7 @@ import {
   type AgentReasoningLevel,
   type CheckpointChangeItem,
   type CheckpointFileView,
+  type CheckpointHistory,
   type CheckpointUndoRequest,
   type CheckpointUndoResponse,
   type ConversationAgentSettings,
@@ -1605,6 +1606,24 @@ export async function getUnfinishedChanges(projectId: string): Promise<Checkpoin
 /** Puts the files back as they were before the restore or undo that was cut off. */
 export async function restoreUnfinished(projectId: string): Promise<void> {
   return request(`/projects/${projectId}/checkpoints/unfinished/restore`, { method: "POST" });
+}
+
+/** What the project's file history takes on disk. With a time, also what clearing the history before it frees, and how many turns can no longer be undone. */
+export async function getCheckpointHistory(projectId: string, before?: number): Promise<CheckpointHistory> {
+  return request(`/projects/${projectId}/checkpoints/history${before === undefined ? "" : `?before=${before}`}`);
+}
+
+/** After how many days every project's file history is cleared automatically; 0 keeps it. */
+export function getFileHistorySettings(): Promise<{ autoClearDays: number; problem?: string }> {
+  return request("/settings/file-history");
+}
+export function setFileHistorySettings(autoClearDays: number): Promise<{ autoClearDays: number }> {
+  return request("/settings/file-history", { method: "PUT", body: JSON.stringify({ autoClearDays }) });
+}
+
+/** Removes the project's file history from before a time. The turns of that time can no longer be undone. */
+export async function clearCheckpointHistory(projectId: string, before: number): Promise<void> {
+  await request(`/projects/${projectId}/checkpoints/history/clear`, { method: "POST", body: JSON.stringify({ before }) });
 }
 
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {

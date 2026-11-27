@@ -2742,6 +2742,215 @@ select.settings-search-input {
   gap: var(--space-1);
 }
 
+/* File history: how much the project's undo history takes, and a way to free the older part of it. */
+.project-file-history {
+  margin-top: var(--space-2);
+}
+
+.project-file-history .project-appearance-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-file-history-size {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.project-file-history-size .ui-spinner {
+  vertical-align: middle;
+}
+
+.project-file-history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.project-file-history-period {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.project-file-history-label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-period .ui-segmented {
+  display: flex;
+}
+
+.project-file-history-period .ui-segmented button {
+  flex: 1;
+  justify-content: center;
+}
+
+.project-file-history-popover {
+  padding: var(--space-2);
+}
+
+.project-file-history-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 252px;
+}
+
+.project-file-history-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project-file-history-calendar-header strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.project-file-history-calendar-header button,
+.project-file-history-calendar-grid button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.project-file-history-calendar-header button {
+  width: 26px;
+  height: 26px;
+  color: var(--color-text-secondary);
+}
+
+.project-file-history-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.project-file-history-calendar-weekday {
+  padding-bottom: var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.project-file-history-calendar-grid button {
+  height: 30px;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-file-history-calendar-header button:hover:not(:disabled),
+.project-file-history-calendar-grid button:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.project-file-history-calendar-grid button.is-today {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: -1px;
+}
+
+.project-file-history-calendar-grid button.is-selected,
+.project-file-history-calendar-grid button.is-selected:hover {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  font-weight: var(--weight-medium);
+}
+
+.project-file-history-calendar button:disabled {
+  color: var(--color-text-tertiary);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.project-file-history-calendar button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.project-file-history-summary {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+}
+
+.project-file-history-spinner {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+}
+
+.project-file-history-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  transition: opacity var(--duration-fast);
+}
+
+.project-file-history-summary.is-loading .project-file-history-stats,
+.project-file-history-summary.is-empty .project-file-history-stats {
+  opacity: 0.5;
+}
+
+.project-file-history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-file-history-stat strong {
+  color: var(--color-text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.project-file-history-stat span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-cutoff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-file-history-cutoff span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-file-history-cutoff.is-error {
+  color: var(--color-danger);
+}
 .project-settings-group h3,
 .project-settings .project-settings-section legend {
   margin: 0;

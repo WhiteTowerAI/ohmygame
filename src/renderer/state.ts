@@ -135,6 +135,17 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         turns: state.turns.map((turn) => turn.items.some((item) => mark(item) !== item) ? { ...turn, items: turn.items.map(mark) } : turn),
       };
     }
+    case "history.cleared": {
+      // As the daemon lists the conversation: a turn that began before the clear has no file history left.
+      const { before } = event.data;
+      const mark = (item: ThreadItem): ThreadItem => item.type === "userMessage" && item.changes && item.timestamp !== undefined && item.timestamp < before
+        ? { ...item, changes: { ...item.changes, cleared: true } }
+        : item;
+      return {
+        ...next,
+        turns: state.turns.map((turn) => turn.items.some((item) => mark(item) !== item) ? { ...turn, items: turn.items.map(mark) } : turn),
+      };
+    }
     case "project.renamed":
     case "project.updated":
       return project?.id === event.data.project.id
