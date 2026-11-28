@@ -1765,6 +1765,7 @@ const en = {
     close: "Close {{title}}",
     closeOthers: "Close others",
     add: "Add panel",
+    all: "All panels",
     moreTools: "More tools",
     resize: "Resize {{area}}",
     chat: "Chat",

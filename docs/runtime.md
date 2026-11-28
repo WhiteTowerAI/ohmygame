@@ -735,9 +735,12 @@ Game panel's toolbar keeps the viewport, element picking and reload in view;
 tuning, recording, opening in the browser, restarting the preview service and
 the logs wait in its more menu.
 
-A panel's toolbar keeps to one row (`panel-tools.tsx`). When its area is too
-narrow, the other tabs drop to icons first, then the toolbar's tools fold into
-its more menu one at a time, lowest priority first: Design's reference to chat
+An area's tabs keep their labels and stay as wide whether open or not, so
+opening one moves none; each keeps room for its close button, shown on hover. They
+take up to 60% of the strip and scroll past it, fading at the edges they scroll
+past, with ▾ listing them all; a tab dragged near an edge scrolls them. A
+panel's toolbar takes the rest and keeps to one row (`panel-tools.tsx`): its
+tools fold into its more menu one at a time, lowest priority first: Design's reference to chat
 and then its read, edit and split choices; Game's element picking, then the
 viewport, then reload; a plugin panel's buttons from the last. A segmented
 control folds as choices to pick from, and a panel without a more menu of its
