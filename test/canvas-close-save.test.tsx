@@ -28,10 +28,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
 }));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async original => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: async () => [],
-}));
 const { CanvasBoardEditor } = await import("../src/renderer/asset-canvas-workspace.js");
 const { CanvasTableStorage } = await import("../src/renderer/canvas-table-storage.js");
 const save = vi.fn(async (value: AssetCanvasDocument) => value);

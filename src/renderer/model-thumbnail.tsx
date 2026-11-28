@@ -49,9 +49,8 @@ class ThumbnailJob {
   }
 
   async start(
-    project: string | undefined,
+    project: string,
     path: string,
-    asset: string | undefined,
     revision: number,
   ) {
     try {
@@ -67,7 +66,7 @@ class ThumbnailJob {
     }
     if (this.request.signal.aborted) return;
     this.endTurn = takeModelLoadTurn(() => {
-      this.file = acquireModelFile(project, path, asset, revision);
+      this.file = acquireModelFile(project, path, revision);
       void this.file.result.then(
         (model) => {
           this.state = { model };
@@ -189,34 +188,30 @@ type Props = {
 };
 
 export function ModelThumbnail(props: Props) {
-  const { projectId, filePath, libraryAssetId, local } =
+  const { projectId, filePath, local } =
     useWorkspaceAssetSource(props.project, props.path, props.asset);
   const runtime = useReadyRuntimeGeneration();
   const revision = local?.revision ?? props.revision ?? 0;
-  const query = modelThumbnailQuery(
-    projectId,
-    filePath,
-    libraryAssetId,
-    !!props.large,
-  );
+  const query = projectId ? modelThumbnailQuery(projectId, filePath, !!props.large) : undefined;
   const id = JSON.stringify([query, revision, runtime]);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   const [result, setResult] = useState<{ id: string; view: Snapshot }>();
   const state = result?.id === id ? result.view : {};
   useEffect(() => {
-    if (!host) return;
+    if (!host || !projectId || !query) return;
+    const project = projectId, thumbnails = query;
     const update: Listener = (view) => setResult({ id, view });
     let job: ThumbnailJob | undefined;
     let active = true;
     function observe(onScreen: boolean) {
       if (!active || (!job && !onScreen)) return;
       const existing = jobs.get(id);
-      job = existing ?? new ThumbnailJob(query);
+      job = existing ?? new ThumbnailJob(thumbnails);
       jobs.set(id, job);
       job.listeners.set(update, onScreen);
       job.publish();
       if (!existing)
-        void job.start(projectId, filePath, libraryAssetId, revision);
+        void job.start(project, filePath, revision);
     }
     const observer =
       typeof IntersectionObserver === "undefined"
@@ -237,7 +232,7 @@ export function ModelThumbnail(props: Props) {
         job.dispose();
       }
     };
-  }, [id, host, query, projectId, filePath, libraryAssetId, revision]);
+  }, [id, host, query, projectId, filePath, revision]);
   return (
     <span ref={setHost} className="model-thumbnail">
       {state.image ? (

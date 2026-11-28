@@ -733,10 +733,10 @@ export type AssetCanvasNode = (
   | { id: string; type: "animate-3d"; position: AssetCanvasPosition; data: {
     model?: Model3DModelRef;
     options?: Model3DOptions;
-    /** The source GLB: a 3D output node, a model Asset node, or a Library model. */
+    /** The source GLB: a 3D output node, or a model Asset node. */
     source?: AssetCanvasReference;
     heightMeters: number;
-    /** Library actions in clip order. */
+    /** Actions from the connection's action library, in clip order. */
     actionIds: Model3DActionId[];
     assetId?: string;
   } }
@@ -1193,7 +1193,6 @@ export interface WorkspaceFile {
   modifiedAt?: string;
   prompt?: string;
   previewPath?: string;
-  libraryAssetId?: string;
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
 }
@@ -1201,7 +1200,8 @@ export interface WorkspaceFile {
 export type LibraryAssetOrigin = "generated" | "uploaded" | "workspace" | "builtin" | "unknown";
 export type LibraryAssetPurpose = "asset" | "reference";
 
-export interface LibraryAsset {
+/** A media file in a project, with what is known of it. */
+export interface MediaAsset {
   audio?: import("./audio.js").AudioAssetData;
   model3d?: Model3DMetadata;
   id: string;
@@ -1215,20 +1215,10 @@ export interface LibraryAsset {
   width?: number;
   height?: number;
   prompt?: string;
-  /** The prompt as it was asked for, when plugins changed it before the image was generated. */
-  requestedPrompt?: string;
-  /** Plugins that changed the request before the image was generated, in order. */
-  pluginChanges?: import("./plugin-hooks.js").ImageHookRecord[];
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
-  /** Project copies remain available by ID without appearing in the saved collection. */
-  saved?: boolean;
-  /** The Library video this one was cut from, and the part of it kept, in seconds. */
-  derivedFrom?: LibraryAssetDerivation;
   /** The plugin source it was added from, and what that source said about it. */
   sourcedFrom?: LibraryAssetSourcing;
-  /** The plugin whose page added it (`library.add`, API 2.35.0), as `publisher/name`. */
-  addedBy?: string;
 }
 
 export interface LibraryAssetSourcing {
@@ -1242,7 +1232,7 @@ export interface LibraryAssetSourcing {
   url?: string;
 }
 
-/** A place the Library browses beside Local, contributed by a plugin. */
+/** A place a project's assets are searched and added from, contributed by a plugin. */
 export interface LibrarySource {
   /** `publisher/name:source`. */
   id: string;
@@ -1250,7 +1240,7 @@ export interface LibrarySource {
   pluginName: string;
   title: string;
   description?: string;
-  media: LibraryAsset["mediaType"][];
+  media: MediaAsset["mediaType"][];
   /** How long a browse of it (no search words) is shown again without asking it; ten minutes when absent. */
   cacheSeconds?: number;
   /** Its own ways to browse it, in place of the media kinds; the first is chosen at first. */
@@ -1262,7 +1252,7 @@ export interface LibrarySource {
 export interface LibrarySourceSearchRequest {
   source: string;
   query: string;
-  media?: LibraryAsset["mediaType"];
+  media?: MediaAsset["mediaType"];
   /** The `next` of the page before. */
   cursor?: string;
   /** One of the source's `collections`. */
@@ -1273,7 +1263,7 @@ export interface LibrarySourceSearchRequest {
 export interface LibrarySourceItem {
   id: string;
   name: string;
-  mediaType: LibraryAsset["mediaType"];
+  mediaType: MediaAsset["mediaType"];
   /** An `https:` or `data:image/…` picture of it. */
   thumbnail?: string;
   /** For audio, an `https:` or `data:audio/…` URL to listen to before adding it (API 2.35.0). */
@@ -1297,29 +1287,7 @@ export interface LibrarySourceResults {
   next?: string;
 }
 
-export interface LibraryAssetDerivation {
-  assetId: string;
-  trim: { start: number; end: number };
-}
-
-export interface LibraryAssetProject {
-  id: string;
-  name: string;
-  type: ProjectType;
-}
-
-export interface LibraryAssetSummary extends LibraryAsset {
-  projects: LibraryAssetProject[];
-  referenceOnly: boolean;
-}
-
 export type LibraryUploadMediaType = MediaContentType;
-
-export interface CreateLibraryImageRequest {
-  name: string;
-  purpose?: LibraryAssetPurpose;
-  image: PromptImage & { mediaType: "image/png" | "image/jpeg" | "image/webp" };
-}
 
 export interface LineChanges {
   added: number;
@@ -1491,7 +1459,8 @@ export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageT
 export interface Run3DToolRequest {
   operation?: Exclude<Model3DOperation, "animate">;
   prompt?: string;
-  sourceAssetId?: string;
+  /** The project's GLB to retexture or remesh. */
+  sourcePath?: string;
   options?: Model3DOptions;
   images: PromptImage[];
   model?: Model3DModelRef;
@@ -1512,14 +1481,16 @@ export interface RunVideoToolRequest {
 
 export interface VideoGenerationReference {
   type: "image" | "video" | "audio";
-  assetId: string;
+  /** A media file in the project. */
+  path: string;
 }
 
-/** Rigs a Library model and bakes the selected provider's preset actions into it. */
+/** Rigs one of the project's models and bakes the selected provider's preset actions into it. */
 export interface RunAnimate3DToolRequest {
   model?: Model3DModelRef;
   options?: Model3DOptions;
-  assetId: string;
+  /** The project's GLB. */
+  path: string;
   actionIds: Model3DActionId[];
   heightMeters?: number;
 }
@@ -1536,6 +1507,11 @@ export interface ToolRunFile {
   role?: "audio" | "subtitles" | "metadata";
   name: string;
   mediaType: string;
+  /** What the file is called once saved in a project: the start of its prompt, such as `red-dragon-sprite.png`. */
+  title?: string;
+  model3d?: Model3DMetadata;
+  audio?: import("./audio.js").AudioAssetData;
+  /** The canvas asset it became, once a canvas saved it. */
   assetId?: string;
 }
 

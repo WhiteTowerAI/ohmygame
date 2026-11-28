@@ -337,7 +337,7 @@ export interface PluginGameSession {
   act(actions: PlaytestAction[], options?: PluginGameCallOptions): Promise<GameUseSnapshot | PlaytestSnapshot>;
   capture(options?: PluginGameCallOptions): Promise<PlaytestCapture>;
   captureFrame(frame: number, options?: PluginGameCallOptions): Promise<PlaytestCapture>;
-  /** Records at most 60 seconds into the Library, named for the plugin. */
+  /** Records at most 60 seconds into the project's media. */
   recordStart(options?: PluginGameCallOptions): Promise<{ maxSeconds: number }>;
   recordStop(options?: PluginGameCallOptions): Promise<GameRecordingSaved>;
   /** Web games (API 2.37.0): reloads the page as a player refreshing it, keeping its storage. */

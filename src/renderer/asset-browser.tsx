@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { LibraryAssetOrigin, LibraryAssetProject, LibraryAssetPurpose, WorkspaceFile } from "../shared/contracts.js";
+import type { LibraryAssetOrigin, LibraryAssetPurpose, WorkspaceFile } from "../shared/contracts.js";
 import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Spinner, MoreHorizontal, Music2, Play, X } from "./icons.js";
 import { useWorkspaceAssetUrl, useWorkspaceImagePreview } from "./use-workspace-asset-url.js";
 import { AssetDialogShell, AssetMedia } from "./asset-gallery.js";
@@ -26,9 +26,6 @@ export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
   revision?: number;
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
-  projects?: LibraryAssetProject[];
-  referenceOnly?: boolean;
-  saved?: boolean;
 }
 
 export function libraryAssetOriginLabel(origin: LibraryAssetOrigin | undefined): string {
@@ -122,15 +119,14 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
             ? <VideoTrimmer key={asset.assetId ?? asset.path} url={preview.url} label={fileName(asset.path)} loadSource={trimmer.loadSource} onSave={trimmer.onSave} />
             : preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} /> : null}
         </>}
-    footer={<footer className={`library-dialog-footer${onOpenProject ? "" : " library-dialog-footer-compact"}${asset.origin || asset.projects?.length ? " library-dialog-footer-library" : ""}`}>
+    footer={<footer className={`library-dialog-footer${onOpenProject ? "" : " library-dialog-footer-compact"}${asset.origin ? " library-dialog-footer-library" : ""}`}>
           <dl>
             <div><dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
             <div><dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd></div>
             {asset.modifiedAt ? <div><dt>{t("libraryFilters.modified")}</dt><dd>{assetDateTime(asset)}</dd></div> : null}
             {asset.origin ? <div><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></div> : null}
             {trimmedFrom ? <div><dt>{t("assets.trimmedFrom")}</dt><dd title={trimmedFrom}>{trimmedFrom}</dd></div> : null}
-            {asset.referenceOnly ? <div><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></div> : null}
-            {asset.projects?.length ? <div className="library-dialog-projects"><dt>{t("assets.projects")}</dt><dd title={asset.projects.map((project) => project.name).join(", ")}>{asset.projects.map((project) => project.name).join(", ")}</dd></div> : null}
+            {asset.purpose === "reference" ? <div><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></div> : null}
             {asset.projectName ? <div><dt>{t("assets.project")}</dt><dd title={asset.projectName}>{asset.projectName}</dd></div> : null}
             <div className="library-dialog-path"><dt>{t("assets.path")}</dt><dd title={asset.path}>{asset.path}</dd></div>
           </dl>

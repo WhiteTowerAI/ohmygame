@@ -3,9 +3,9 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { projectMedia } from "./project-media.js";
 import type { MediaTaskJournal } from "../src/daemon/media-task-journal.js";
 import { MAX_ANIMATION_ACTIONS } from "../src/shared/generation-config.js";
 
@@ -24,14 +24,12 @@ describe("tool runner", () => {
 
   it("runs Image to 3D and persists its GLB output", async () => {
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
     const generate = vi.fn().mockResolvedValue({
       bytes: TEST_GLB,
       mediaType: "model/gltf-binary" as const,
       requestId: "meshy-task-1",
     });
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate }, undefined, library);
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate });
     await runner.load();
     const run = await runner.run("image-to-3d", {
       images: [{ mediaType: "image/png", data: "ZnJvbnQ=" }],
@@ -54,8 +52,7 @@ describe("tool runner", () => {
       files: [{ name: "model.glb", mediaType: "model/gltf-binary" }],
     });
     expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(TEST_GLB);
-    expect(library.get(run.files[0]!.assetId!)).toMatchObject({ origin: "generated", purpose: "asset", mediaType: "model" });
-    expect(library.get(run.files[0]!.assetId!)?.prompt).toBeUndefined();
+    expect(run.files[0]).not.toHaveProperty("assetId");
   });
 
   it("runs 3D generation with a target poly count", async () => {
@@ -92,37 +89,33 @@ describe("tool runner", () => {
 
   it("animates a Library GLB and stores the result as a new asset", async () => {
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const source = await library.add("hero.glb", TEST_GLB);
+    const media = await projectMedia(dataDirectory, { "hero.glb": TEST_GLB });
     const animate = vi.fn().mockResolvedValue({ bytes: TEST_GLB, mediaType: "model/gltf-binary" as const });
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate }, undefined, library);
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate }, undefined, media);
     await runner.load();
 
-    const run = await runner.run("animate-3d", { assetId: source.id, actionIds: [0, 30], heightMeters: 1.6 });
+    const run = await runner.run("animate-3d", { path: "hero.glb", actionIds: [0, 30], heightMeters: 1.6 }, undefined, "project");
 
     expect(animate).toHaveBeenCalledWith(expect.objectContaining({ model: TEST_GLB, actionIds: [0, 30], heightMeters: 1.6, execution: expect.any(Object) }), undefined);
     expect(run).toMatchObject({ toolId: "animate-3d", files: [{ name: "model.glb", mediaType: "model/gltf-binary" }] });
-    expect(run.files[0]?.assetId).not.toBe(source.id);
     expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(TEST_GLB);
   });
 
   it("rejects animation requests it cannot run", async () => {
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const model = await library.add("hero.glb", TEST_GLB);
-    const image = await library.add("hero.png", Buffer.from("png"));
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate: vi.fn() }, undefined, library);
+    const media = await projectMedia(dataDirectory, { "hero.glb": TEST_GLB, "hero.png": Buffer.from("png") });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate: vi.fn() }, undefined, media);
     await runner.load();
+    const animate = (input: { path: string; actionIds: number[] }, projectId = "project") => runner.run("animate-3d", input, undefined, projectId);
 
-    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [] })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [1, 1] })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: Array.from({ length: MAX_ANIMATION_ACTIONS + 1 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(runner.run("animate-3d", { assetId: image.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models are supported" });
-    await expect(runner.run("animate-3d", { assetId: "missing", actionIds: [0] })).rejects.toMatchObject({ statusCode: 404 });
-    const withoutAnimation = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn() }, undefined, library);
-    await expect(withoutAnimation.run("animate-3d", { assetId: model.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 503 });
+    await expect(animate({ path: "hero.glb", actionIds: [] })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(animate({ path: "hero.glb", actionIds: [1, 1] })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(animate({ path: "hero.glb", actionIds: Array.from({ length: MAX_ANIMATION_ACTIONS + 1 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(animate({ path: "hero.png", actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models are supported" });
+    await expect(animate({ path: "missing.glb", actionIds: [0] })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(animate({ path: "hero.glb", actionIds: [0] }, "other")).rejects.toMatchObject({ statusCode: 404 });
+    const withoutAnimation = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn() }, undefined, media);
+    await expect(withoutAnimation.run("animate-3d", { path: "hero.glb", actionIds: [0] }, undefined, "project")).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it("loads animation libraries against the current connection and retries failures", async () => {
@@ -146,22 +139,20 @@ describe("tool runner", () => {
       return { bytes: Buffer.from("video"), mediaType: "video/mp4" as const, requestId: "video-task-1" };
     });
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const image = await library.add("frame.png", Buffer.from("image"));
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, library);
+    const media = await projectMedia(dataDirectory, { "frame.png": Buffer.from("image") });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, media);
     await runner.load();
 
     const run = await runner.run("generate-video", {
       prompt: "  A spaceship crossing a nebula  ",
       model: TEST_VIDEO_MODEL,
       references: [
-        { type: "image", assetId: image.id },
+        { type: "image", path: "frame.png" },
       ],
       duration: 6,
       aspectRatio: "16:9",
       resolution: "720p",
-    });
+    }, undefined, "project");
 
     expect(generate).toHaveBeenCalledWith({
       prompt: "A spaceship crossing a nebula",
@@ -179,14 +170,12 @@ describe("tool runner", () => {
     journal.release();
     expect(run).toMatchObject({
       toolId: "generate-video",
-      files: [{ name: "output.mp4", mediaType: "video/mp4", assetId: expect.any(String) }],
+      files: [{ name: "output.mp4", mediaType: "video/mp4", title: "A-spaceship-crossing-a-nebula.mp4" }],
     });
   });
 
-  it("runs speech through the common audio generator and stores it in the Library", async () => {
+  it("runs speech through the common audio generator, keeping what a project needs to save it", async () => {
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
     const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("mp3-audio"),
@@ -194,7 +183,7 @@ describe("tool runner", () => {
       model,
       metadata: { durationMs: 1_250 },
     });
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, undefined, library, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, undefined, undefined, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
     await runner.load();
 
     const run = await runner.run("generate-audio", { prompt: "  Welcome, traveler  ", voiceId: "narrator", model });
@@ -203,22 +192,18 @@ describe("tool runner", () => {
     expect(run).toMatchObject({
       toolId: "generate-audio",
       model,
-      files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", assetId: expect.any(String) }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
+      files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", title: "Welcome-traveler.mp3", audio: { metadata: { durationMs: 1_250 } } }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
     });
-    const asset = library.get(run.files[0]!.assetId!);
-    expect(asset).toMatchObject({ name: "Welcome-traveler.mp3", mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });
   });
 
   it("rejects non-image video references", async () => {
     const generate = vi.fn();
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const video = await library.add("motion.mp4", Buffer.from("video"), { duration: 8 });
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, library);
+    const media = await projectMedia(dataDirectory, { "motion.mp4": Buffer.from("video") });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, media);
     await runner.load();
 
-    await expect(runner.run("generate-video", { prompt: "Animate", model: TEST_VIDEO_MODEL, references: [{ type: "video", assetId: video.id }] }))
+    await expect(runner.run("generate-video", { prompt: "Animate", model: TEST_VIDEO_MODEL, references: [{ type: "video", path: "motion.mp4" }] }, undefined, "project"))
       .rejects.toMatchObject({ statusCode: 400, message: "Invalid video references" });
     expect(generate).not.toHaveBeenCalled();
   });
@@ -279,10 +264,8 @@ describe("tool runner", () => {
 
   it("records what a project's plugins changed before an image was generated", async () => {
     const dataDirectory = await temporaryData();
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
     const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/webp" });
-    const runner = new ToolRunner(dataDirectory, { generate }, undefined, undefined, library);
+    const runner = new ToolRunner(dataDirectory, { generate });
     const changes = [{ plugin: "acme/style", version: "1.0.0", fields: ["prompt" as const] }];
     runner.setImageHook(async (input, projectId) => projectId === "project-1"
       ? { ...input, prompt: `${input.prompt}, pixel art`, requestedPrompt: input.prompt, pluginChanges: changes }
@@ -293,11 +276,7 @@ describe("tool runner", () => {
     const run = await runner.run("generate-image", { prompt: "A cat", size: "1024x1024", ...forged } as never, undefined, "project-1");
     expect(generate).toHaveBeenCalledWith({ prompt: "A cat, pixel art", size: "1024x1024" }, undefined, { journal: expect.any(Object), outputs: 1 });
     expect(run).toMatchObject({ prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes });
-    const recorded = { prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes };
-    expect(library.get(run.files[0]!.assetId!)).toMatchObject(recorded);
-    const reloaded = new AssetLibrary(dataDirectory);
-    await reloaded.load();
-    expect(reloaded.get(run.files[0]!.assetId!)).toMatchObject(recorded);
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "run.json"), "utf8"))).toMatchObject({ prompt: "A cat, pixel art", requestedPrompt: "A cat", pluginChanges: changes });
 
     // A retry brings back the prepared request: plugins don't change it twice, and its record stays.
     const prepared = await runner.prepare("generate-image", { prompt: "A bird", size: "1024x1024" }, "project-1");
@@ -309,7 +288,7 @@ describe("tool runner", () => {
 
     const plain = await runner.run("generate-image", { prompt: "A dog", ...forged } as never);
     expect(plain).not.toHaveProperty("pluginChanges");
-    expect(library.get(plain.files[0]!.assetId!)).not.toHaveProperty("requestedPrompt");
+    expect(plain).not.toHaveProperty("requestedPrompt");
   });
 
   it("generates multiple configured images", async () => {
@@ -319,20 +298,17 @@ describe("tool runner", () => {
       bytes: Buffer.from(`image-${++sequence}`),
       mediaType: "image/webp",
     }));
-    const library = new AssetLibrary(dataDirectory);
-    await library.load();
-    const runner = new ToolRunner(dataDirectory, { generate }, undefined, undefined, library);
+    const runner = new ToolRunner(dataDirectory, { generate });
     await runner.load();
     const run = await runner.run("generate-image", { prompt: "Four icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
 
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined, { journal: expect.any(Object), outputs: 2 });
     expect(run.files).toEqual([
-      { name: "output-1.webp", mediaType: "image/webp", assetId: expect.any(String) },
-      { name: "output-2.webp", mediaType: "image/webp", assetId: expect.any(String) },
+      // The run keeps its own names; a project it is saved to names them after the prompt.
+      { name: "output-1.webp", mediaType: "image/webp", title: "Four-icons-1.webp" },
+      { name: "output-2.webp", mediaType: "image/webp", title: "Four-icons-2.webp" },
     ]);
-    // The run keeps its own names; the Library, and a project it is copied to, name them after the prompt.
-    expect(run.files.map((file) => library.get(file.assetId!)?.name)).toEqual(["Four-icons-1.webp", "Four-icons-2.webp"]);
 
     expect((await readdir(path.join(dataDirectory, "tools", "runs", run.id))).sort()).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
   });
@@ -352,8 +328,8 @@ describe("tool runner", () => {
     const run = await runner.run("generate-image", { prompt: "Two icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
 
     expect(run.files).toEqual([
-      { name: "output-1.png", mediaType: "image/png" },
-      { name: "output-2.jpg", mediaType: "image/jpeg" },
+      { name: "output-1.png", mediaType: "image/png", title: "Two-icons-1.png" },
+      { name: "output-2.jpg", mediaType: "image/jpeg", title: "Two-icons-2.jpg" },
     ]);
     const runDirectory = path.join(dataDirectory, "tools", "runs", run.id);
     expect(await readFile(path.join(runDirectory, "output-1.png"))).toEqual(png);

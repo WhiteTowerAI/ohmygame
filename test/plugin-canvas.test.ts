@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
-import type { AssetCanvasNode, ProjectState, ToolJob } from "../src/shared/contracts.js";
+import type { AssetCanvasNode, ProjectState, ToolJob, WorkspaceFile } from "../src/shared/contracts.js";
 import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
@@ -94,7 +94,7 @@ async function setup() {
   await writeFile(path.join(source, "presets/knight.json"), JSON.stringify({ ...KNIGHT, nodes: KNIGHT.nodes.map((node) => node.id === "art" ? { ...node, data: { ...node.data, assetId: "made" } } : node) }));
   const payload = { source: { type: "directory", path: source } };
   const refused = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
-  expect(refused.body).toContain("./presets/knight.json can't hold outputs or Library assets");
+  expect(refused.body).toContain("./presets/knight.json can't hold outputs or project media");
   await writeFile(path.join(source, "presets/knight.json"), JSON.stringify(KNIGHT));
   await writeFile(path.join(source, "presets/hero.json"), JSON.stringify(HERO));
   await writeFile(path.join(source, "presets/hero.gif"), HERO_GIF);
@@ -108,9 +108,13 @@ async function setup() {
   const base = `/projects/${project.id}/canvas`;
   const workspace = (await app.inject({ method: "GET", url: `${base}/workspace` })).json<CanvasWorkspaceDetail>();
   const boardUrl = `${base}/boards/${workspace.boards[0]!.id}`;
-  const uploaded = await app.inject({ method: "POST", url: "/library/assets", payload: { name: "hero", purpose: "reference", image: { data: PNG, mediaType: "image/png" } } });
-  expect(uploaded.statusCode, uploaded.body).toBe(201);
-  const image: AssetCanvasNode = { id: "hero", type: "asset", position: { x: 0, y: 0 }, data: { assetId: uploaded.json<{ id: string }>().id, mediaType: "image" } };
+  /** Puts a picture on the canvas, as an upload does. */
+  const upload = async (name: string) => {
+    const uploaded = await app.inject({ method: "POST", url: `${base}/assets?name=${name}.png&mediaType=image%2Fpng`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from(PNG, "base64") });
+    expect(uploaded.statusCode, uploaded.body).toBe(201);
+    return uploaded.json<{ id: string; name: string }>();
+  };
+  const image: AssetCanvasNode = { id: "hero", type: "asset", position: { x: 0, y: 0 }, data: { assetId: (await upload("hero")).id, mediaType: "image" } };
   /** Saves these plugin nodes beside the image, generates `id` and waits for its job. */
   const run = async (nodes: AssetCanvasNode[], id: string) => {
     const detail = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
@@ -131,11 +135,11 @@ async function setup() {
   };
   const plugin = (id: string, node: string, params: Record<string, string | number | boolean>, inputs: Record<string, Array<{ type: "node"; nodeId: string }>>): AssetCanvasNode =>
     ({ id, type: "plugin", position: { x: 300, y: 0 }, data: { node, params, inputs } });
-  return { app, project, run, plugin, boardUrl, base, image };
+  return { app, project, run, plugin, boardUrl, base, image, upload };
 }
 
 describe("plugin canvas nodes", () => {
-  it("lists a project's plugin nodes in its language and runs them into the Library or as text", async () => {
+  it("lists a project's plugin nodes in its language and runs them into the project's media or as text", async () => {
     const { app, project, run, plugin } = await setup();
     const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas?locale=zh-CN` })).json<ProjectPluginCanvas>();
     expect(listed.nodes.map((node) => [node.id, node.pluginName, node.title, node.inputs[0]?.title])).toEqual([
@@ -150,8 +154,11 @@ describe("plugin canvas nodes", () => {
     const copied = await run([plugin("copy", "acme/frames:copy", { scale: 3 }, { source: [{ type: "node", nodeId: "hero" }] })], "copy");
     expect(copied.job).toMatchObject({ status: "succeeded", toolId: "plugin-node" });
     expect(copied.node.data.assetId).toBeTruthy();
-    const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json<Array<{ id: string; origin: string; mediaType: string }>>();
-    expect(assets).toContainEqual(expect.objectContaining({ id: copied.node.data.assetId, origin: "generated", mediaType: "image" }));
+    const { assets } = (await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).json<CanvasWorkspaceDetail>();
+    const output = assets.find((asset) => asset.id === copied.node.data.assetId);
+    expect(output).toMatchObject({ mediaType: "image" });
+    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json<WorkspaceFile[]>();
+    expect(files).toContainEqual(expect.objectContaining({ path: output!.path, origin: "generated" }));
 
     // Defaults fill settings the person left alone; a text node's output is text, and it can feed another node.
     const described = await run([plugin("describe", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "hero" }, { type: "node", nodeId: "hero" }] })], "describe");
@@ -226,7 +233,7 @@ describe("plugin canvas nodes", () => {
   });
 
   it("records what each run read, marks what changed upstream, and regenerates a chain in order", async () => {
-    const { app, plugin, boardUrl, base, image } = await setup();
+    const { app, plugin, boardUrl, base, image, upload } = await setup();
     const hero = { source: [{ type: "node" as const, nodeId: "hero" }] };
     const copy = plugin("copy", "acme/frames:copy", {}, hero);
     const describe = plugin("describe", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "copy" }] });
@@ -251,9 +258,9 @@ describe("plugin canvas nodes", () => {
     expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set());
 
     // A new picture upstream leaves both out of date, until the chain runs again from the copy.
-    const other = await app.inject({ method: "POST", url: "/library/assets", payload: { name: "villain", purpose: "reference", image: { data: PNG, mediaType: "image/png" } } });
+    const other = await upload("villain");
     const detail = await board();
-    detail.board.nodes = detail.board.nodes.map((node) => node.id === "hero" ? { ...node, data: { ...node.data, assetId: other.json<{ id: string }>().id } } as AssetCanvasNode : node);
+    detail.board.nodes = detail.board.nodes.map((node) => node.id === "hero" ? { ...node, data: { ...node.data, assetId: other.id } } as AssetCanvasNode : node);
     expect((await app.inject({ method: "PUT", url: boardUrl, payload: detail })).statusCode).toBe(200);
     current = (await board()).board;
     expect(staleCanvasNodes(current.nodes, latest(await jobs()))).toEqual(new Set(["copy", "describe"]));
@@ -286,10 +293,10 @@ describe("plugin canvas nodes", () => {
   });
 
   it("copies a chain once per picked image, each in its own group, and runs every copy", async () => {
-    const { app, plugin, boardUrl, base, image } = await setup();
+    const { app, plugin, boardUrl, base, image, upload } = await setup();
     const copy = plugin("copy", "acme/frames:copy", {}, { source: [{ type: "node", nodeId: "hero" }] });
     const describe = plugin("describe", "acme/frames:describe", {}, { source: [{ type: "node", nodeId: "copy" }] });
-    const pictures = await Promise.all(["villain", "squire"].map(async (name) => (await app.inject({ method: "POST", url: "/library/assets", payload: { name, purpose: "reference", image: { data: PNG, mediaType: "image/png" } } })).json<{ id: string; name: string }>()));
+    const pictures = await Promise.all(["villain", "squire"].map(upload));
     let id = 0;
     const { nodes: copies, starts } = canvasBatchCopies([image, copy, describe], "hero", pictures.map((picture) => ({ assetId: picture.id, name: picture.name })), (name) => name, () => `b${++id}`);
     expect(starts).toEqual(["b1", "b5"]);

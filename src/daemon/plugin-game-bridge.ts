@@ -25,8 +25,8 @@ export interface ProjectGame {
   target(signal?: AbortSignal): Promise<GameUseOpenTarget>;
   /** For a native type's game, the type, `publisher/name:type`, whose plugin runs it. */
   provider?: string;
-  /** Puts a finished recording in the project's media, returning its path there. */
-  keepRecording?: (assetId: string) => Promise<string>;
+  /** The project whose media keeps a recording. */
+  projectId: string;
 }
 
 export interface PluginGameCaller {
@@ -112,7 +112,7 @@ export class PluginGameBridge {
           const result = await owner.driver.request({ operation: request.operation, sessionId }, signal);
           if (result.operation === "inspect") return result.snapshot;
           if (result.operation === "capture") return result.capture;
-          if (result.operation === "recordStop") return game.keepRecording ? { ...result.recording, path: await game.keepRecording(result.recording.assetId) } : result.recording;
+          if (result.operation === "recordStop") return result.recording;
           return null;
         }
         case "act": {
@@ -125,7 +125,7 @@ export class PluginGameBridge {
           return result.operation === "captureFrame" ? result.capture : null;
         }
         case "recordStart": {
-          const result = await owner.driver.request({ operation: "recordStart", sessionId, title: `${caller.plugin} playtest` }, signal);
+          const result = await owner.driver.request({ operation: "recordStart", sessionId, projectId: game.projectId, title: `${caller.plugin} playtest` }, signal);
           return result.operation === "recordStart" ? { maxSeconds: result.maxSeconds } : null;
         }
       }

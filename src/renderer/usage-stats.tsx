@@ -22,7 +22,7 @@ import {
 import { getUsageStats } from "./api.js";
 import { language, t } from "./i18n.js";
 import { Copy, Download, Share2 } from "./icons.js";
-import { downloadAssetBlob } from "./library-assets.js";
+import { downloadAssetBlob } from "./media-assets.js";
 import { ProviderMark } from "./model-selector.js";
 import { SettingsGroup } from "./settings-parts.js";
 import { useAuth } from "./auth.js";

@@ -150,7 +150,7 @@ export interface PluginUiCapabilities {
   "project.usage"?: boolean;
   /** Asks the person's language models with `models.list` and `models.complete`. */
   models?: boolean;
-  /** Adds files it made to the person's Library with `library.add`. */
+  /** Adds files it made to the project's media with `assets.add`. */
   library?: boolean;
   /** Makes images and audio with the person's models, with `media.models` and `media.generate`. */
   media?: boolean;
@@ -203,7 +203,7 @@ const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer" | "
   "media.cancel": "media",
 };
 
-/** What a file a page adds to the Library was made from; it goes in the address, so it is short. */
+/** What a file a page adds to the project was made from; it goes in the address, so it is short. */
 export const PLUGIN_UI_LIBRARY_PROMPT_MAX = 1_000;
 
 /** A `models.complete` request may carry long text; its images are best sent as Blobs, which this doesn't count. */

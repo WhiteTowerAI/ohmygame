@@ -1,7 +1,7 @@
 import { Check, ChevronRight, FolderOpen, Spinner, Search, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
-import { addLibraryAssetToProject, listProjects } from "./api.js";
+import { copyProjectMedia, listProjects } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { projectHash } from "./routes.js";
 import { t, tNodes } from "./i18n.js";
@@ -14,8 +14,8 @@ type Phase =
   | { kind: "sending"; projectId: string }
   | { kind: "sent"; project: ProjectState; path: string };
 
-/** Picks a game project and copies a Library asset into its `assets/` folder. */
-export function SendToProjectDialog({ assetId, name, onClose }: { assetId: string; name: string; onClose: () => void }) {
+/** Picks a game project and copies a media file into its media. */
+export function SendToProjectDialog({ from, name, onClose }: { from: { projectId: string; path: string }; name: string; onClose: () => void }) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [query, setQuery] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
@@ -34,7 +34,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
   async function send(project: ProjectState): Promise<void> {
     setPhase({ kind: "sending", projectId: project.id });
     try {
-      const result = await addLibraryAssetToProject(project.id, assetId);
+      const result = await copyProjectMedia(project.id, from);
       setPhase({ kind: "sent", project, path: result.path });
     } catch (cause) {
       setPhase({ kind: "error", message: t("sendToProject.failed", { project: project.name, error: errorMessage(cause) }), retry: () => setPhase({ kind: "ready" }) });

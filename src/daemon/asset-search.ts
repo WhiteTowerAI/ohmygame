@@ -1,14 +1,13 @@
 import type {
-  LibraryAsset,
+  MediaAsset,
   LibrarySource,
   LibrarySourceItem,
   LibrarySourceResults,
 } from "../shared/contracts.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ApprovalRequestDetails } from "../shared/agent-runtimes.js";
-import type { LibrarySources, SourceItemToAdd } from "./library-sources.js";
-import type { ProjectManager } from "./projects.js";
+import type { LibrarySources, SourcedAsset, SourceItemToAdd } from "./library-sources.js";
 
 /** What an agent asks `asset_search`. */
 export interface AssetSearchInput {
@@ -16,7 +15,7 @@ export interface AssetSearchInput {
   source?: string;
   query?: string;
   collection?: string;
-  media?: LibraryAsset["mediaType"];
+  media?: MediaAsset["mediaType"];
   cursor?: string;
 }
 
@@ -74,7 +73,6 @@ export class AssetSearch {
 
   constructor(
     private readonly sources: Pick<LibrarySources, "list" | "search" | "add">,
-    private readonly projects: Pick<ProjectManager, "materializeLibraryAsset">,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -197,6 +195,7 @@ export class AssetSearch {
         ...(item.license ? { license: item.license } : {}),
         ...(item.url ? { url: item.url } : {}),
       },
+      target.projectId,
       signal,
     );
     return this.#copy(asset, target);
@@ -212,18 +211,17 @@ export class AssetSearch {
     item: SourceItemToAdd,
     signal?: AbortSignal,
   ): Promise<{ path: string; name: string }> {
-    const asset = await this.sources.add(source, item, signal);
-    return { path: (await this.#place(asset, target)).copied, name: asset.name };
+    const asset = await this.sources.add(source, item, target.projectId, signal);
+    await this.#place(asset, target);
+    return { path: asset.path, name: asset.name };
   }
 
+  /** Credits a license asks for go in CREDITS.md. */
   async #place(
-    asset: LibraryAsset,
+    asset: SourcedAsset,
     target: Pick<AssetUseTarget, "projectId" | "workspacePath">,
   ): Promise<{ copied: string; credited: boolean }> {
-    const { path: copied } = await this.projects.materializeLibraryAsset(
-      target.projectId,
-      asset.id,
-    );
+    const copied = asset.path;
     const credit = asset.sourcedFrom;
     const credited =
       credit && (credit.author || credit.license)
@@ -233,7 +231,7 @@ export class AssetSearch {
   }
 
   async #copy(
-    asset: LibraryAsset,
+    asset: SourcedAsset,
     target: AssetUseTarget,
   ): Promise<string> {
     const { copied, credited } = await this.#place(asset, target);
@@ -303,9 +301,12 @@ async function addCredit(
   workspacePath: string,
   copied: string,
   name: string,
-  credit: NonNullable<LibraryAsset["sourcedFrom"]>,
+  credit: SourcedAsset["sourcedFrom"],
 ): Promise<boolean> {
   const file = path.join(workspacePath, CREDITS_FILE);
+  // Written in place, so never through a link to a file outside the project.
+  const existing = await lstat(file).catch(() => undefined);
+  if (existing && !existing.isFile()) throw new Error(`${CREDITS_FILE} is not a file in the project`);
   const current = await readFile(file, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined;

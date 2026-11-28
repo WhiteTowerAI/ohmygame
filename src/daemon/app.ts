@@ -26,7 +26,7 @@ import { setPluginAgentDefinitions } from "./agent-runtimes/definitions.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { registerModelThumbnailRoutes } from "./model-thumbnail-routes.js";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import { createReadStream } from "node:fs";
 import { lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
@@ -84,15 +84,16 @@ import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/
 import { registerCanvasRoutes } from "./canvas-routes.js";
 import { canvasPluginRunner } from "./canvas-plugin-runner.js";
 import { registerAgentRuntimeRoutes } from "./agent-runtime-routes.js";
-import { ASSET_NAME_BODY_SCHEMA, readLibraryFile, registerLibraryRoutes } from "./library-routes.js";
+import { ASSET_NAME_BODY_SCHEMA, readMediaFile, registerMediaRoutes } from "./media-routes.js";
 import { PluginLimits } from "./plugin-limits.js";
-/** How many files a plugin's pages add to the Library a minute. */
+/** How many files a plugin's pages add to a project's media a minute. */
 const PLUGIN_LIBRARY_ADDS_PER_MINUTE = 20;
 import { LibrarySources } from "./library-sources.js";
 import { AssetSearch } from "./asset-search.js";
 import { LIBRARY_UPLOAD_MAX_BYTES } from "../shared/media-files.js";
 import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
-import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
+import { CanvasError } from "./canvas-workspace.js";
+import { projectToolMedia } from "./canvas-assets.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, assertBuildable, PublishError, publishContents } from "./publish/archive.js";
 import { gameServiceUrlFor } from "./publish/game-service.js";
@@ -194,10 +195,9 @@ import type { PluginMention } from "../shared/contracts.js";
 import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_DOWNLOAD_SOURCES, pluginMentionToken, type PluginAddSource, type PluginDownloadSource, type PluginLogView, type PluginMcpResult, type PluginSourceUpdate, type PluginTheme, type PluginUninstallPreview, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { pluginSettingsView } from "../shared/plugin-settings.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
-import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, workspaceMediaInfo, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import type { WorkspaceFile } from "../shared/contracts.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
-import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
@@ -616,7 +616,6 @@ export function createApp(options: AppOptions = {}) {
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
   const conversationImages = new ConversationImageStore(path.join(dataDirectory, "cache", "conversation-images"));
   const events = new RuntimeEventBus(1_000, (event) => conversationImages.event(event));
-  const library = new AssetLibrary(dataDirectory);
   const activityStreams = new Set<(snapshot: string) => void>();
   let activityPending = false;
   const notifyProjectActivity = () => {
@@ -629,7 +628,7 @@ export function createApp(options: AppOptions = {}) {
       for (const send of activityStreams) send(snapshot);
     });
   };
-  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity, mediaMigrations);
+  const projects = new ProjectManager(dataDirectory, notifyProjectActivity, mediaMigrations);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -863,7 +862,7 @@ export function createApp(options: AppOptions = {}) {
     options.imageGenerator ?? providerImages,
     options.model3DGenerator ?? providerModels3D,
     options.videoGenerator ?? providerVideos,
-    library,
+    projectToolMedia(projects),
     async (toolId, input, projectId) => {
       if (toolId === "animate-3d" || toolId === "remove-image-background") return input;
       const project = projectId ? projects.get(projectId) : undefined;
@@ -1116,16 +1115,15 @@ export function createApp(options: AppOptions = {}) {
   const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
     const project = await projectForHostFolder(folder);
     if (!project) return undefined;
-    const keepRecording = async (assetId: string) => (await projects.materializeLibraryAsset(project.id, assetId)).path;
     const plugin = await pluginGameRuntime(project);
     if (plugin) return {
       runtime: plugin,
       provider: plugin.provider,
       target: async () => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath }),
-      keepRecording,
+      projectId: project.id,
     };
     const web = options.playtestDriver;
-    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal), keepRecording } : undefined;
+    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal), projectId: project.id } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
   pluginServices.hosts.serveBrowser(async (folder, plugin, request, signal) => {
@@ -1157,8 +1155,8 @@ export function createApp(options: AppOptions = {}) {
     signal.throwIfAborted();
     await driver.request({ projectId: project.id, operation: "open", url }, signal);
   });
-  const librarySources = new LibrarySources(pluginServices, library);
-  const assetSearch = new AssetSearch(librarySources, projects);
+  const librarySources = new LibrarySources(pluginServices, projects);
+  const assetSearch = new AssetSearch(librarySources);
   /** Whether a plugin the person turned on offers assets; agents get `asset_search` only then. */
   const hasAssetSources = async () => (await librarySources.list("en")).length > 0;
   /** Screenshots of a project's plugin panels for its agents, which its open desktop window takes. */
@@ -1574,7 +1572,7 @@ export function createApp(options: AppOptions = {}) {
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaMigrations, writes: projectWrites, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, library }) });
+  const canvasStore = registerCanvasRoutes(app, { projects, tools, mediaMigrations, writes: projectWrites, audio: options.audioGenerator ?? providerAudio, plugins: canvasPluginRunner({ native: pluginServices.native, projects }) });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginMcpHost, pluginServices, invalidatePluginSessions, {
     create: (name, workspacePath) => projects.create(name, "plugin", workspacePath),
@@ -1716,10 +1714,10 @@ export function createApp(options: AppOptions = {}) {
     await migrateAzureProviderId(piAgentDirectory, dataDirectory).catch((err) => app.log.warn({ err }, "Could not migrate Azure provider settings"));
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
-    await Promise.all([library.load().then(() => projects.load((projectDirectory, cause) => {
+    await Promise.all([projects.load((projectDirectory, cause) => {
       projectsSkipped = true;
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    })), tools.load(), pluginConfiguration.load(),
+    }), tools.load(), pluginConfiguration.load(),
       pluginMarketSettings.load().then(() => {
         pluginMarket.setSources(pluginMarketSettings.sources());
         pluginMarket.setDownload(pluginMarketSettings.downloads());
@@ -2975,7 +2973,7 @@ export function createApp(options: AppOptions = {}) {
     if (!found) return reply.code(403).send(NO_PLUGIN_MODELS);
     return { models: await pluginModels.list(found.project.workspacePath) };
   });
-  // A file a page made, into the project's media under its plugin's name (`library.add`).
+  // A file a page made, into the project's media (`assets.add`).
   // The person sees each one come. Whether the plugin may, and isn't adding too much, is
   // checked before its file is read, which may be 200 MB.
   const libraryAdds = new PluginLimits({ concurrent: 2, perMinute: PLUGIN_LIBRARY_ADDS_PER_MINUTE });
@@ -3002,18 +3000,16 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const contents = request.body;
     if (!Buffer.isBuffer(contents) || !contents.length) return reply.code(400).send({ error: "The file is empty" });
-    const file = readLibraryFile(request.query.name, contents);
+    const file = readMediaFile(request.query.name, contents);
     if (!file.ok) return reply.code(400).send({ error: file.error });
-    // The media store serves what it keeps as the app's own; an SVG can hold a script.
+    // The app serves project media as its own; an SVG can hold a script.
     if (file.contentType === "image/svg+xml") return reply.code(400).send({ error: "Pages add images as PNG, JPEG or WebP, not SVG, which can hold a script" });
     try {
       const prompt = request.query.prompt?.trim();
-      const addedBy = `${request.params.publisher}/${request.params.name}`;
-      const asset = await library.add(file.name, contents, { origin: "generated", addedBy, ...(prompt ? { prompt } : {}) });
-      const { path: projectPath } = await projects.materializeLibraryAsset(request.params.projectId, asset.id);
-      return reply.code(201).send({ ...asset, projectPath });
+      const projectPath = await projects.addMedia(request.params.projectId, file.name, { bytes: contents }, { origin: "generated", ...(prompt ? { prompt } : {}) });
+      return reply.code(201).send({ path: projectPath, name: path.basename(projectPath), mediaType: workspaceMediaInfo(projectPath)!.mediaType });
     } catch (cause) {
-      if (cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
@@ -4011,11 +4007,11 @@ export function createApp(options: AppOptions = {}) {
 
   registerCommunityRoutes(app, publisher, projects);
 
-  registerLibraryRoutes(app, {
-    projects, library, sources: librarySources,
+  registerMediaRoutes(app, {
+    projects, sources: librarySources,
     addFromSource: (projectId, source, item, signal) => assetSearch.addFromSource({ projectId, workspacePath: projects.get(projectId)!.workspacePath }, source, item, signal),
   });
-  registerModelThumbnailRoutes(app, path.join(dataDirectory, "cache", "model-thumbnails"), projects, library);
+  registerModelThumbnailRoutes(app, path.join(dataDirectory, "cache", "model-thumbnails"), projects);
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -4130,18 +4126,9 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
       throw cause;
     }
-    let usage: Map<string, boolean> | undefined;
-    if (files.some((file) => (file.libraryAssetId ? library.get(file.libraryAssetId)?.purpose : file.purpose) === "reference")) {
-      try { usage = await canvasLibraryAssetUsage(project.workspacePath); }
-      catch (cause) { request.log.warn({ projectId: project.id, err: cause }, "Could not read project asset usage"); }
-    }
-    return files.map((file) => {
-      if (!file.mediaType) return file;
-      const asset = file.libraryAssetId ? library.get(file.libraryAssetId) : undefined;
-      const origin = file.origin ?? asset?.origin;
-      const purpose = asset?.purpose ?? file.purpose ?? "asset";
-      return { ...file, origin: !origin || origin === "unknown" ? "workspace" : origin, purpose: purpose === "reference" && usage?.get(file.libraryAssetId ?? "") ? "asset" : purpose };
-    });
+    return files.map((file) => file.mediaType
+      ? { ...file, origin: !file.origin || file.origin === "unknown" ? "workspace" : file.origin, purpose: file.purpose ?? "asset" }
+      : file);
   });
 
   app.post<{ Params: { projectId: string }; Body: { parent?: string; name: string; kind: "file" | "folder" } }>("/projects/:projectId/files", {
@@ -4216,23 +4203,6 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
-      }
-    },
-  );
-
-  app.post<{ Params: { projectId: string; assetId: string } }>(
-    "/projects/:projectId/library-assets/:assetId",
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      try {
-        const asset = await projects.materializeLibraryAsset(project.id, request.params.assetId);
-        await library.useAsAsset(request.params.assetId);
-        return reply.code(201).send(asset);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode : 500;
-        return reply.code(statusCode).send({ error });
       }
     },
   );
@@ -5169,10 +5139,10 @@ export function createApp(options: AppOptions = {}) {
       }
       try {
         await Promise.all([...(request.body.images ?? []), ...attachmentImages].map((image, index) => (
-          addConversationImageToProject(library, projects, project.id, image, index)
+          addConversationImageToProject(projects, project.id, image, index)
         )));
       } catch (cause) {
-        const statusCode = cause instanceof AssetLibraryError ? cause.statusCode : 400;
+        const statusCode = cause instanceof ProjectAssetError ? cause.statusCode : 400;
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
@@ -5701,7 +5671,6 @@ function isWebp(value: unknown): value is Buffer {
 
 /** Keeps an image sent in a conversation as one of the project's references, on this computer only. */
 async function addConversationImageToProject(
-  library: AssetLibrary,
   projects: ProjectManager,
   projectId: string,
   image: PromptImage,
@@ -5716,9 +5685,7 @@ async function addConversationImageToProject(
   }[image.mediaType];
   const originalName = path.basename(image.name ?? `Image ${index + 1}`);
   const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
-  const digest = createHash("sha256").update(contents).digest("hex");
-  const asset = await library.add(`${stem}${extension}`, contents, { origin: "uploaded", purpose: "reference", sourceKey: `conversation-image:${image.mediaType}:${digest}` });
-  await projects.materializeLibraryAsset(projectId, asset.id, "imported", "reference");
+  await projects.addMedia(projectId, `${stem}${extension}`, { bytes: contents }, { placement: "reference" });
 }
 
 function isCreateConversationRequest(value: unknown): value is CreateConversationRequest | undefined {

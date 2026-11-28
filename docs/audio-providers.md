@@ -2,7 +2,7 @@
 
 Audio works like image and video: one request carries a model, a prompt and
 the options that model takes. Speech, sound effects and music share model
-selection, jobs, Library storage, and project export. The daemon owns
+selection, jobs, storage, and project export. The daemon owns
 credentials and provider calls. Canvas and agents submit the same
 provider-neutral request.
 
@@ -274,7 +274,7 @@ ignored and omitted from new companion files.
   generate an audio node.
 
 The `/settings/models/providers/doubao-voice` endpoints, the separate Seed Audio
-settings and preview endpoints and the Library audio companion download endpoint
+settings and preview endpoints and the audio companion download endpoint
 are removed. New audio requests reject `references`, `referenceAssetId` and
 `subtitles`.
 

@@ -80,7 +80,7 @@ describe("game recording", () => {
     expect(bridge.stop).toHaveBeenCalledWith("p");
     await announce({ projectId: "p", status: "saving" });
     expect(host.querySelector<HTMLButtonElement>(".preview-record-button")!.disabled).toBe(true);
-    await announce({ projectId: "p", status: "idle", saved: { assetId: "a", name: "game.mp4", duration: 3, bytes: 9 } });
+    await announce({ projectId: "p", status: "idle", saved: { path: ".ohmygame/media/imported/game.mp4", name: "game.mp4", duration: 3, bytes: 9 } });
     expect(host.querySelector(".preview-record-button")).toBeNull();
     expect(host.querySelector(".record-item")).not.toBeNull();
   });
@@ -108,7 +108,7 @@ describe("game recording notices", () => {
     await announce({ projectId: "p", status: "recording", startedAt: 1 });
     await announce({ projectId: "p", status: "saving" });
     expect(toast).not.toHaveBeenCalled();
-    await announce({ projectId: "p", status: "idle", saved: { assetId: "a", name: "game.mp4", duration: 3, bytes: 9 } });
+    await announce({ projectId: "p", status: "idle", saved: { path: ".ohmygame/media/imported/game.mp4", name: "game.mp4", duration: 3, bytes: 9 } });
     expect(toast).toHaveBeenCalledOnce();
     expect(toast.mock.calls[0]![0]).toMatchObject({ title: "Recording saved to the project's assets", description: "game.mp4" });
     await announce({ projectId: "p", status: "idle", error: "Disk full" });

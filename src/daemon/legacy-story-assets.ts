@@ -1,15 +1,35 @@
 // compat: since beta.5.12, remove from beta.7 and 2026-12-27. Before stories
 // had a web runtime their graphs could refer directly to this computer's Library.
-import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { constants, createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isRecord } from "@ohmygame/game-sdk/protocol";
-import { assetDigest, type AssetLibrary } from "./asset-library.js";
 import { realFolders } from "./project-layout.js";
 
+/** The files the Library kept in `<data>/library/`, which OhMyGame no longer writes; only this migration reads them. */
+export interface LegacyLibrary {
+  content(id: string): Promise<{ asset: { name: string }; absolutePath: string }>;
+}
+
+export function legacyLibrary(dataDirectory: string): LegacyLibrary {
+  const directory = path.join(dataDirectory, "library");
+  let assets: Promise<unknown[]> | undefined;
+  return {
+    async content(id) {
+      assets ??= readFile(path.join(directory, "assets.json"), "utf8").then((text) => {
+        const stored: unknown = JSON.parse(text);
+        return isRecord(stored) && Array.isArray(stored.assets) ? stored.assets : [];
+      }, () => []);
+      const asset = (await assets).find((candidate) => isRecord(candidate) && candidate.id === id);
+      if (!isRecord(asset) || typeof asset.name !== "string") throw new Error(`Library asset not found: ${id}`);
+      return { asset: { name: asset.name }, absolutePath: path.join(directory, "files", `${id}${path.extname(asset.name).toLowerCase()}`) };
+    },
+  };
+}
+
 /** Commit the graph only after every referenced asset has a complete project copy. */
-export async function localizeStoryAssets(folder: string, library?: AssetLibrary): Promise<void> {
+export async function localizeStoryAssets(folder: string, library?: LegacyLibrary): Promise<void> {
   const file = path.join(folder, "graph.json");
   const entry = await lstat(file).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
@@ -63,4 +83,10 @@ async function copyStoryAsset(folder: string, source: string, extension: string)
       if ((await lstat(destination)).isFile() && await assetDigest(destination) === digest) return relative;
     }
   }
+}
+
+async function assetDigest(file: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
 }

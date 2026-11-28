@@ -235,8 +235,7 @@ operation are under way, and tells an open conversation through
 or a longer setting does not bring cleared turns back. Project settings say
 when a project's history is cleared automatically.
 
-The global asset Library,
-generation history, and conversation session files are preserved. Snapshot
+Generation history, and conversation session files are preserved. Snapshot
 metadata uses `ohmygame-checkpoint`, `ohmygame-turn-end`, and
 `ohmygame-checkpoint-undone` entries in the Pi session. These are the single
 record format used by the agent, API, and UI. Undo records optionally carry a

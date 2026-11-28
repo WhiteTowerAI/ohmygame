@@ -150,14 +150,14 @@ export function createGameUseTool(
   {
     catalog = false,
     maxFrame,
-    keepRecording,
+    projectId,
   }: {
     /** List every operation any runtime has, as an outside agent's catalog does. */
     catalog?: boolean;
     /** The highest frame a plugin's captureFrame takes. */
     maxFrame?: number;
-    /** Puts a finished recording in the project's media, returning its path there. */
-    keepRecording?: (assetId: string) => Promise<string>;
+    /** The project whose media keeps a recording. */
+    projectId?: string;
   } = {},
 ): ToolDefinition<GameUseToolInput> {
   const plugin = driver.capabilities.runtime === "plugin";
@@ -226,7 +226,8 @@ export function createGameUseTool(
       }
       if (input.operation === "recordStart") {
         requireCapability(driver, "video", "observation");
-        const result = await driver.request({ operation: "recordStart", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
+        if (!projectId) throw new Error("Recording needs a project to keep it");
+        const result = await driver.request({ operation: "recordStart", sessionId: requiredSessionId(input.operation, input.sessionId), projectId }, signal);
         if (result.operation !== "recordStart") throw new Error("Unexpected game use response");
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: undefined };
       }
@@ -234,9 +235,7 @@ export function createGameUseTool(
         requireCapability(driver, "video", "observation");
         const result = await driver.request({ operation: "recordStop", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
         if (result.operation !== "recordStop") throw new Error("Unexpected game use response");
-        const { assetId, ...recording } = result.recording;
-        const saved = keepRecording ? { path: await keepRecording(assetId), ...recording } : result.recording;
-        return { content: [{ type: "text", text: `Saved the recording${keepRecording ? " to the project" : ""}: ${JSON.stringify(saved)}` }], details: undefined };
+        return { content: [{ type: "text", text: `Saved the recording to the project: ${JSON.stringify(result.recording)}` }], details: undefined };
       }
       if (input.operation === "close") {
         const sessionId = requiredSessionId(input.operation, input.sessionId);

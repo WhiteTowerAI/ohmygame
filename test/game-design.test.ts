@@ -3,14 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { CanvasStore, readCanvasJobHistory, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
+import { CanvasStore, readCanvasJobHistory, readCanvasDocument, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ProjectWrites } from "../src/daemon/project-writes.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
-import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
+import { projectToolMedia, readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { CANCEL_GENERATION, createAgentTools } from "../src/daemon/agent-tools.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -26,20 +25,32 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
+/** A tool run that made one file, which the canvas then reads back and saves. */
+function stubRun(tools: ToolRunner, run: Omit<ToolRun, "createdAt">, once = false) {
+  vi.spyOn(tools, "file").mockResolvedValue({ bytes: Buffer.from("output"), mediaType: run.files[0]!.mediaType });
+  const spy = vi.spyOn(tools, "runPrepared");
+  return once ? spy.mockResolvedValueOnce({ createdAt: "now", ...run }) : spy.mockResolvedValue({ createdAt: "now", ...run });
+}
+/** Whether a board's nodes name an asset. */
+async function boardNames(store: CanvasStore, projectId: string, boardId: string, assetId: string) {
+  return JSON.stringify((await store.board(projectId, boardId)).board.nodes).includes(assetId);
+}
 async function temp() { const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-design-")); directories.push(directory); return directory; }
 const fakeGenerator: ImageGenerator = { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/png" }) };
 async function runtime(generator: ImageGenerator = fakeGenerator, projectType: ProjectType = "web-game", resolveInput?: ConstructorParameters<typeof ToolRunner>[5], audioGenerator?: ConstructorParameters<typeof ToolRunner>[6]) {
-  const directory = await temp(), library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
-  const tools = new ToolRunner(directory, generator, undefined, undefined, library, resolveInput, audioGenerator);
-  await Promise.all([library.load(), projects.load(), tools.load()]);
-  const project = await projects.create("Sky garden", projectType), store = new CanvasStore(projects, library, tools);
+  const directory = await temp(), projects = new ProjectManager(directory);
+  const tools = new ToolRunner(directory, generator, undefined, undefined, projectToolMedia(projects), resolveInput, audioGenerator);
+  await Promise.all([projects.load(), tools.load()]);
+  const project = await projects.create("Sky garden", projectType), store = new CanvasStore(projects, tools);
   stores.push(store);
   const workspace = await store.workspace(project.id), boardId = workspace.boards[0]!.id;
   const detail = await store.board(project.id, boardId), node = createAssetGenerationNode("image", { x: 96, y: 96 });
   if (node.type === "image") node.data.prompt = "A gardener";
   detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
   await store.saveBoard(project.id, detail.board, detail.revision);
-  return { directory, library, projects, tools, project, store, boardId, node };
+  // Media put on the canvas, as an upload or a file picked for it is.
+  const assets = { add: async (name: string, bytes: Uint8Array) => ({ id: (await store.addAsset(project.id, name, { bytes })).id }) };
+  return { directory, assets, projects, tools, project, store, boardId, node };
 }
 async function waitForJob(store: CanvasStore, projectId: string) {
   await expect.poll(async () => (await store.jobs(projectId))[0]?.status, { timeout: 5000 }).not.toBe("running");
@@ -205,13 +216,13 @@ describe("Markdown design workspace", () => {
       if (!projectId) throw new Error("Project context missing");
       return { ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId, id: defaultId } };
     });
-    const { store, project, projects, library, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
+    const { store, project, projects, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
     const first = await store.generateNode(project.id, boardId, node.id);
     expect(first.model).toEqual({ provider: project.id, id: "project-image" });
     expect(await waitForJob(store, project.id)).toMatchObject({ status: "failed", error: "Temporary service failure" });
     expect(resolve).toHaveBeenCalledOnce();
     defaultId = "changed-image";
-    const restored = new CanvasStore(projects, library, tools); stores.push(restored);
+    const restored = new CanvasStore(projects, tools); stores.push(restored);
     expect((await restored.jobs(project.id))[0]).toMatchObject({ id: first.id, model: { provider: project.id, id: "project-image" } });
     expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: project.id, id: "project-image" }]);
     const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
@@ -289,10 +300,10 @@ describe("Markdown design workspace", () => {
     expect((await store.board(project.id, workspace.boards[0]!.id)).board.nodes).toEqual([]);
   });
   it("shares documents and file edits across Asset Canvas boards", async () => {
-    const { store, project, boardId, library } = await runtime(fakeGenerator, "asset-canvas");
+    const { store, project, boardId, assets } = await runtime(fakeGenerator, "asset-canvas");
     const doc = await store.createDocument(project.id, "Production reference");
     const updated = await store.save(project.id, { ...doc.document, markdown: "# Brief\n\n一只像素风格的角色。" }, doc.revision, doc.document.id);
-    const asset = await library.add("reference.png", Buffer.from("image"));
+    const asset = await assets.add("reference.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
     expect(inserted.document.markdown).toContain(updated.document.markdown);
     expect(inserted.document.markdown).toContain("../../.ohmygame/media/imported/");
@@ -315,7 +326,7 @@ describe("Markdown design workspace", () => {
   });
   it("expands image presets and sends a linked character reference", async () => {
     const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
-    const { store, project, boardId, library } = await runtime({ generate }, "asset-canvas");
+    const { store, project, boardId, assets } = await runtime({ generate }, "asset-canvas");
     const original = await store.board(project.id, boardId);
     const freeImage = original.board.nodes[0]!;
     if (freeImage.type !== "image") throw new Error("Expected image node");
@@ -327,7 +338,7 @@ describe("Markdown design workspace", () => {
     expect(generate.mock.calls[0]?.[0].prompt).toContain("MANDATORY ASSET TYPE: MONSTER");
     expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
 
-    const reference = await library.add("character.png", Buffer.from("image"));
+    const reference = await assets.add("character.png", Buffer.from("image"));
     const actionBoard = await store.board(project.id, boardId);
     const source: AssetCanvasNode = { id: "character-source", type: "asset", position: { x: 0, y: 0 }, data: { assetId: reference.id, mediaType: "image" } };
     const action = createAssetGenerationNode("image", { x: 500, y: 0 });
@@ -399,16 +410,16 @@ describe("Markdown design workspace", () => {
     await expect(store.saveBoard(project.id, detail.board, detail.revision)).rejects.toMatchObject({ statusCode: 404 });
   });
   it("copies Library images into the project with Markdown-relative paths", async () => {
-    const { store, project, library } = await runtime();
-    const doc = await store.createDocument(project.id, "Art"), asset = await library.add("gardener.png", Buffer.from("image"));
+    const { store, project, assets } = await runtime();
+    const doc = await store.createDocument(project.id, "Art"), asset = await assets.add("gardener.png", Buffer.from("image"));
     const inserted = await store.insertAsset(project.id, doc.document.id, asset.id);
     expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/\.ohmygame\/media\/imported\//);
     const link = inserted.document.markdown.match(/\]\(([^)]+)\)/)![1]!;
     expect(await readFile(path.resolve(project.workspacePath, "canvas/documents", link), "utf8")).toBe("image");
   });
   it("removes a deleted image's embed when the file name has parentheses", async () => {
-    const { store, project, library, projects } = await runtime();
-    const doc = await store.createDocument(project.id, "Art"), asset = await library.add("hero (1).png", Buffer.from("image"));
+    const { store, project, assets, projects } = await runtime();
+    const doc = await store.createDocument(project.id, "Art"), asset = await assets.add("hero (1).png", Buffer.from("image"));
     expect((await store.insertAsset(project.id, doc.document.id, asset.id)).document.markdown).toContain("/hero%20(1).png)");
     await projects.deleteWorkspaceEntry(project.id, (await store.workspace(project.id)).assets[0]!.path);
     expect((await store.read(project.id, doc.document.id))!.document.markdown).not.toContain("![");
@@ -617,33 +628,25 @@ describe("Markdown design workspace", () => {
     await store.saveBoard(project.id, looped.board, looped.revision);
     await expect(tool.execute("loop", { boardId, nodeIds: ["seed", "holding"] }, undefined, undefined, {} as never)).rejects.toThrow("use each other's output");
   });
-  it("exports current file contents and retries video inputs using project asset IDs", async () => {
-    const { store, project, boardId, tools, library } = await runtime();
+  it("sends a video's references to the tool as the project files they are", async () => {
+    const { store, project, boardId, tools } = await runtime();
     await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
-    const sourcePath = path.join(project.workspacePath, "assets/reference.png");
-    await writeFile(sourcePath, "first");
+    await writeFile(path.join(project.workspacePath, "assets/reference.png"), "first");
     await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: { localImage: { name: "Local reference", path: "assets/reference.png" } } }));
-    const first = await store.exportAsset(project.id, "localImage");
-    expect(await store.exportAsset(project.id, "localImage")).toEqual(first);
-    await writeFile(sourcePath, "updated");
-    const updated = await store.exportAsset(project.id, "localImage");
-    expect(updated.assetId).not.toBe(first.assetId);
-    expect(await readFile((await library.content(updated.assetId)).absolutePath, "utf8")).toBe("updated");
     const detail = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 560, y: 0 });
     if (video.type !== "video") throw new Error("Expected video node");
     video.data.prompt = "Walk"; video.data.references = [{ type: "library", assetId: "localImage" }];
     detail.board.nodes.push(video); detail.board.editorLayout.nodes[video.id] = video.position;
     await store.saveBoard(project.id, detail.board, detail.revision);
-    const output = await library.add("walk.mp4", Buffer.from("video"));
-    const run = vi.spyOn(tools, "runPrepared").mockResolvedValueOnce({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    const run = stubRun(tools, { id: "video-run", toolId: "generate-video", files: [{ name: "output.mp4", mediaType: "video/mp4" }] }, true);
     await store.generateNode(project.id, boardId, video.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run.mock.calls.map((call) => call[1])).toEqual([expect.objectContaining({ references: [{ type: "image", assetId: updated.assetId }] })]);
+    expect(run.mock.calls.map((call) => call[1])).toEqual([expect.objectContaining({ references: [{ type: "image", path: "assets/reference.png" }] })]);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
   });
   it("rejects media mismatches and missing documents with file diagnostics", async () => {
-    const { store, project, boardId, library } = await runtime();
-    const doc = await store.createDocument(project.id, "Rules"), model = await library.add("reference.glb", Buffer.from("model"));
+    const { store, project, boardId, assets } = await runtime();
+    const doc = await store.createDocument(project.id, "Rules"), model = await assets.add("reference.glb", Buffer.from("model"));
     const detail = await store.board(project.id, boardId);
     if (detail.board.nodes[0]!.type === "image") detail.board.nodes[0]!.data.images = [{ type: "library", assetId: model.id }];
     await store.saveBoard(project.id, detail.board, detail.revision);
@@ -734,15 +737,14 @@ describe("Markdown design workspace", () => {
   });
 
   it("generates video without requiring unrelated missing assets", async () => {
-    const { store, project, boardId, tools, library } = await runtime();
+    const { store, project, boardId, tools } = await runtime();
     await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: { missing: { name: "Missing", path: "assets/missing.png" } } }));
     const board = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 560, y: 0 });
     if (video.type !== "video") throw new Error("Expected video node");
     video.data.prompt = "A garden";
     board.board.nodes.push(video); board.board.editorLayout.nodes[video.id] = video.position;
     await store.saveBoard(project.id, board.board, board.revision);
-    const output = await library.add("garden.mp4", Buffer.from("video"));
-    vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    stubRun(tools, { id: "video-run", toolId: "generate-video", files: [{ name: "output.mp4", mediaType: "video/mp4" }] });
     await store.generateNode(project.id, boardId, video.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
   });
@@ -768,7 +770,7 @@ describe("Markdown design workspace", () => {
   });
   it("preserves prompt and position changes while finishing on an inactive board", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store, project, boardId, node, library } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { store, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Original prompt" });
     await expect.poll(() => Boolean(finish)).toBe(true);
     await store.changeBoards(project.id, { type: "create", name: "Other board" });
@@ -778,12 +780,12 @@ describe("Markdown design workspace", () => {
     finish({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const job = await waitForJob(store, project.id), saved = (await store.board(project.id, boardId)).board.nodes[0]!;
     expect(job.status).toBe("succeeded"); expect(saved).toMatchObject({ position: image.position, data: { prompt: "New prompt", assetId: job.run!.files[0]!.assetId } });
-    expect(library.get(job.run!.files[0]!.assetId!)).toBeDefined();
+    expect((await readCanvasAssets(project.workspacePath)).assets[job.run!.files[0]!.assetId!]).toBeDefined();
   });
   it("lets a checkpoint wait for a finished run's save, not for the run", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store: editor, projects, library, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
-    const writes = new ProjectWrites(), store = new CanvasStore(projects, library, tools, undefined, {}, writes); stores.push(store);
+    const { store: editor, projects, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const writes = new ProjectWrites(), store = new CanvasStore(projects, tools, undefined, {}, writes); stores.push(store);
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     // The provider is still working, and a snapshot goes ahead anyway.
     await expect(writes.snapshot(project.id, async () => "taken")).resolves.toBe("taken");
@@ -801,8 +803,8 @@ describe("Markdown design workspace", () => {
   });
   it("drops a finished run's save that waits for a project being removed", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { projects, library, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
-    const writes = new ProjectWrites(), store = new CanvasStore(projects, library, tools, undefined, {}, writes); stores.push(store);
+    const { projects, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const writes = new ProjectWrites(), store = new CanvasStore(projects, tools, undefined, {}, writes); stores.push(store);
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     // Removal holds the workspace, cancels the project's runs and waits for them.
     await writes.exclusive(project.id, async () => {
@@ -814,12 +816,12 @@ describe("Markdown design workspace", () => {
   });
   it.each(["node", "board"] as const)("keeps output and history when its %s is removed", async (remove) => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store, project, boardId, node, library } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { store, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     if (remove === "board") { await store.changeBoards(project.id, { type: "create", name: "Other" }); await store.changeBoards(project.id, { type: "delete", boardId }); }
     else { const board = await store.board(project.id, boardId); board.board.nodes = []; board.board.editorLayout.nodes = {}; await store.saveBoard(project.id, board.board, board.revision); }
     finish({ bytes: Buffer.from("image"), mediaType: "image/png" });
-    const job = await waitForJob(store, project.id); expect(job.status).toBe("succeeded"); expect(library.get(job.run!.files[0]!.assetId!)).toBeDefined();
+    const job = await waitForJob(store, project.id); expect(job.status).toBe("succeeded"); expect((await readCanvasAssets(project.workspacePath)).assets[job.run!.files[0]!.assetId!]).toBeDefined();
   });
   it("rejects duplicate generation and supports cancellation and generating again", async () => {
     let calls = 0;
@@ -880,15 +882,14 @@ describe("Markdown design workspace", () => {
     expect((await store.jobs(project.id))[0]!.status).toBe("running");
   });
   it.each(["generate-video", "image-to-3d", "animate-3d"] as const)("stores %s output in the matching node", async (toolId) => {
-    const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
+    const { store, project, boardId, tools } = await runtime(), board = await store.board(project.id, boardId);
     const node: AssetCanvasNode = toolId === "animate-3d"
       ? { id: "animation", type: "animate-3d", position: { x: 0, y: 0 }, data: { heightMeters: 1.7, actionIds: [] } }
       : createAssetGenerationNode(toolId === "generate-video" ? "video" : "model-3d", { x: 0, y: 0 });
     board.board.nodes.push(node); board.board.editorLayout.nodes[node.id] = node.position; await store.saveBoard(project.id, board.board, board.revision);
-    const output = await library.add(toolId === "generate-video" ? "output.mp4" : "output.glb", Buffer.from("output"));
-    vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "run", toolId, createdAt: "now", files: [{ name: output.name, mediaType: toolId === "generate-video" ? "video/mp4" : "model/gltf-binary", assetId: output.id }] } satisfies ToolRun);
+    stubRun(tools, { id: "run", toolId, files: [{ name: toolId === "generate-video" ? "output.mp4" : "model.glb", mediaType: toolId === "generate-video" ? "video/mp4" : "model/gltf-binary" }] });
     await store.start(project.id, boardId, node.id, toolId, {} as RunToolRequest);
-    expect((await waitForJob(store, project.id)).status).toBe("succeeded"); expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)!.data).toHaveProperty("assetId", output.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded"); expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)!.data).toHaveProperty("assetId", expect.any(String));
   });
   it("generates audio from the saved node and linked text, then stores its audio output", async () => {
     const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
@@ -959,20 +960,19 @@ describe("Markdown design workspace", () => {
     expect(saved.find((node) => node.id === "theme")?.data).toHaveProperty("assetId", expect.any(String));
   });
   it("generates animation from a connected 3D node and validates its actual media type", async () => {
-    const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
+    const { store, project, boardId, tools, assets } = await runtime(), board = await store.board(project.id, boardId);
     const model = createAssetGenerationNode("model-3d", { x: 0, y: 0 });
-    const source = await library.add("character.glb", Buffer.from("model"));
+    const source = await assets.add("character.glb", Buffer.from("model"));
     model.data.assetId = source.id;
     const animation: AssetCanvasNode = { id: "animation", type: "animate-3d", position: { x: 400, y: 0 }, data: { source: { type: "node", nodeId: model.id }, heightMeters: 1.7, actionIds: [0] } };
     board.board.nodes.push(model, animation);
     for (const node of [model, animation]) board.board.editorLayout.nodes[node.id] = node.position;
     await store.saveBoard(project.id, board.board, board.revision);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
-    const output = await library.add("animated.glb", Buffer.from("animated"));
-    const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
+    const run = stubRun(tools, { id: "animation-run", toolId: "animate-3d", files: [{ name: "model.glb", mediaType: "model/gltf-binary" }] });
     await store.generateNode(project.id, boardId, animation.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
+    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ path: (await readCanvasAssets(project.workspacePath)).assets[source.id]!.path, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
     const manifest = await readCanvasAssets(project.workspacePath);
     await writeFile(path.join(project.workspacePath, ".ohmygame/media/wrong.png"), "image");
     manifest.assets[source.id]!.path = ".ohmygame/media/wrong.png";
@@ -981,16 +981,15 @@ describe("Markdown design workspace", () => {
     expect(issues.some((issue) => issue.message.includes(`Node animation: reference ${source.id}`))).toBe(true);
   });
   it("converts saved WebP references to PNG for 3D generation without modifying the asset", async () => {
-    const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
+    const { store, project, boardId, tools, assets } = await runtime(), board = await store.board(project.id, boardId);
     const bytes = Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA", "base64");
-    const reference = await library.add("reference.webp", bytes), model = createAssetGenerationNode("model-3d", { x: 0, y: 0 });
+    const reference = await assets.add("reference.webp", bytes), model = createAssetGenerationNode("model-3d", { x: 0, y: 0 });
     if (model.type !== "model-3d") throw new Error("Expected 3D model node");
     model.data.images = [{ type: "library", assetId: reference.id }];
     board.board.nodes.push(model); board.board.editorLayout.nodes[model.id] = model.position;
     await store.saveBoard(project.id, board.board, board.revision);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
-    const output = await library.add("character.glb", Buffer.from("model"));
-    const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "3d-run", toolId: "image-to-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
+    const run = stubRun(tools, { id: "3d-run", toolId: "image-to-3d", files: [{ name: "model.glb", mediaType: "model/gltf-binary" }] });
     await store.generateNode(project.id, boardId, model.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     const input = run.mock.calls[0]![1];
@@ -1002,8 +1001,8 @@ describe("Markdown design workspace", () => {
     expect(await readFile(path.join(project.workspacePath, manifest.assets[reference.id]!.path))).toEqual(bytes);
   });
   it("rejects an undecodable WebP before starting a provider job", async () => {
-    const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
-    const reference = await library.add("broken.webp", Buffer.from("broken")), model = createAssetGenerationNode("model-3d", { x: 0, y: 0 });
+    const { store, project, boardId, tools, assets } = await runtime(), board = await store.board(project.id, boardId);
+    const reference = await assets.add("broken.webp", Buffer.from("broken")), model = createAssetGenerationNode("model-3d", { x: 0, y: 0 });
     if (model.type !== "model-3d") throw new Error("Expected 3D model node");
     model.data.images = [{ type: "library", assetId: reference.id }];
     board.board.nodes.push(model); board.board.editorLayout.nodes[model.id] = model.position;
@@ -1014,20 +1013,20 @@ describe("Markdown design workspace", () => {
     expect(await store.jobs(project.id)).toEqual([]);
   });
   it("clears board references to a removed asset", async () => {
-    const { store, project, boardId, node, library } = await runtime(), asset = await library.add("garden.png", Buffer.from("image")), board = await store.board(project.id, boardId);
+    const { store, project, boardId, node, assets } = await runtime(), asset = await assets.add("garden.png", Buffer.from("image")), board = await store.board(project.id, boardId);
     const image = board.board.nodes[0]!; if (image.type === "image") { image.data.assetId = asset.id; image.data.images = [{ type: "library", assetId: asset.id }]; }
-    await store.saveBoard(project.id, board.board, board.revision); expect(await canvasReferencesAsset(project.workspacePath, asset.id)).toBe(true);
-    await removeCanvasAssetReferences(project.workspacePath, asset.id); expect(await canvasReferencesAsset(project.workspacePath, asset.id)).toBe(false);
+    await store.saveBoard(project.id, board.board, board.revision); expect(await boardNames(store, project.id, boardId, asset.id)).toBe(true);
+    await removeCanvasAssetReferences(project.workspacePath, asset.id); expect(await boardNames(store, project.id, boardId, asset.id)).toBe(false);
     expect((await store.board(project.id, boardId)).board.nodes[0]!.id).toBe(node.id);
   });
   it("protects and clears an animation's Library model reference", async () => {
-    const { store, project, boardId, library } = await runtime(), asset = await library.add("character.glb", Buffer.from("model")), board = await store.board(project.id, boardId);
+    const { store, project, boardId, assets } = await runtime(), asset = await assets.add("character.glb", Buffer.from("model")), board = await store.board(project.id, boardId);
     board.board.nodes.push({ id: "animation", type: "animate-3d", position: { x: 0, y: 0 }, data: { source: { type: "library", assetId: asset.id }, heightMeters: 1.7, actionIds: [] } });
     board.board.editorLayout.nodes.animation = { x: 0, y: 0 };
     await store.saveBoard(project.id, board.board, board.revision);
-    expect(await canvasReferencesAsset(project.workspacePath, asset.id)).toBe(true);
+    expect(await boardNames(store, project.id, boardId, asset.id)).toBe(true);
     await removeCanvasAssetReferences(project.workspacePath, asset.id);
-    expect(await canvasReferencesAsset(project.workspacePath, asset.id)).toBe(false);
+    expect(await boardNames(store, project.id, boardId, asset.id)).toBe(false);
     expect((await store.board(project.id, boardId)).board.nodes.find((node) => node.id === "animation")!.data).not.toHaveProperty("source");
   });
   it("validates API documents and generates from saved node settings and linked Markdown", async () => {
@@ -1220,8 +1219,6 @@ it("sends an audio node's settings and keeps no subtitles a provider returns", a
   await expect(readFile(path.join(project.workspacePath, `${asset.path}.vtt`))).rejects.toMatchObject({ code: "ENOENT" });
   expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 } });
   await expect(readFile(path.join(directory, "tools/runs", job.run!.id, "run.json"))).rejects.toMatchObject({ code: "ENOENT" });
-  const restored = new AssetLibrary(directory); await restored.load();
-  expect(restored.get(output.assetId!)?.audio?.metadata?.originalDurationMs).toBe(1200);
 });
 
 
@@ -1240,7 +1237,7 @@ describe("prepared 3D canvas model migration", () => {
     detail.board.editorLayout.nodes[generation.id] = generation.position;
     detail.board.editorLayout.nodes[animation.id] = animation.position;
     const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
-    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { model3D: [{
+    const migrating = new CanvasStore(state.projects, state.tools, undefined, { model3D: [{
       source: "meshy", target: "plugin.ohmygame.meshy.meshy", models: [{ id: "custom-version", operations: ["text", "image"] }],
       processing: { id: "connection", operations: ["remesh", "retexture", "animate"] },
     }] }); stores.push(migrating);
@@ -1332,7 +1329,7 @@ describe("MiniMax canvas model migration", () => {
       detail.board.editorLayout.nodes[node.id] = node.position;
     }
     const before = await state.store.saveBoard(state.project.id, detail.board, detail.revision);
-    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { minimax: true });
+    const migrating = new CanvasStore(state.projects, state.tools, undefined, { minimax: true });
     stores.push(migrating);
     const folder = path.join(state.project.workspacePath, "canvas");
     const file = path.join(folder, "boards", `${state.boardId}.json`);
@@ -1407,7 +1404,7 @@ describe("Seedance canvas model migration", () => {
     const run = vi.spyOn(state.tools, "runPrepared").mockRejectedValue(new Error("Original provider error"));
     await state.store.generateNode(state.project.id, state.boardId, node.id);
     expect((await waitForJob(state.store, state.project.id)).status).toBe("failed");
-    const migrating = new CanvasStore(state.projects, state.library, state.tools, undefined, { seedance: true }); stores.push(migrating);
+    const migrating = new CanvasStore(state.projects, state.tools, undefined, { seedance: true }); stores.push(migrating);
     await migrating.board(state.project.id, state.boardId);
     expect((await migrating.jobs(state.project.id))[0]?.error).toContain("Check its result and billing");
     const file = path.join(state.project.workspacePath, "canvas/jobs.json"), before = await readFile(file, "utf8");

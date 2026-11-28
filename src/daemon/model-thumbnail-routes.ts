@@ -10,7 +10,6 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
 import { sniffImageType } from "./image-format.js";
 import type { ProjectManager } from "./projects.js";
 import { getWorkspaceMedia, WorkspaceError } from "./workspace.js";
@@ -20,7 +19,6 @@ const MAX_ENTRIES = 256;
 type Query = {
   project?: string;
   path?: string;
-  asset?: string;
   size: "small" | "large";
   version?: string;
 };
@@ -30,17 +28,11 @@ export function registerModelThumbnailRoutes(
   app: FastifyInstance,
   directory: string,
   projects: ProjectManager,
-  library: AssetLibrary,
 ) {
   let writes = Promise.resolve();
   async function version(query: Query) {
     let source: string[];
-    if (query.asset && !query.project && !query.path) {
-      const { asset } = await library.content(query.asset);
-      if (asset.mediaType !== "model")
-        throw new WorkspaceError("Expected a 3D model");
-      source = ["library", asset.id];
-    } else if (query.project && query.path && !query.asset) {
+    if (query.project && query.path) {
       const project = projects.get(query.project);
       if (!project) throw new WorkspaceError("Project not found", "ENOENT");
       const file = await getWorkspaceMedia(project.workspacePath, query.path);
@@ -70,7 +62,6 @@ export function registerModelThumbnailRoutes(
         properties: {
           project: { type: "string" },
           path: { type: "string" },
-          asset: { type: "string" },
           size: { enum: ["small", "large"] },
           version: { type: "string", pattern: "^[a-f0-9]{64}$" },
         },
@@ -150,16 +141,8 @@ export function registerModelThumbnailRoutes(
         await save;
         return reply.code(204).send();
       } catch (error) {
-        if (
-          error instanceof WorkspaceError ||
-          error instanceof AssetLibraryError
-        ) {
-          const status =
-            error instanceof AssetLibraryError
-              ? error.statusCode
-              : error.code === "ENOENT"
-                ? 404
-                : 400;
+        if (error instanceof WorkspaceError) {
+          const status = error.code === "ENOENT" ? 404 : 400;
           return reply.code(status).send({ error: error.message });
         }
         throw error;

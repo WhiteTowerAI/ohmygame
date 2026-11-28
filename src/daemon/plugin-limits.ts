@@ -1,5 +1,5 @@
 // How much of something each plugin may do at once and in a minute, such as
-// asking a model (`plugin-models.ts`) or adding to the Library.
+// asking a model (`plugin-models.ts`) or adding to a project's media.
 
 export class PluginLimits {
   readonly #running = new Map<string, number>();

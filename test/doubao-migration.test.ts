@@ -37,7 +37,6 @@ import {
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { capabilityGrants } from "../src/daemon/project-plugins.js";
 
-import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -375,9 +374,7 @@ describe("prepared Doubao model references", () => {
   });
   it("persists project defaults and old canvas choices on load, preserving intent and rejecting unknown data unchanged", async () => {
     await fixture(async (directory) => {
-      const library = new AssetLibrary(directory);
-      await library.load();
-      const original = new ProjectManager(directory, library);
+      const original = new ProjectManager(directory);
       await original.load();
       const project = await original.create(
         "Saved Doubao audio",
@@ -392,7 +389,7 @@ describe("prepared Doubao model references", () => {
         },
       });
       const tools = new ToolRunner(directory, { generate: vi.fn() });
-      const before = new CanvasStore(original, library, tools);
+      const before = new CanvasStore(original, tools);
       const boardId = (await before.workspace(project.id)).boards[0]!.id;
       const detail = await before.board(project.id, boardId);
       await before.close();
@@ -412,11 +409,10 @@ describe("prepared Doubao model references", () => {
         },
       });
       await writeFile(file, JSON.stringify(raw));
-      const projects = new ProjectManager(directory, library, undefined, state);
+      const projects = new ProjectManager(directory, undefined, state);
       await projects.load();
       const canvas = new CanvasStore(
         projects,
-        library,
         tools,
         undefined,
         state,

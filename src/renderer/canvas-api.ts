@@ -2,6 +2,7 @@ import type { CanvasTableDetail, CanvasTableGenerationRequest, CanvasTableGenera
 import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationResponse, AssetCanvasTextGenerationSource, ToolJob } from "../shared/contracts.js";
 import type { CanvasDocumentDetail, CanvasDocumentGenerationRequest, CanvasDocumentGenerationResponse } from "../shared/canvas-document.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail, CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
+import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import type { CanvasMediaOperation } from "../shared/media-tools.js";
 import type { PixelArtCheckBatch } from "../shared/pixel-art-check.js";
 import { request } from "./api.js";
@@ -15,7 +16,6 @@ export function getCanvasWorkspace(id: string, knownRevision: string): Promise<C
 export function getCanvasWorkspace(id: string, knownRevision?: string): Promise<CanvasWorkspaceDetail | undefined> {
   return canvasRequest(`${base(id)}/workspace` + (knownRevision ? `?knownRevision=${encodeURIComponent(knownRevision)}` : ""));
 }
-export const exportCanvasAsset = (id: string, assetId: string): Promise<{ assetId: string }> => canvasRequest(`${base(id)}/assets/${encodeURIComponent(assetId)}/library`, { method: "POST" });
 export const setMainCanvasDocument = (id: string, documentId: string, version?: string): Promise<void> => canvasRequest(`${base(id)}/main-document`, { method: "PUT", body: JSON.stringify({ documentId }), workspaceVersion: version });
 export function getCanvasBoard(id: string, boardId: string): Promise<CanvasBoardDetail>;
 export function getCanvasBoard(id: string, boardId: string, knownRevision: string): Promise<CanvasBoardDetail | undefined>;
@@ -45,8 +45,8 @@ export interface CanvasMediaRequest {
   options?: Record<string, unknown>;
 }
 export type CanvasMediaResult =
-  | { kind: "asset"; assetId: string; name: string; mediaType: string }
-  | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
+  | { kind: "asset"; asset: CanvasAssetCatalogEntry }
+  | { kind: "assets"; assets: CanvasAssetCatalogEntry[] }
   | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number }
   | { kind: "text"; text: string }
   | { kind: "pixel-check"; checks: PixelArtCheckBatch };

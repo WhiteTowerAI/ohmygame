@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import { dirname } from "node:path";
 import { rm } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GAME_RECORDING_MAX_BYTES, gameRecordingFileName } from "../src/shared/game-recording.js";
+import { GAME_RECORDING_MAX_BYTES, gameRecordingFileName, type GameRecordingSaved } from "../src/shared/game-recording.js";
 import type { GameRecordingFile } from "../src/desktop/game-recorder.js";
 
 const electron = vi.hoisted(() => {
@@ -75,14 +75,14 @@ function target() {
     fire: (name: string) => listeners.get(name)?.(),
   };
 }
-function recorder(save: (file: GameRecordingFile) => Promise<never> | Promise<{ assetId: string; name: string; duration: number; bytes: number }> = async (file) => {
-  saved.push({ ...file, contents: readFileSync(file.path).toString() });
-  return { assetId: "asset-1", name: "game.mp4", duration: file.duration, bytes: file.bytes };
+function recorder(save: (file: GameRecordingFile, projectId: string) => Promise<never> | Promise<GameRecordingSaved> = async (file, projectId) => {
+  saved.push({ ...file, projectId, contents: readFileSync(file.path).toString() });
+  return { path: "game.mp4", name: "game.mp4", duration: file.duration, bytes: file.bytes };
 }, onSaving?: (id: string) => void) {
   return new GameRecorder({ hostUrl: "file:///game-recorder.html", preloadPath: "/preload.cjs", save, ...(onSaving ? { onSaving } : {}) });
 }
-const saved: (GameRecordingFile & { contents: string })[] = [];
-const options = { title: "Game", maxSeconds: 60 };
+const saved: (GameRecordingFile & { projectId: string; contents: string })[] = [];
+const options = { title: "Game", maxSeconds: 60, projectId: "forest" };
 const send = (channel: string, id: number, value: unknown) => state.channels.get(`ohmygame:game-recorder-${channel}`)!({ sender: { id } }, value);
 
 beforeEach(() => {
@@ -106,8 +106,8 @@ describe("game recorder", () => {
     send("chunk", host.webContents.id, new TextEncoder().encode("second"));
     game.stop("project");
     game.stop("project");
-    await expect(outcome).resolves.toEqual({ assetId: "asset-1", name: "game.mp4", duration: 7.5, bytes: 12 });
-    expect(saved[0]).toMatchObject({ title: "Game", duration: 7.5, bytes: 12, mediaType: "video/mp4", extension: "mp4", contents: "first,second" });
+    await expect(outcome).resolves.toEqual({ path: "game.mp4", name: "game.mp4", duration: 7.5, bytes: 12 });
+    expect(saved[0]).toMatchObject({ projectId: "forest", title: "Game", duration: 7.5, bytes: 12, mediaType: "video/mp4", extension: "mp4", contents: "first,second" });
     expect(onSaving).toHaveBeenCalledOnce();
     expect(host.destroyed).toBe(true);
     expect(game.isRecording("project")).toBe(false);
@@ -163,8 +163,8 @@ describe("game recorder", () => {
 
   it("stops by itself at its time limit", async () => {
     const game = recorder();
-    const { outcome } = await game.start("project", target() as never, { title: "Game", maxSeconds: 0.01 });
-    await expect(outcome).resolves.toMatchObject({ assetId: "asset-1" });
+    const { outcome } = await game.start("project", target() as never, { ...options, maxSeconds: 0.01 });
+    await expect(outcome).resolves.toMatchObject({ path: "game.mp4" });
     expect(game.isRecording("project")).toBe(false);
   });
 
@@ -173,7 +173,7 @@ describe("game recorder", () => {
     // The file-content and failed-write cases above still exercise disk ownership.
     let written = 0;
     state.sink = () => new Writable({ write: (chunk, _encoding, done) => { written += chunk.length; done(); } });
-    const game = recorder(async (file) => ({ assetId: "asset-1", name: "game.mp4", duration: file.duration, bytes: file.bytes }));
+    const game = recorder(async (file) => ({ path: "game.mp4", name: "game.mp4", duration: file.duration, bytes: file.bytes }));
     const { outcome } = await game.start("project", target() as never, options);
     const host = state.hosts[0]!;
     const chunk = new Uint8Array(1024 * 1024);
@@ -198,7 +198,7 @@ describe("game recorder", () => {
     const played = target();
     const { outcome } = await game.start("project", played as never, options);
     played.fire("destroyed");
-    await expect(outcome).resolves.toMatchObject({ assetId: "asset-1" });
+    await expect(outcome).resolves.toMatchObject({ path: "game.mp4" });
   });
 
   it("accepts a recording the page finished by itself", async () => {
@@ -206,7 +206,7 @@ describe("game recorder", () => {
     const game = recorder(undefined, onSaving);
     const { outcome } = await game.start("project", target() as never, options);
     send("finished", state.hosts[0]!.webContents.id, 3);
-    await expect(outcome).resolves.toMatchObject({ assetId: "asset-1" });
+    await expect(outcome).resolves.toMatchObject({ path: "game.mp4" });
     expect(onSaving).toHaveBeenCalledOnce();
   });
 
@@ -281,7 +281,7 @@ describe("game recorder", () => {
     started({ mediaType: "video/mp4", extension: "mp4" });
     const { outcome } = await starting;
     expect(contents.executeJavaScript).toHaveBeenCalledWith("window.stopRecording()");
-    await expect(outcome).resolves.toMatchObject({ assetId: "asset-1" });
+    await expect(outcome).resolves.toMatchObject({ path: "game.mp4" });
   });
 
   it("gives up on a page that never starts", async () => {
@@ -321,8 +321,8 @@ describe("game recorder", () => {
   });
 
   it("holds the recording until it is saved", async () => {
-    let finishSave!: (value: { assetId: string; name: string; duration: number; bytes: number }) => void;
-    const save = vi.fn((_file: GameRecordingFile) => new Promise<{ assetId: string; name: string; duration: number; bytes: number }>((resolve) => { finishSave = resolve; }));
+    let finishSave!: (value: GameRecordingSaved) => void;
+    const save = vi.fn((_file: GameRecordingFile) => new Promise<GameRecordingSaved>((resolve) => { finishSave = resolve; }));
     const game = recorder(save);
     const { outcome } = await game.start("project", target() as never, options);
     const host = state.hosts[0]!;
@@ -334,7 +334,7 @@ describe("game recorder", () => {
     expect(game.isRecording("project")).toBe(true);
     await expect(game.start("project", target() as never, options)).rejects.toThrow("already recording");
     send("chunk", host.webContents.id, new TextEncoder().encode("late"));
-    finishSave({ assetId: "asset-1", name: "game.mp4", duration: 1, bytes: 4 });
+    finishSave({ path: "game.mp4", name: "game.mp4", duration: 1, bytes: 4 });
     await outcome;
     expect(save.mock.calls[0]![0]).toMatchObject({ bytes: 4 });
     expect(host.destroyed).toBe(true);

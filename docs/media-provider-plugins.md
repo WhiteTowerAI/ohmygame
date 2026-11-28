@@ -669,7 +669,7 @@ shared rigging are described in the following sections.
 
 A 3D output may include `forwardAxis: "+X" | "+Z"` and `requestId` (a nonempty
 string up to 512 characters). They survive task recovery; the axis is stored in
-Library model metadata so later processing knows the result's orientation.
+the model's metadata so later processing knows the result's orientation.
 
 ### Low-poly model ranges (API 2.15)
 
@@ -688,7 +688,7 @@ With `engines.ohmygame-api: "^2.12.0"`, a processing connection can include
 calls, with `operation: "animate"`, `source` (a GLB file handle), `actionIds`
 (1–30 distinct numeric or string IDs), optional `heightMeters`, `options`,
 `forwardAxis` and `modelData`. Use `host.submit` for every paid rig/batch;
-the ToolRunner retains the journal through download or Library-storage failure
+the ToolRunner retains the journal through download or storage failure
 and clears it only once the final asset is stored. Native historical tasks keep
 their existing journal and provider ownership.
 
@@ -982,7 +982,7 @@ starting a new generation after an interrupted or unconfirmed submission.
   (`plugin.<publisher>.<name>.<id>`), only while the key is set and the
   provider is on. An audio provider's voices are listed as an account's are.
 - Requests for those models go to the adapter through the sandbox.
-  Everything after the result (checking it, saving it, the Library, undo) is
+  Everything after the result (checking it, saving it, undo) is
   shared with built-in providers.
 - Settings → Providers shows what a provider makes from what it declares, and
   on its page, its models of each kind, each with a switch, and **Load models**

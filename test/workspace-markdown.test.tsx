@@ -180,6 +180,14 @@ describe("workspace Markdown preview", () => {
     await act(async () => button("Show in project")!.click());
     expect(tab("This project").getAttribute("aria-selected")).toBe("true");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("circle.png");
+    // Deleted since, it is offered to add again.
+    await draw([logo]);
+    await act(async () => tab("Shapes").click());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await act(async () => container.querySelector<HTMLButtonElement>(".library-tiles button")!.click());
+    await act(async () => button("Show in project")!.click());
+    expect(button("Show in project")).toBeUndefined();
+    expect(button("Add to project")).toBeDefined();
   });
 
   it("refreshes Assets thumbnails by their own file metadata", async () => {

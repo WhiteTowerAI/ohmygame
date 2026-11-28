@@ -97,7 +97,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
   };
 }
 
-/** The host scope for calls that belong to no project, such as the Library's sources. */
+/** The host scope for calls that belong to no project, such as asset sources. */
 const APP_SCOPE = "app";
 /** Host scopes of Plugin Builder drafts, `draft:<workspace id>`; see `callDraft`. */
 export const DRAFT_SCOPE_PREFIX = "draft:";

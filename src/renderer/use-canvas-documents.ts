@@ -1,3 +1,4 @@
+import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { followCanvasChanges } from "./canvas-sync.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -467,8 +468,14 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     setConflict(undefined);
     setError(undefined);
   };
+  /** Shows media just put on the canvas before the workspace is read again. */
+  const addAssets = useCallback((assets: readonly CanvasAssetCatalogEntry[]) => setWorkspace((current) => current && {
+    ...current,
+    assets: [...current.assets.filter((asset) => !assets.some((added) => added.id === asset.id)), ...assets],
+  }), []);
   return {
     workspace,
+    addAssets,
     update,
     create,
     insertImage,

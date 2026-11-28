@@ -34,9 +34,6 @@ const getWorkspaceAsset = vi.fn(
       type: assets.find((asset) => asset.path === filePath)!.contentType,
     }),
 );
-const getLibraryAsset = vi.fn(
-  async () => new Blob(["library image"], { type: "image/png" }),
-);
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (value: CanvasProps) => {
@@ -63,22 +60,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
   getWorkspaceAsset,
-  getLibraryAsset,
-}));
-vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
-  ...(await original<typeof import("../src/renderer/library-assets.js")>()),
-  loadLibraryAssets: async () => [
-    {
-      id: "library-image",
-      assetId: "library-image",
-      name: "output.png",
-      path: "output.png",
-      mediaType: "image",
-      contentType: "image/png",
-      size: 5,
-      createdAt: "2026-10-23T00:00:00Z",
-    },
-  ],
 }));
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
@@ -137,7 +118,6 @@ beforeEach(async () => {
   vi.stubGlobal("IntersectionObserver", OnScreen);
   localStorage.clear();
   getWorkspaceAsset.mockClear();
-  getLibraryAsset.mockClear();
   downloads = [];
   pluginSlots = { commands: [], when: { values: {}, plugins: new Set() }, run: vi.fn(async () => undefined) };
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:canvas-test");
@@ -185,16 +165,6 @@ beforeEach(async () => {
       position,
       title: "脚步声",
       data: { assetId: "audio-output", mediaType: "audio" },
-    },
-    {
-      id: "library",
-      type: "asset",
-      position,
-      title: "猫咪/正面",
-      data: {
-        assetId: "library-image",
-        mediaType: "image",
-      },
     },
   ];
   board.editorLayout.nodes = Object.fromEntries(
@@ -276,7 +246,6 @@ it.each([
   ["image-2", "output.webp", "assets/imported/output.webp"],
   ["model", "骑士 v1.2.glb", "assets/imported/model.glb"],
   ["video", "片头.mp4", "assets/imported/output.mp4"],
-  ["library", "猫咪正面.png", undefined],
 ])(
   "uses the same filename from the context menu and viewer for %s",
   async (nodeId, filename, source) => {
@@ -292,9 +261,7 @@ it.each([
     )!;
     await act(async () => viewerDownload.click());
     expect(downloads).toEqual([filename, filename]);
-    if (source)
-      expect(getWorkspaceAsset).toHaveBeenLastCalledWith("download", source);
-    else expect(getLibraryAsset).toHaveBeenLastCalledWith("library-image");
+    expect(getWorkspaceAsset).toHaveBeenLastCalledWith("download", source);
     expect(assets.map((asset) => asset.name)).toEqual([
       "output.webp",
       "model.glb",
@@ -321,7 +288,7 @@ it("keeps the viewed output extension when a node receives a new asset", async (
       {
         type: "replace",
         id: node.id,
-        item: { ...node, data: { ...node.data, assetId: "library-image" } },
+        item: { ...node, data: { ...node.data, assetId: "new-image" } },
       },
     ]),
   );
@@ -415,7 +382,7 @@ it("downloads a node's file only once the node comes near the screen", async () 
 it("waits for the person before it downloads a large 3D file", async () => {
   const large = assets.map((asset) => asset.id === "model-output" ? { ...asset, size: 100 * 1024 * 1024 } : asset);
   // An imported model is an asset node.
-  const node = await renderNode("library", large, { assetId: "model-output", mediaType: "model" });
+  const node = await renderNode("audio", large, { assetId: "model-output", mediaType: "model" });
   expect(getWorkspaceAsset).not.toHaveBeenCalled();
   expect(node.host.textContent).toContain(t("assetCanvas.largeModel", { size: "100.0 MB" }));
   const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
@@ -425,18 +392,16 @@ it("waits for the person before it downloads a large 3D file", async () => {
 });
 
 it("waits for the person while a 3D file's size isn't known yet", async () => {
-  // Just added from the Library: in neither the project's assets nor the loaded Library list.
-  const node = await renderNode("library", assets, { assetId: "new-model", mediaType: "model", assetSize: undefined });
-  expect(getLibraryAsset).not.toHaveBeenCalled();
-  const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
-  await act(async () => load.click());
-  expect(getLibraryAsset).toHaveBeenCalledExactlyOnceWith("new-model");
+  // Just added: not in the canvas's assets yet.
+  const node = await renderNode("audio", assets, { assetId: "new-model", mediaType: "model", assetSize: undefined });
+  expect([...node.host.querySelectorAll("button")].map((button) => button.textContent)).toContain(t("assetCanvas.loadModel"));
+  expect(getWorkspaceAsset).not.toHaveBeenCalled();
   await node.unmount();
 });
 
 it("keeps a plugin node's large 3D output waiting for the person", async () => {
   const large = assets.map((asset) => asset.id === "model-output" ? { ...asset, size: 100 * 1024 * 1024 } : asset);
-  const node = await renderNode("library", large, { assetId: "model-output", pluginRuntime: { output: "model", sources: {} } }, "plugin");
+  const node = await renderNode("model", large, { assetId: "model-output", pluginRuntime: { output: "model", sources: {} } }, "plugin");
   expect(getWorkspaceAsset).not.toHaveBeenCalled();
   const load = [...node.host.querySelectorAll("button")].find((button) => button.textContent === t("assetCanvas.loadModel"))!;
   await act(async () => load.click());

@@ -35,8 +35,8 @@ import { formatBytes } from "./format-bytes.js";
 import { listModel3DAnimations } from "./api.js";
 import { createPortal } from "react-dom";
 import { Button, Dialog } from "./ui/index.js";
-import { LibraryAssetPicker } from "./library-asset-picker.js";
-import type { LibraryAsset } from "./library-assets.js";
+import { MediaPicker } from "./media-picker.js";
+import type { CanvasMedia } from "./media-assets.js";
 import { settingsHash } from "./routes.js";
 import { PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, pixelAssetTemplateGuideCategory } from "./asset-canvas-pixel-workflows.js";
@@ -190,7 +190,7 @@ function GenerativeImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowN
       <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size="sm" />{t("assetCanvasTemplates.libraryReference")}</button>
     </div>
     {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-    {libraryOpen ? <LibraryAssetPicker title={t("assetCanvasTemplates.libraryReference")} assets={runtime?.libraryImages ?? []} onClose={() => setLibraryOpen(false)} onSelect={(asset) => { runtime?.onSetSourceAsset(asset); setLibraryOpen(false); }} /> : null}
+    {libraryOpen && runtime?.pickImagesFrom ? <MediaPicker title={t("assetCanvasTemplates.libraryReference")} projectId={runtime.pickImagesFrom} accept={isImage} onClose={() => setLibraryOpen(false)} onSelect={(file) => { runtime.onSetSourceFile(file); setLibraryOpen(false); }} /> : null}
   </MediaNodeShell>;
 
   return (
@@ -841,7 +841,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
             title={addLabel}
             aria-label={addLabel}
             disabled={runtime?.busy}
-            onClick={() => runtime.onAddLibraryReference ? setLibraryOpen(true) : input.current?.click()}
+            onClick={() => runtime.onAddPickedReference ? setLibraryOpen(true) : input.current?.click()}
           >
             {runtime?.uploading ? <Spinner size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
             {nextSlot ? <span>{nextSlot}</span> : null}
@@ -859,14 +859,15 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceSt
               runtime.onUploadReferences?.(files);
             }}
           />
-          {libraryOpen && runtime.onAddLibraryReference ? <LibraryAssetPicker
+          {libraryOpen && runtime.onAddPickedReference && runtime.pickImagesFrom ? <MediaPicker
             title={addLabel}
             includeReferences
-            assets={runtime.libraryImages ?? []}
+            projectId={runtime.pickImagesFrom}
+            accept={isImage}
             uploading={runtime.uploading}
             onUpload={() => input.current?.click()}
             onClose={() => setLibraryOpen(false)}
-            onSelect={(asset) => { setLibraryOpen(false); runtime.onAddLibraryReference?.(asset); }}
+            onSelect={(file) => { setLibraryOpen(false); runtime.onAddPickedReference?.(file); }}
           /> : null}
         </>
       ) : null}
@@ -1154,7 +1155,9 @@ function useMediaNodeLayout(source?: string, knownAspectRatio?: number): {
   };
 }
 
-export function mediaAspectRatio(asset?: Pick<LibraryAsset, "width" | "height">): number | undefined {
+const isImage = (file: { mediaType: string }) => file.mediaType === "image";
+
+export function mediaAspectRatio(asset?: Pick<CanvasMedia, "width" | "height">): number | undefined {
   return asset?.width && asset.height ? asset.width / asset.height : undefined;
 }
 

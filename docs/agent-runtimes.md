@@ -444,14 +444,14 @@ Codex also has a separate `codex-cli` image provider with the logical model
 conversation enablement, without a separate image-capability probe. Image access
 and compatibility errors are reported when generating.
 `ProviderImages` dispatches it without an HTTP API source; canvas jobs, image
-defaults, Library registration and cancellation use the ordinary media flow.
+defaults, saving and cancellation use the ordinary media flow.
 Each job runs a private ephemeral thread and reads completed images through
 the same bounded decoder as native imports. No dynamic media tools are
 registered in the image thread, preventing recursive `generate_image` calls.
 
 Codex can also return images from its own built-in image generation. The
 adapter imports completed `imageGeneration` items through the same project
-generated-asset and Library pipeline as `generate_image`, and records a file
+generated-asset pipeline as `generate_image`, and records a file
 artifact in the conversation. Chat displays that artifact outside the tool
 details, including after reopening the conversation; the game Preview still
 shows only the running game. Imports finish before turn-end checkpoints are

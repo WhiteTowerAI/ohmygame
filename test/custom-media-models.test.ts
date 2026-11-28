@@ -9,7 +9,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../src/shared/custom-models.js";
 import type { CustomProviderModel, SaveCustomProviderRequest, ToolId } from "../src/shared/contracts.js";
-import { generateOnCanvas, libraryReference, TINY_PNG } from "./canvas-generation.js";
+import { canvasReference, generateOnCanvas, TINY_PNG } from "./canvas-generation.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -39,11 +39,13 @@ async function fixture(request: typeof fetch = vi.fn(async () => Response.json({
   };
   return { app, runtime, directory, save };
 }
-/** Generates on a canvas node from a tool-shaped request; inline images become Library references. */
+/** Generates on a canvas node from a tool-shaped request; inline images become references on its canvas. */
 async function start(app: ReturnType<typeof createApp>, tool: ToolId, { projectId, nodeId: _, imageModel, images, ...data }: Record<string, unknown>) {
   const type = tool === "generate-image" ? "image" : tool === "generate-video" ? "video" : "model-3d";
-  const references = Array.isArray(images) ? await Promise.all(images.map((image) => libraryReference(app, image))) : undefined;
-  return generateOnCanvas(app, type, { ...data, ...(imageModel ? { model: imageModel } : {}), ...(references ? { images: references } : {}) } as never,
+  return generateOnCanvas(app, type, async (project) => {
+    const references = Array.isArray(images) ? await Promise.all(images.map((image) => canvasReference(app, project, image))) : undefined;
+    return { ...data, ...(imageModel ? { model: imageModel } : {}), ...(references ? { images: references } : {}) } as never;
+  },
     typeof projectId === "string" ? { projectId } : {});
 }
 async function generate(app: ReturnType<typeof createApp>, tool: ToolId, payload: Record<string, unknown>) {

@@ -1,3 +1,4 @@
+import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { mediaMigrationError } from "./media-migration-errors.js";
 import type { AgentInstructionsView, ConversationInstructions } from "../shared/agent-instructions.js";
 import type { BrowserSettings, DesktopBrowserBridge, PluginBrowserShortcut, ProjectBrowser, SavedBrowserTab } from "../shared/browser.js";
@@ -29,11 +30,6 @@ import {
   type CheckpointUndoResponse,
   type ConversationAgentSettings,
   type ConversationCapabilities,
-  type CreateLibraryImageRequest,
-  type LibraryAsset,
-  type LibraryAssetDerivation,
-  type LibraryAssetPurpose,
-  type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type LibrarySource,
   type LibrarySourceItem,
@@ -144,7 +140,7 @@ declare global {
       runtime: DesktopRuntime;
       runtimeService?: DesktopRuntimeService;
       openExternal: (url: string) => Promise<void>;
-      /** Names an https page the Library is about to embed, which then stays on its own site. */
+      /** Names an https page an asset source is about to embed, which then stays on its own site. */
       allowLibraryEmbed?: (url: string) => Promise<void>;
       /** A community game in a window of its own, one per game. */
       communityGameWindow?: {
@@ -1275,38 +1271,32 @@ export async function deleteWorkspaceEntry(projectId: string, filePath: string):
 }
 
 
-export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
-  return request("/library/assets");
-}
-
-export async function createLibraryImage(input: CreateLibraryImageRequest): Promise<LibraryAsset> {
-  return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
-}
-
-export interface LibraryUploadOptions {
-  duration?: number;
-  purpose?: LibraryAssetPurpose;
-  /** The Library video or audio an upload was cut from. */
-  derivedFrom?: LibraryAssetDerivation;
-  /** Puts the upload in this project's media too. */
-  projectId?: string;
-}
-
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, { duration, purpose, derivedFrom, projectId }: LibraryUploadOptions = {}): Promise<LibraryAsset & { projectPath?: string }> {
-  const query = new URLSearchParams({ name: file.name, mediaType });
-  if (duration !== undefined) query.set("duration", String(duration));
-  if (purpose !== undefined) query.set("purpose", purpose);
-  if (projectId) query.set("projectId", projectId);
-  if (derivedFrom) {
-    query.set("trimSource", derivedFrom.assetId);
-    query.set("trimStart", String(derivedFrom.trim.start));
-    query.set("trimEnd", String(derivedFrom.trim.end));
-  }
-  return request(`/library/assets/upload?${query}`, {
+/** Adds a media file from this computer to the project's media, returning its path there. */
+export async function uploadProjectMedia(projectId: string, file: File, mediaType: LibraryUploadMediaType): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/media?${new URLSearchParams({ name: file.name, mediaType })}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
     body: file,
   });
+}
+
+/** Copies a media file from a project, this one or another, into the project's media. */
+export async function copyProjectMedia(projectId: string, from: { projectId: string; path: string }): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/media/copy`, { method: "POST", body: JSON.stringify(from) });
+}
+
+/** Adds a media file from this computer to the project and its canvas. */
+export async function addCanvasMedia(projectId: string, file: File, mediaType: LibraryUploadMediaType): Promise<CanvasAssetCatalogEntry> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/assets?${new URLSearchParams({ name: file.name, mediaType })}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
+}
+
+/** Puts a project's media file on the canvas: one of this project's as it is, another project's as a copy. */
+export async function addCanvasMediaFromProject(projectId: string, from: { projectId: string; path: string }): Promise<CanvasAssetCatalogEntry> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/assets/media`, { method: "POST", body: JSON.stringify(from) });
 }
 
 /** Copies a file that is not a document, table or media asset into the project, beside its media (`.ohmygame/media/files/`). */
@@ -1323,8 +1313,8 @@ export async function createCanvasImportFolder(projectId: string, name: string):
   return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
 
-export function modelThumbnailQuery(projectId: string | undefined, path: string, assetId: string | undefined, large: boolean): string {
-  const query = new URLSearchParams(assetId ? { asset: assetId } : { project: projectId ?? "", path });
+export function modelThumbnailQuery(projectId: string, path: string, large: boolean): string {
+  const query = new URLSearchParams({ project: projectId, path });
   query.set("size", large ? "large" : "small");
   return query.toString();
 }
@@ -1343,25 +1333,13 @@ export async function saveModelThumbnail(query: string, version: string, image: 
   if (!response.ok) throw await responseError(response);
 }
 
-export async function getLibraryAsset(assetId: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders(), signal });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
-
-/** Copies a Library asset into the project's media (`.ohmygame/media/imported/`); sending the same asset again returns the existing file. */
-export async function addLibraryAssetToProject(projectId: string, assetId: string): Promise<{ path: string; assetId: string }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/library-assets/${encodeURIComponent(assetId)}`, { method: "POST" });
-}
-
-
-/** The Library's sources from plugins, shown as tabs beside Local. */
+/** Plugins' asset sources, shown as tabs in a project's Assets. */
 export async function listLibrarySources(): Promise<LibrarySource[]> {
-  return request(`/library/sources?locale=${encodeURIComponent(language)}`);
+  return request(`/asset-sources?locale=${encodeURIComponent(language)}`);
 }
 
 export async function searchLibrarySource(search: LibrarySourceSearchRequest, signal?: AbortSignal): Promise<LibrarySourceResults> {
-  return request("/library/sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
+  return request("/asset-sources/search", { method: "POST", body: JSON.stringify(search), ...(signal ? { signal } : {}) });
 }
 
 /**
@@ -2214,15 +2192,16 @@ export async function clearPluginAssistant(projectId: string, plugin: string, pa
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-assistant/${plugin}?panel=${encodeURIComponent(panel)}`, { method: "DELETE" });
 }
 
-/** Adds a file a plugin's page made to the project's media, under the plugin's name. */
+/** Adds a file a plugin's page made to the project's media. */
 export async function addPluginAsset(projectId: string, plugin: string, name: string, contents: Blob, prompt?: string): Promise<{ id: string; path: string; name: string; mediaType: string }> {
   const query = new URLSearchParams({ name, ...(prompt ? { prompt } : {}) });
-  const asset = await request<{ id: string; projectPath: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
+  const asset = await request<{ path: string; name: string; mediaType: string }>(`/projects/${encodeURIComponent(projectId)}/plugin-library/${plugin}?${query}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
     body: contents,
   });
-  return { id: asset.id, path: asset.projectPath, name: asset.name, mediaType: asset.mediaType };
+  // `library.add` resolved with a Library id; the file's path stands in for it.
+  return { id: asset.path, path: asset.path, name: asset.name, mediaType: asset.mediaType };
 }
 
 /** Names the panel so its file operations can join the tool running there. */

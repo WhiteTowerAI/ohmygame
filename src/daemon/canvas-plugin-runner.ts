@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { canvasNodeInputs, pluginParams } from "../shared/canvas-plugin-nodes.js";
 import { mediaFileInfo } from "../shared/media-files.js";
-import type { AssetLibrary } from "./asset-library.js";
+import type { ProjectManager } from "./projects.js";
 import { CanvasError } from "./canvas-files.js";
 import type { CanvasPluginRunner } from "./canvas-workspace.js";
 import type { NativePlugins } from "./native-plugins.js";
@@ -18,9 +17,9 @@ export const CANVAS_NODE_TEXT_MAX_LENGTH = 100_000;
 /**
  * Runs plugins' canvas nodes. The node's code gets its settings, its inputs
  * (files by path, text as text) and an empty folder; it returns the name of
- * the file it wrote there, or `{ text }`. The file goes into the Library.
+ * the file it wrote there, or `{ text }`. The file goes into the project's media.
  */
-export function canvasPluginRunner(options: { native: NativePlugins; library: AssetLibrary }): CanvasPluginRunner {
+export function canvasPluginRunner(options: { native: NativePlugins; projects: Pick<ProjectManager, "addMedia"> }): CanvasPluginRunner {
   return {
     async run(project, request, signal) {
       const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-canvas-node-"));
@@ -55,8 +54,7 @@ export function canvasPluginRunner(options: { native: NativePlugins; library: As
             const media = mediaFileInfo(file);
             if (media?.mediaType !== definition.output) throw new CanvasError(`${request.node} should make ${definition.output === "model" ? "a 3D model" : `${definition.output === "image" ? "an" : "a"} ${definition.output}`}, not ${path.basename(file)}`, 502);
             signal.throwIfAborted();
-            const asset = await options.library.addFile(path.basename(file), file, { origin: "generated", sourceKey: `canvas-plugin:${project.id}:${randomUUID()}` });
-            return { assetId: asset.id };
+            return { path: await options.projects.addMedia(project.id, path.basename(file), { file }, { origin: "generated" }) };
           },
         });
       } finally {

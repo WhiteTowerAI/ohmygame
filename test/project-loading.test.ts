@@ -39,11 +39,11 @@ describe.each(["meshy", "tripo", "hyper3d"] as const)("prepared %s project defau
     const unchanged = new ProjectManager(directory); await unchanged.load();
     expect(await readFile(file, "utf8")).toBe(original);
     const migrations = { model3D: [{ source, target, models: [{ id: "custom-version", operations: ["image", "text"] as const }] }] };
-    const manager = new ProjectManager(directory, undefined, undefined, migrations); await manager.load();
+    const manager = new ProjectManager(directory, undefined, migrations); await manager.load();
     expect(manager.get(project.id)?.mediaModelDefaults).toEqual({ ...defaults, "3d": { ...legacy, provider: target } });
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...raw, mediaModelDefaults: { ...defaults, "3d": { ...legacy, provider: target } } });
     const bytes = await readFile(file, "utf8");
-    const restored = new ProjectManager(directory, undefined, undefined, migrations); await restored.load();
+    const restored = new ProjectManager(directory, undefined, migrations); await restored.load();
     expect(await readFile(file, "utf8")).toBe(bytes);
     await restored.setMediaModelDefaults(project.id, defaults);
     expect(restored.get(project.id)?.mediaModelDefaults?.["3d"]).toEqual({ ...legacy, provider: target });
@@ -375,7 +375,7 @@ describe.each([
     const settingsBefore = await readFile(file, "utf8"), recordBefore = await readFile(recordFile, "utf8");
     const jobsFile = path.join(project.workspacePath, "canvas/jobs.json");
     await mkdir(path.dirname(jobsFile), { recursive: true }); await writeFile(jobsFile, "opaque jobs and recovery IDs");
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: committed }), error = vi.fn();
+    const manager = new ProjectManager(directory, undefined, { [flag]: committed }), error = vi.fn();
     await manager.load(error);
     expect(error).not.toHaveBeenCalled();
     expect(manager.get(project.id)).toMatchObject({ updatedAt: project.updatedAt, mediaModelDefaults: { video: committed ? plugin : legacy, image: committed ? image : sourceImage } });
@@ -387,7 +387,7 @@ describe.each([
       expect(await readFile(recordFile, "utf8")).toBe(recordBefore);
     }
     const after = await readFile(file, "utf8");
-    const reopened = new ProjectManager(directory, undefined, undefined, { [flag]: committed }); await reopened.load();
+    const reopened = new ProjectManager(directory, undefined, { [flag]: committed }); await reopened.load();
     expect(await readFile(file, "utf8")).toBe(after);
   });
 
@@ -400,11 +400,11 @@ describe.each([
     record.settings = { ...record.settings, mediaModelDefaults: { video: legacy, image: sourceImage }, future: { keep: true } };
     await writeFile(recordFile, JSON.stringify(record));
     const moved = `${project.workspacePath}-offline`; await rename(project.workspacePath, moved);
-    const offline = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await offline.load();
+    const offline = new ProjectManager(directory, undefined, { [flag]: true }); await offline.load();
     expect(offline.get(project.id)).toMatchObject({ workspaceAvailable: false, mediaModelDefaults: { video: plugin, image } });
     expect(JSON.parse(await readFile(recordFile, "utf8"))).toMatchObject({ extension: { keep: true }, settings: { future: { keep: true }, mediaModelDefaults: { video: plugin, image } } });
     await rename(moved, project.workspacePath);
-    const restored = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await restored.load();
+    const restored = new ProjectManager(directory, undefined, { [flag]: true }); await restored.load();
     expect(restored.get(project.id)).toMatchObject({ workspaceAvailable: true, mediaModelDefaults: { video: plugin, image } });
     expect(JSON.parse(await readFile(path.join(project.workspacePath, ".ohmygame/settings.json"), "utf8"))).toMatchObject({ future: { keep: true }, mediaModelDefaults: { video: plugin, image } });
     const savedRecord = JSON.parse(await readFile(recordFile, "utf8"));
@@ -415,7 +415,7 @@ describe.each([
     const directory = await dataDirectory(), id = randomUUID(), root = path.join(directory, "projects", id);
     await mkdir(path.join(root, "workspace"), { recursive: true });
     await writeFile(path.join(root, "project.json"), JSON.stringify({ version: 1, id, name: "Legacy", type: "general", updatedAt: "2026-10-01T00:00:00.000Z", mediaModelDefaults: { video: legacy }, extension: { preserve: true } }));
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await manager.load();
+    const manager = new ProjectManager(directory, undefined, { [flag]: true }); await manager.load();
     expect(manager.get(id)?.mediaModelDefaults?.video).toEqual(plugin);
     expect(JSON.parse(await readFile(path.join(root, "project.json"), "utf8"))).toMatchObject({ version: 2, extension: { preserve: true } });
     expect(JSON.parse(await readFile(path.join(root, "workspace/.ohmygame/settings.json"), "utf8"))).toMatchObject({ mediaModelDefaults: { video: plugin } });
@@ -423,7 +423,7 @@ describe.each([
 
   it("shares mapping across external-folder registration, imported settings, duplication and saves", async () => {
     const { project, settings } = await fixture();
-    const directory = await dataDirectory(), manager = new ProjectManager(directory, undefined, undefined, { [flag]: true });
+    const directory = await dataDirectory(), manager = new ProjectManager(directory, undefined, { [flag]: true });
     const opened = await manager.create(undefined, "general", project.workspacePath);
     expect(opened.mediaModelDefaults).toEqual({ video: plugin, image });
     const copied = await manager.duplicate(opened.id);
@@ -437,14 +437,14 @@ describe.each([
 
   it("serializes refreshed defaults with edits, preserves extensions, and does not restore a cleared choice", async () => {
     const { directory, project, file, settings } = await fixture();
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await manager.load();
+    const manager = new ProjectManager(directory, undefined, { [flag]: true }); await manager.load();
     await writeFile(file, JSON.stringify({ ...settings, name: "External title", mediaModelDefaults: { video: legacy, image: sourceImage } }));
     await Promise.all([manager.readySettings(project.id), manager.rename(project.id, "Edited title"), manager.readySettings(project.id)]);
     expect(manager.get(project.id)).toMatchObject({ name: "Edited title", mediaModelDefaults: { video: plugin, image } });
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ name: "Edited title", future: settings.future });
     await manager.setMediaModelDefaults(project.id, {});
     await manager.readySettings(project.id);
-    const restored = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await restored.load();
+    const restored = new ProjectManager(directory, undefined, { [flag]: true }); await restored.load();
     expect(restored.get(project.id)?.mediaModelDefaults).toBeUndefined();
     expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("mediaModelDefaults");
     expect(JSON.parse(await readFile(file, "utf8"))).toHaveProperty("future", settings.future);
@@ -456,14 +456,14 @@ describe.each([
     if (kind === "future") value.version = 2;
     if (kind === "unknown-reference-data") value.mediaModelDefaults.video.future = "keep";
     const bytes = kind === "broken" ? "{invalid" : JSON.stringify(value); await writeFile(file, bytes);
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await manager.load();
+    const manager = new ProjectManager(directory, undefined, { [flag]: true }); await manager.load();
     await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
     expect(await readFile(file, "utf8")).toBe(bytes);
   });
 
   it("refuses a newly unreadable record before changing portable settings", async () => {
     const { directory, project, file, recordFile } = await fixture();
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await manager.load();
+    const manager = new ProjectManager(directory, undefined, { [flag]: true }); await manager.load();
     const before = await readFile(file, "utf8"), record = JSON.stringify({ version: 3, id: project.id, future: "keep" });
     await writeFile(recordFile, record);
     await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
@@ -476,7 +476,7 @@ describe.each([
     const alias = path.join(directory, "settings-alias.json");
     await link(file, alias);
     const before = await readFile(alias, "utf8");
-    const manager = new ProjectManager(directory, undefined, undefined, { [flag]: true }); await manager.load();
+    const manager = new ProjectManager(directory, undefined, { [flag]: true }); await manager.load();
     await expect(manager.rename(project.id, "Wrong")).rejects.toThrow("settings.json");
     expect(await readFile(file, "utf8")).toBe(before);
     expect(await readFile(alias, "utf8")).toBe(before);

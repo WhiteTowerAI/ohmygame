@@ -158,7 +158,6 @@ export function createAgentTools(
       const extension = audioExtension(output.mediaType);
       const relativePath = await projects.addGeneratedAsset(project.id, `${prefix}-${run.id}.${extension}`, file.bytes, {
         prompt,
-        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
       });
       const companionPaths: string[] = [];
       for (const companion of run.files.filter((file) => file.role === "metadata")) {
@@ -475,7 +474,6 @@ export function createAgentTools(
         const fileName = `image-${run.id}${path.extname(output.name)}`;
         const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
           prompt: run.prompt ?? input.prompt,
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
         const skipped = await ignored;
         return {
@@ -511,7 +509,7 @@ export function createAgentTools(
         if (!file) throw new Error("Background removal returned no readable image");
         signal?.throwIfAborted();
         const relativePath = await projects.addGeneratedAsset(project.id, `cutout-${run.id}.png`, file.bytes, {
-          prompt: "Remove background", ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+          prompt: "Remove background",
         });
         return { content: [{ type: "text", text: `Background removed: ${relativePath}` }],
           details: { artifact: { type: "image", path: relativePath, mediaType: "image/png" } } };
@@ -543,7 +541,7 @@ export function createAgentTools(
       }));
       const run = await tools.run("image-to-3d", {
         model: input.model, operation: input.operation, prompt: input.prompt,
-        sourceAssetId: input.sourcePath ? await projects.ensureLibraryAsset(project.id, input.sourcePath) : undefined,
+        sourcePath: input.sourcePath,
         targetPolycount: input.targetPolycount, texture: input.texture, pbr: input.pbr, options: input.options, images,
       }, signal, project.id);
       try {
@@ -554,8 +552,8 @@ export function createAgentTools(
         signal?.throwIfAborted();
         const sourcePrompt = input.prompt ?? (imagePaths[0] ? await projects.generatedAssetPrompt(project.id, imagePaths[0]) : undefined);
         const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
           ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
+          ...(output.model3d?.forwardAxis ? { forwardAxis: output.model3d.forwardAxis } : {}),
           ...(file.preview ? {
             preview: {
               bytes: file.preview.bytes,
@@ -598,22 +596,19 @@ export function createAgentTools(
         ? input.actions.map((name) => findAnimationAction(library, name))
         : library.some((action) => typeof action.id === "string") ? library.filter((action) => ["Idle", "Walk", "Run", "Jump", "Slash", "Hurt", "Fall", "March"].includes(action.name))
         : DEFAULT_ANIMATION_ACTION_IDS.flatMap((id) => library.filter((action) => action.id === id));
-      const assetId = await projects.ensureLibraryAsset(project.id, input.modelPath);
       const run = await tools.run("animate-3d", {
-        assetId,
+        path: source.relativePath,
         model: input.model, options,
         actionIds: [...new Set(actions.map((action) => action.id))],
         ...(input.heightMeters !== undefined ? { heightMeters: input.heightMeters } : {}),
-      }, signal);
+      }, signal, project.id);
       try {
         const output = run.files[0];
         if (!output) throw new Error("3D animation returned no output");
         const file = await tools.file(run.id, output.name);
         if (!file) throw new Error("Animated 3D model could not be read");
         signal?.throwIfAborted();
-        const relativePath = await projects.addGeneratedAsset(project.id, `model-animated-${run.id}.glb`, file.bytes, {
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-        });
+        const relativePath = await projects.addGeneratedAsset(project.id, `model-animated-${run.id}.glb`, file.bytes, output.model3d?.forwardAxis ? { forwardAxis: output.model3d.forwardAxis } : {});
         return {
           content: [{ type: "text", text: `Animated 3D model saved to ${relativePath} with clips: ${actions.map((action) => action.name).join(", ")}` }],
           details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
@@ -640,14 +635,13 @@ export function createAgentTools(
       if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg" && source.contentType !== "image/webp") {
         throw new Error("Video generation requires a PNG, JPEG, or WebP image");
       }
-      const assetId = source ? await projects.ensureLibraryAsset(project.id, input.imagePath!) : undefined;
       const request: RunVideoToolRequest = {
         prompt: input.prompt,
         model: input.model,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
         resolution: input.resolution,
-        ...(assetId ? { references: [{ type: "image", assetId }] } : {}),
+        ...(source ? { references: [{ type: "image", path: source.relativePath }] } : {}),
       };
       const run = await tools.run("generate-video", request, signal, project.id);
       try {
@@ -658,7 +652,6 @@ export function createAgentTools(
         signal?.throwIfAborted();
         const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, {
           prompt: input.prompt,
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         });
         return {
           content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
@@ -743,7 +736,7 @@ export function createAgentTools(
         signal?.throwIfAborted();
         const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
         const archive = await zipMediaOutputs(frames);
-        const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive);
         return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
       });
     },
@@ -767,7 +760,7 @@ export function createAgentTools(
         signal?.throwIfAborted();
         const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
         const archive = await zipMediaOutputs(frames);
-        const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive);
         const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
         return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
       });
@@ -929,7 +922,7 @@ export function createAgentTools(
   })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, {
       maxFrame: playtest.maxFrame,
-      keepRecording: async (assetId) => (await projects.materializeLibraryAsset(project.id, assetId)).path,
+      projectId: project.id,
     })]
     : [])]);
 }

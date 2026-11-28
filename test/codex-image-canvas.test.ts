@@ -10,6 +10,7 @@ import type {
   ToolJob,
   ProviderSummary,
   ImageModelCatalog,
+  WorkspaceFile,
 } from "../src/shared/contracts.js";
 import type {
   CanvasBoardDetail,
@@ -106,10 +107,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const node = createAssetGenerationNode("image", { x: 0, y: 0 });
   const references = await Promise.all(
     ["content", "style"].map(async (name) => {
-      const uploaded = await call("POST", "/library/assets", {
-        name,
-        purpose: "reference",
-        image: { data: png, mediaType: "image/png" },
+      const uploaded = await app.inject({
+        method: "POST",
+        url: `${base}/assets?name=${name}.png&mediaType=image%2Fpng`,
+        headers: { "content-type": "application/octet-stream" },
+        payload: Buffer.from(png, "base64"),
       });
       expect(uploaded.statusCode, uploaded.body).toBe(201);
       return {
@@ -142,11 +144,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .board.nodes.find((item) => item.id === node.id)!;
   if (saved.type !== "image") throw new Error("Expected an image node");
   expect(saved.data.assetId).toBeTruthy();
-  const assets = (await call("GET", "/library/assets")).json<
-    Array<{ id: string; origin: string }>
-  >();
-  expect(assets).toContainEqual(
-    expect.objectContaining({ id: saved.data.assetId, origin: "generated" }),
+  const output = (await call("GET", `${base}/workspace`))
+    .json<CanvasWorkspaceDetail>()
+    .assets.find((asset) => asset.id === saved.data.assetId);
+  expect(
+    (await call("GET", `/projects/${project.id}/files`)).json<WorkspaceFile[]>(),
+  ).toContainEqual(
+    expect.objectContaining({ path: output?.path, origin: "generated" }),
   );
   expect(await readFile(path.join(directory, "turns"), "utf8")).toBe("image\n");
   const inputs = JSON.parse(

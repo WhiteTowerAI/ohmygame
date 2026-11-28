@@ -1,17 +1,18 @@
 import { Type } from "typebox";
-import type { AssetCanvasNode, LibraryAsset } from "./contracts.js";
+import type { AssetCanvasNode, MediaAsset } from "./contracts.js";
 
 export interface CanvasAsset {
-  audio?: LibraryAsset["audio"];
-  model3d?: LibraryAsset["model3d"];
+  audio?: MediaAsset["audio"];
+  model3d?: MediaAsset["model3d"];
   name: string;
   path: string;
   description?: string;
   prompt?: string;
+  /** The Library asset it was copied from, which versions before the Library was removed recorded. */
   libraryAssetId?: string;
 }
 export interface CanvasAssetManifest { version: 1; assets: Record<string, CanvasAsset> }
-export interface CanvasAssetCatalogEntry extends CanvasAsset, Omit<LibraryAsset, "name" | "prompt"> {}
+export interface CanvasAssetCatalogEntry extends CanvasAsset, Omit<MediaAsset, "name" | "prompt"> {}
 export interface UnavailableCanvasAsset extends CanvasAsset {
   id: string;
   status: "missing" | "unavailable";

@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import type { LibraryAssetSummary, LibrarySource, LibrarySourceResults } from "../src/shared/contracts.js";
+import type { LibrarySource, LibrarySourceResults } from "../src/shared/contracts.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { libraryEmbedHosts } from "../src/shared/library-embeds.js";
 
@@ -111,7 +111,7 @@ async function setup() {
 }
 
 const search = (app: ReturnType<typeof createApp>, query: string, cursor?: string) =>
-  app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query, ...(cursor ? { cursor } : {}) } });
+  app.inject({ method: "POST", url: "/asset-sources/search", payload: { source: "acme/shapes:shapes", query, ...(cursor ? { cursor } : {}) } });
 const add = (app: ReturnType<typeof createApp>, projectId: string, id: string, credit: { author?: string; license?: string; url?: string } = {}) =>
   app.inject({ method: "POST", url: `/projects/${projectId}/assets/source`, payload: { source: "acme/shapes:shapes", id, mediaType: "image", ...credit } });
 const newProject = async (app: ReturnType<typeof createApp>) =>
@@ -140,16 +140,16 @@ it("takes the sites a source may embed from the hosts its plugin connects to, on
 it("offers a plugin's source once it is added, and not while it is off", async () => {
   // Adding it allowed what it asks for, so its native code may run outside projects.
   const { app } = await setup();
-  expect((await app.inject({ method: "GET", url: "/library/sources?locale=zh-CN" })).json<LibrarySource[]>()).toEqual([
+  expect((await app.inject({ method: "GET", url: "/asset-sources?locale=zh-CN" })).json<LibrarySource[]>()).toEqual([
     { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "形状", title: "形状库", description: "Simple shapes.", media: ["image", "audio"], cacheSeconds: 3600, collections: [{ id: "round", title: "Round" }, { id: "angular", title: "Angular" }], embedHosts: ["viewer.example"] },
   ]);
 
   expect((await app.inject({ method: "PUT", url: "/plugin-store/acme/shapes/every-project", payload: { on: false } })).statusCode).toBe(204);
-  expect((await app.inject({ method: "GET", url: "/library/sources" })).json()).toEqual([]);
+  expect((await app.inject({ method: "GET", url: "/asset-sources" })).json()).toEqual([]);
   expect((await search(app, "")).statusCode).toBe(404);
 });
 
-it("pages through a source's results, keeping only what the Library reads", async () => {
+it("pages through a source's results, keeping only what the app reads", async () => {
   const { app } = await setup();
   const first = await search(app, "");
   expect(first.statusCode, first.body).toBe(200);
@@ -168,7 +168,7 @@ it("pages through a source's results, keeping only what the Library reads", asyn
     { id: "v1", name: "v1.png", mediaType: "image", embed: "https://viewer.example/models/v1/embed?autostart=1" },
     ...["v2", "v3", "v4", "v5", "v6"].map((id) => ({ id, name: `${id}.png`, mediaType: "image" })),
   ]);
-  const which = (collection?: string) => app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query: "which", ...(collection ? { collection } : {}) } });
+  const which = (collection?: string) => app.inject({ method: "POST", url: "/asset-sources/search", payload: { source: "acme/shapes:shapes", query: "which", ...(collection ? { collection } : {}) } });
   expect((await which("angular")).json<LibrarySourceResults>().items[0]?.id).toBe("angular");
   expect((await which()).json<LibrarySourceResults>().items[0]?.id).toBe("none");
   expect((await which("square")).statusCode).toBe(400);
@@ -176,7 +176,7 @@ it("pages through a source's results, keeping only what the Library reads", asyn
   const broken = await search(app, "broken");
   expect(broken.statusCode).toBe(502);
   expect(broken.json().error).toContain("returned results OhMyGame can't read");
-  expect((await app.inject({ method: "POST", url: "/library/sources/search", payload: { source: "acme/shapes:shapes", query: "", media: "video" } })).statusCode).toBe(400);
+  expect((await app.inject({ method: "POST", url: "/asset-sources/search", payload: { source: "acme/shapes:shapes", query: "", media: "video" } })).statusCode).toBe(400);
 });
 
 it("keeps the credit a result showed when the source's download gives none, and the download's when it does", async () => {
@@ -209,23 +209,27 @@ it("adds a result to the project with its credit, once", async () => {
   expect(await readFile(path.join(project.workspacePath, copied))).toEqual(Buffer.from(PNG, "base64"));
   // The project takes the file; the plugin's folder doesn't keep it.
   expect(await readdir(path.join(dataDirectory, "plugin-store", "data", "acme", "shapes"))).toEqual([]);
-  expect((await add(app, project.id, "circle")).json<{ path: string }>().path).toBe(copied);
+  // Added again, it is the file it became, without a second download.
+  const second = await add(app, project.id, "circle");
+  expect(second.statusCode, second.body).toBe(201);
+  expect(second.json<{ path: string }>().path).toBe(copied);
   expect(await credits(project)).toContain(`- \`${copied}\`: circle.png by Acme, CC0, <https://shapes.example/circle>\n`);
   expect((await credits(project)).match(/circle\.png by/g)).toHaveLength(1);
-  // No Library page lists it.
-  expect((await app.inject({ method: "GET", url: "/library/assets" })).json<LibraryAssetSummary[]>().filter((item) => item.saved)).toEqual([]);
 
   // Adds run one at a time, so a source that reuses a file name loses nothing.
   const both = await Promise.all([add(app, project.id, "same-a"), add(app, project.id, "same-b")]);
   expect(both.map((response) => response.statusCode)).toEqual([201, 201]);
   expect(both.map((response) => response.json<{ name: string }>().name)).toEqual(["same-a.png", "same-b.png"]);
 
-  // Another project gets its own copy, without a download.
-  const other = await newProject(app);
-  const again = await add(app, other.id, "circle");
-  expect(again.statusCode, again.body).toBe(201);
-  expect(await readFile(path.join(other.workspacePath, again.json<{ path: string }>().path))).toEqual(Buffer.from(PNG, "base64"));
   expect((await add(app, "missing", "circle")).statusCode).toBe(404);
+
+  // A CREDITS.md that links elsewhere is left alone, and so is what it links to.
+  const linked = await newProject(app);
+  const outside = path.join(dataDirectory, "outside.md");
+  await writeFile(outside, "kept\n");
+  await symlink(outside, path.join(linked.workspacePath, "CREDITS.md"));
+  expect((await add(app, linked.id, "square", { author: "Acme", license: "CC0" })).statusCode).not.toBe(201);
+  expect(await readFile(outside, "utf8")).toBe("kept\n");
 });
 
 it("refuses a file outside the plugin's data folder or whose data isn't what it says", async () => {
@@ -239,5 +243,4 @@ it("refuses a file outside the plugin's data folder or whose data isn't what it 
   const fake = await add(app, project.id, "fake");
   expect(fake.statusCode).toBe(502);
   expect(fake.json().error).toContain("isn't image/png");
-  expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
 });

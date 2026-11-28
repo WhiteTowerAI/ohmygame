@@ -9,7 +9,7 @@ import { MediaProviderKeyStore } from "../src/daemon/media-provider-settings.js"
 import { TripoProvider } from "../src/daemon/tripo-provider.js";
 import { defaultModel3DSettings, normalizeModelUsages } from "../src/shared/custom-models.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
-import { generateOnCanvas, libraryReference } from "./canvas-generation.js";
+import { canvasReference, generateOnCanvas } from "./canvas-generation.js";
 
 const directories: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -169,10 +169,10 @@ describe("Tripo connection and custom models", () => {
     const restored = new MediaProviderKeyStore(directory, "tripo", "Tripo"); await restored.load(); expect(restored.key()).toBe("tripo-key");
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual(MODEL_3D_MODELS.filter((model) => model.provider === "tripo"));
     expect((await app.inject({ method: "PUT", url: "/model3d-models/default", payload: model })).statusCode).toBe(204);
-    expect(await (await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)] })).finished()).toMatchObject({ status: "succeeded", model });
+    expect(await (await generateOnCanvas(app, "model-3d", async (projectId) => ({ images: [await canvasReference(app, projectId)] }))).finished()).toMatchObject({ status: "succeeded", model });
     await app.inject({ method: "PATCH", url: "/settings/models/providers/tripo/enabled", payload: { enabled: false } });
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual([]);
-    const disabled = await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)], model });
+    const disabled = await generateOnCanvas(app, "model-3d", async (projectId) => ({ images: [await canvasReference(app, projectId)], model }));
     expect(disabled.response.statusCode === 202 ? (await disabled.finished()).status : disabled.response.statusCode).not.toBe("succeeded");
     expect(request.mock.calls.filter(([url]) => String(url).includes("/generation/"))).toHaveLength(1);
     await app.inject({ method: "DELETE", url: "/settings/models/providers/tripo" });
@@ -188,7 +188,7 @@ describe("Tripo connection and custom models", () => {
     const request = service(), { app } = await appFixture(request);
     await app.inject({ method: "PUT", url: "/settings/models/providers/tripo", payload: { apiKey: "tripo-key" } });
     const ref = { provider: "tripo", id };
-    const submit = async (count: number) => generateOnCanvas(app, "model-3d", { images: [await libraryReference(app)], model: ref, targetPolycount: count });
+    const submit = async (count: number) => generateOnCanvas(app, "model-3d", async (projectId) => ({ images: [await canvasReference(app, projectId)], model: ref, targetPolycount: count }));
     expect(await (await submit(targetPolycount)).finished()).toMatchObject({ status: "succeeded", model: ref });
     const generation = request.mock.calls.find(([url]) => String(url).includes("/generation/"))!;
     expect(JSON.parse(String(generation[1]?.body))).toMatchObject({ model: ref.id, face_limit: targetPolycount });
@@ -203,7 +203,7 @@ describe("Tripo connection and custom models", () => {
     } });
     expect(saved.statusCode, saved.body).toBe(201);
     const ref = { provider: saved.json().id, id: "studio-mesh-alias" };
-    const result = await generateOnCanvas(app, "model-3d", { images: [await libraryReference(app), await libraryReference(app)], model: ref });
+    const result = await generateOnCanvas(app, "model-3d", async (projectId) => ({ images: [await canvasReference(app, projectId), await canvasReference(app, projectId)], model: ref }));
     expect(await result.finished()).toMatchObject({ status: "succeeded", model: ref });
     expect(request.mock.calls[0]?.[0]).toBe("https://studio.test/tripo/v3/files");
     const generation = request.mock.calls.find(([url]) => String(url).includes("/generation/"))!;

@@ -24,19 +24,19 @@ model with **View** first. A model with animation clips shows **Play** in a row
 under it, with a clip picker when it has several; **Pause** holds the current
 frame. A model without clips has no controls. Requested playback pauses
 outside the viewport or while the page is hidden, and resumes when visible again.
-Library and asset-browser thumbnails stay still; open the asset to play it.
+Asset-browser thumbnails stay still; open the asset to play it.
 Models load when they enter the viewport, two at a time, because parsing one and
 moving it to the GPU runs on the window's main thread
 (`src/renderer/model-preview.tsx`). Asset Canvas nodes also download their file
 only once the node comes near the screen. A 3D file over 32 MB on the canvas
 waits for **Load 3D preview**, since its textures alone can fill gigabytes of
-GPU memory; so does one whose size isn't known yet, such as a Library model
+GPU memory; so does one whose size isn't known yet, such as a model
 just added (`src/renderer/asset-canvas-nodes.tsx`).
 
 The canvas add-node menu groups both 3D nodes under **3D**. The **Model 3D** node has Image to 3D, Text to 3D, Retexture, and Remesh modes. Text
 and retexture prompts can connect to Text or Document nodes. Processing modes take
 a source GLB connection. Retexture also accepts a style image; Hyper3D always needs
-one. The source asset is preserved, and each result becomes a new Library asset.
+one. The source asset is preserved, and each result becomes a new asset in the project.
 
 **Animate 3D** has an explicit connection selector. Existing saved nodes without a
 selector retain Meshy's numeric action IDs. Changing connection, Tripo rig version,
@@ -129,7 +129,7 @@ Free cloud retains its separate server-managed idempotency and quota contract.
 
 ## Model checks and interoperability
 
-New results are parsed as GLB and must contain triangle geometry. Library and canvas
+New results are parsed as GLB and must contain triangle geometry. Run and canvas
 metadata records triangle counts, textures, skins, animation names, origin operation,
 connection and known forward axis. Meshy preflight rejects untextured or oversized
 sources. Tripo performs its own asynchronous riggability check before rigging.

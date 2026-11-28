@@ -54,7 +54,7 @@ export function registerCheckpointRoutes(
   // Cancel remains available while a boundary waits for generation to settle.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
-  // A plugin asking a model, or making an image or audio, writes nothing in the project and may take minutes; one adding to the Library writes outside it.
+  // A plugin asking a model, or making an image or audio, writes nothing in the project and may take minutes; one adding to the project's media writes only its own new file there.
   // A panel's assistant takes the workspace for each of its tool calls, as a command does.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||

@@ -22,14 +22,15 @@ export interface GameRecordingFile extends GameRecorderStarted {
 export interface GameRecorderOptions {
   hostUrl: string;
   preloadPath: string;
-  /** Keeps the finished file, recorded under `id`. It is deleted afterwards, unless this fails. */
-  save: (file: GameRecordingFile, id: string) => Promise<GameRecordingSaved>;
+  /** Keeps the finished file in the project's media. It is deleted afterwards, unless this fails. */
+  save: (file: GameRecordingFile, projectId: string) => Promise<GameRecordingSaved>;
   /** A recording stopped asking for more and is being saved. */
   onSaving?: (id: string) => void;
 }
 
 interface Recording {
   id: string;
+  projectId: string;
   title: string;
   host: BrowserWindow;
   target: WebContents;
@@ -66,7 +67,7 @@ export class GameRecorder {
    * Resolves once frames are being recorded. `outcome` settles when the
    * recording has ended and been saved, however it ended.
    */
-  async start(id: string, target: WebContents, { title, maxSeconds }: { title: string; maxSeconds: number }): Promise<{ outcome: Promise<GameRecordingSaved> }> {
+  async start(id: string, target: WebContents, { title, maxSeconds, projectId }: { title: string; maxSeconds: number; projectId: string }): Promise<{ outcome: Promise<GameRecordingSaved> }> {
     if (this.#recordings.has(id)) throw new Error("This game is already recording.");
     if (target.isDestroyed()) throw new Error("The game is no longer running.");
     this.#install();
@@ -81,7 +82,7 @@ export class GameRecorder {
     const finished = new Promise<number>((resolve, reject) => { hostFinished = { resolve, reject }; });
     finished.catch(() => undefined);
     const file = path.join(directory, "recording");
-    const recording: Recording = { id, title, host, target, directory, file, sink: createWriteStream(file), bytes: 0, stopRequested: false, hostFinished, finished };
+    const recording: Recording = { id, projectId, title, host, target, directory, file, sink: createWriteStream(file), bytes: 0, stopRequested: false, hostFinished, finished };
     recording.sink.on("error", (cause) => recording.hostFinished.reject(cause));
     this.#recordings.set(id, recording);
     this.#hosts.set(host.webContents.id, recording);
@@ -164,7 +165,7 @@ export class GameRecorder {
     try {
       // The hidden window stays until this is done. Were it the last window,
       // closing it could quit the app, and stop the service, during the upload.
-      saved = await this.options.save({ ...recording.started!, path: recording.file, title: recording.title, duration, bytes: recording.bytes }, recording.id);
+      saved = await this.options.save({ ...recording.started!, path: recording.file, title: recording.title, duration, bytes: recording.bytes }, recording.projectId);
     } catch (cause) {
       this.#forget(recording);
       // Five minutes of play are worth keeping when the project can't take them.

@@ -31,8 +31,6 @@ export async function listWorkspaceFiles(workspacePath: string, directory?: stri
     if (prompt) file.prompt = prompt;
     const previewPath = metadata.previews[file.path];
     if (previewPath) file.previewPath = previewPath;
-    const libraryAssetId = metadata.libraryAssets[file.path];
-    if (libraryAssetId) file.libraryAssetId = libraryAssetId;
     if (metadata.origins[file.path]) file.origin = metadata.origins[file.path];
     if (metadata.purposes[file.path]) file.purpose = metadata.purposes[file.path];
   }

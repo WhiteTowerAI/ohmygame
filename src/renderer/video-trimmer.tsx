@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LibraryAsset } from "../shared/contracts.js";
-import { uploadLibraryAsset } from "./api.js";
 import { Spinner, Scissors } from "./icons.js";
 import { t } from "./i18n.js";
 import { Button } from "./ui/index.js";
@@ -184,35 +182,11 @@ export function TrimProgress({ progress }: { progress: number }) {
   );
 }
 
-/**
- * Uploads a trimmed video under the original's name with a trimmed suffix,
- * recording where it was cut from when the original is stored. `projectId`
- * puts it in that project's media, as for a cut made in its Assets.
- */
-export async function saveTrimmedVideo(
-  video: Blob,
-  trim: VideoTrim,
-  original: { name: string; libraryAssetId?: string },
-  { projectId }: { projectId?: string } = {},
-): Promise<LibraryAsset & { projectPath?: string }> {
+/** A trimmed video, named after the original with a trimmed suffix, for the caller to keep. */
+export function trimmedVideoFile(video: Blob, originalName: string): { file: File; mediaType: ReturnType<typeof trimmedVideoType>["mediaType"] } {
   const type = trimmedVideoType(video.type);
-  const stem = original.name.replace(/\.[^./]+$/, "") || "video";
+  const stem = originalName.replace(/\.[^./]+$/, "") || "video";
   const name = `${t("videoTrim.fileName", { name: stem }).slice(0, 190)}.${type.extension}`;
-  const kept = {
-    start: roundMilliseconds(trim.start),
-    end: roundMilliseconds(trim.end),
-  };
-  return uploadLibraryAsset(
-    new File([video], name, { type: type.mediaType }),
-    type.mediaType,
-    {
-      duration: roundMilliseconds(kept.end - kept.start),
-      ...(original.libraryAssetId ? { derivedFrom: { assetId: original.libraryAssetId, trim: kept } } : {}),
-      ...(projectId ? { projectId } : {}),
-    },
-  );
+  return { file: new File([video], name, { type: type.mediaType }), mediaType: type.mediaType };
 }
 
-function roundMilliseconds(seconds: number): number {
-  return Math.round(seconds * 1000) / 1000;
-}

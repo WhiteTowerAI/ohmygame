@@ -26,7 +26,8 @@ import { ProviderAudio } from "../src/daemon/audio-generation.js";
 import { audioResponseEncoding, readEncodedAudio } from "../src/daemon/plugin-audio-response.js";
 import { PluginValues } from "../src/daemon/plugin-values.js";
 import { TEST_GLB, model3DFixture } from "./model3d-fixture.js";
-import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { projectToolMedia, readCanvasAssets } from "../src/daemon/canvas-assets.js";
+import { projectMedia } from "./project-media.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProviderModels3D } from "../src/daemon/provider-models3d.js";
 
@@ -541,11 +542,11 @@ describe("opted-in image recovery", () => {
     const models = [{ id: "rig", resolutions: ["1K"], aspectRatios: ["1:1"], maxReferenceImages: 1, maxReferenceImageDimension: 64 }];
     const { media, requests } = await setup(adapter, { media: { image: { recoverable: true, models } } as unknown as Partial<Media>,
       reply: url => url.endsWith(".gif") ? new Response(new Uint8Array(frames)) : undefined });
-    const library = new AssetLibrary(root), projects = new ProjectManager(root, library);
-    const tools = new ToolRunner(root, imagesFor(media), undefined, undefined, library);
-    await Promise.all([library.load(), projects.load(), tools.load()]);
+    const projects = new ProjectManager(root);
+    const tools = new ToolRunner(root, imagesFor(media), undefined, undefined, projectToolMedia(projects));
+    await Promise.all([projects.load(), tools.load()]);
     const project = await projects.create("GIF result", "asset-canvas");
-    const store = new CanvasStore(projects, library, tools);
+    const store = new CanvasStore(projects, tools);
     try {
       const boardId = (await store.workspace(project.id)).boards[0]!.id;
       const detail = await store.board(project.id, boardId);
@@ -1286,17 +1287,17 @@ describe("plugin media providers: audio", () => {
     const file = requests[0]!.form!.get("file") as File;
     expect(Buffer.from(await file.arrayBuffer())).toEqual(WAV);
     expect(file.type).toBe("audio/wav");
-    const library = new AssetLibrary(root); await library.load();
-    const projects = new ProjectManager(root, library); await projects.load();
+    const projects = new ProjectManager(root); await projects.load();
     const project = await projects.create("Transcription", "asset-canvas");
-    const id = (await library.add("line.wav", WAV)).id, count = library.list().length;
     const app = Fastify();
-    const store = registerCanvasRoutes(app, { projects, library, tools: new ToolRunner(root, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library), audio });
+    const store = registerCanvasRoutes(app, { projects, tools: new ToolRunner(root, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, projectToolMedia(projects)), audio });
+    const id = (await store.addAsset(project.id, "line.wav", { bytes: WAV })).id;
+    const count = Object.keys((await readCanvasAssets(project.workspacePath)).assets).length;
     try {
       const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "transcribe-audio", assetIds: [id], options: { language: "zh-CN" } } });
       expect(response.statusCode, response.body).toBe(200);
       expect(response.json()).toEqual({ kind: "text", text: "你好世界" });
-      expect(library.list()).toHaveLength(count);
+      expect(Object.keys((await readCanvasAssets(project.workspacePath)).assets)).toHaveLength(count);
       expect(requests).toHaveLength(2);
     } finally { await app.close(); await store.close(); }
   }, 15_000);
@@ -2546,17 +2547,15 @@ describe("plugin 3D processing", () => {
     await expect(service.generate({ model, operation: "remesh", source: TEST_GLB, images: [] })).rejects.toThrow("invalid");
   });
 
-  it("saves a processing job's model to the Library with its provider metadata", async () => {
+  it("keeps a processing job's provider metadata with its model", async () => {
     const adapter = `export default { "3d": { async start(input, host) {
       await host.submit("process", "https://api.flow.example/process", { method: "POST", auth: true, json: { source: { $mediaFile: input.source.file } } });
       return { outputs: [{ url: "https://cdn.flow.example/result.glb", forwardAxis: "+Z" }] };
     } } };`;
     const { media, requests } = await setup(adapter, { media: processingMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(TEST_GLB)) : undefined });
-    const library = new AssetLibrary(root); await library.load();
-    const source = await library.add("source.glb", TEST_GLB);
-    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    const run = await runner.run("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourceAssetId: source.id, images: [], prompt: "Stone", options: { textureModel: "meshy-7" } });
-    expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, await projectMedia(root, { "source.glb": TEST_GLB })); await runner.load();
+    const run = await runner.run("image-to-3d", { operation: "retexture", model: { provider: "plugin.acme.flow.flow", id: "connection" }, sourcePath: "source.glb", images: [], prompt: "Stone", options: { textureModel: "meshy-7" } }, undefined, "project")
+    expect(run.files[0]!.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "retexture", forwardAxis: "+Z", triangles: 1 });
     expect(requests.filter(request => request.method === "POST")).toHaveLength(1);
   });
 
@@ -2661,14 +2660,12 @@ describe("plugin 3D animation", () => {
     const clips = [await model3DFixture({ rigged: true, clips: ["Idle"] }), await model3DFixture({ rigged: true, clips: ["Walk"] })];
     // The host owns the rig across fresh adapter VMs and independent animation jobs.
     const { media, requests } = await setup(reuseAdapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
-    const library = new AssetLibrary(root); await library.load();
-    const source = await library.add("hero.glb", TEST_GLB);
-    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    const input = { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, heightMeters: 1.6 };
-    const idle = await runner.run("animate-3d", { ...input, actionIds: [0] });
-    const walk = await runner.run("animate-3d", { ...input, actionIds: [1] });
-    expect(library.get(idle.files[0]!.assetId!)?.model3d?.animations).toEqual(["Idle"]);
-    expect(library.get(walk.files[0]!.assetId!)?.model3d?.animations).toEqual(["Walk"]);
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, await projectMedia(root, { "hero.glb": TEST_GLB })); await runner.load();
+    const input = { path: "hero.glb", model: { provider: "plugin.acme.flow.flow", id: "connection" }, heightMeters: 1.6 };
+    const idle = await runner.run("animate-3d", { ...input, actionIds: [0] }, undefined, "project");
+    const walk = await runner.run("animate-3d", { ...input, actionIds: [1] }, undefined, "project");
+    expect(idle.files[0]!.model3d?.animations).toEqual(["Idle"]);
+    expect(walk.files[0]!.model3d?.animations).toEqual(["Walk"]);
     expect(requests.filter(request => request.url.endsWith("/animate"))).toHaveLength(2);
     expect(requests.filter(request => request.url.endsWith("/rig"))).toHaveLength(1);
   });
@@ -2843,11 +2840,9 @@ describe("plugin 3D animation", () => {
     } } };`;
     const clips = [await model3DFixture({ rigged: true, clips: ["Idle"] }), await model3DFixture({ rigged: true, clips: ["Walk"] })];
     const { media, requests } = await setup(adapter, { media: animationMedia, reply: url => url.endsWith(".glb") ? new Response(new Uint8Array(clips[url.endsWith("0.glb") ? 0 : 1]!)) : undefined });
-    const library = new AssetLibrary(root); await library.load();
-    const source = await library.add("hero.glb", TEST_GLB);
-    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, library); await runner.load();
-    const run = await runner.run("animate-3d", { assetId: source.id, model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 });
-    expect(library.get(run.files[0]!.assetId!)?.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
+    const runner = new ToolRunner(root, { generate: vi.fn() }, router(media), undefined, await projectMedia(root, { "hero.glb": TEST_GLB })); await runner.load();
+    const run = await runner.run("animate-3d", { path: "hero.glb", model: { provider: "plugin.acme.flow.flow", id: "connection" }, actionIds: [0, 1], heightMeters: 1.6 }, undefined, "project");
+    expect(run.files[0]!.model3d).toMatchObject({ provider: "plugin.acme.flow.flow", operation: "animate", forwardAxis: "+Z", animations: ["Idle", "Walk"] });
     expect(requests.filter(request => request.method === "POST")).toHaveLength(3);
   });
 });

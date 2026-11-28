@@ -9,7 +9,7 @@ import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-im
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
-import type { LibraryAsset } from "./library-assets.js";
+import type { ProjectMedia } from "./media-picker.js";
 import type { AudioKind, AudioSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import type { ProjectCanvasNode } from "../shared/plugins.js";
 import { t } from "./i18n.js";
@@ -151,9 +151,9 @@ export interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
   onRemoveReference: (index: number) => void;
   /** Absent when references can only be connected, not uploaded. */
   onUploadReferences?: (files: File[]) => void;
-  /** The Library images the + button offers next to Upload. */
-  libraryImages?: LibraryAsset[];
-  onAddLibraryReference?: (asset: LibraryAsset) => void;
+  /** The project whose images the + button offers next to Upload. */
+  pickImagesFrom?: string;
+  onAddPickedReference?: (file: ProjectMedia) => void;
 }
 
 export type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating" | "error" | "onChange" | "onGenerate" | "onCancel">;
@@ -163,7 +163,7 @@ export interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
   providers: MediaProviderStatus[];
   onUploadSourceImage: (file: File) => void;
-  onSetSourceAsset: (asset: LibraryAsset) => void;
+  onSetSourceFile: (file: ProjectMedia) => void;
 }
 export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
   models: VideoModel[];

@@ -333,14 +333,14 @@ export interface PluginMedia {
   /** The person's connected image or audio models, and the one a request without `model` uses. */
   models(media: "image" | "audio", options?: { kind?: "speech" | "sound-effect" | "music" }): Promise<{ default?: { provider: string; id: string }; models: PluginMediaModel[] }>;
   /**
-   * Makes images or audio, which may cost the person; each file also goes in
-   * their Library, listed as added by the plugin. Only while the page shows,
+   * Makes images or audio, which may cost the person; the files aren't kept,
+   * so `assets.add` one to keep it. Only while the page shows,
    * and not in a Plugin Builder preview; a plugin sends at most 2 requests at
    * once and 10 a minute.
    */
   generate(request: PluginMediaRequest, options?: { signal?: AbortSignal }): Promise<{
     model?: { provider: string; id: string };
-    files: Array<{ name: string; type: string; data: Blob; assetId?: string }>;
+    files: Array<{ name: string; type: string; data: Blob }>;
   }>;
 }
 
@@ -390,8 +390,7 @@ export interface PluginUiHost {
   /**
    * The project's assets, with `capabilities.library` (API 2.38.0), where a
    * page puts what it makes instead of a download. Each file goes in the
-   * project's media, listed as added by the plugin, and the person sees a
-   * toast as it comes.
+   * project's media as generated, and the person sees a toast as it comes.
    */
   assets: {
     /**

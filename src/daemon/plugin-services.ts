@@ -620,7 +620,7 @@ export class PluginServices {
 
   /**
    * The newest version of a plugin whose code may run outside projects, as
-   * for the Library's sources: one the app can run, not turned off, and
+   * for asset sources: one the app can run, not turned off, and
    * allowed everything it asks for when it was added.
    */
   async appPlugin(id: string): Promise<PluginIndexEntry | undefined> {
@@ -697,7 +697,7 @@ export class PluginServices {
     return { plugins: entries.map((entry) => entry.id), commands };
   }
 
-  /** The Library's sources from plugins that may run outside projects, in `locale`. */
+  /** The asset sources from plugins that may run outside projects, in `locale`. */
   async assetSources(locale: PluginLocale = "en"): Promise<LibrarySource[]> {
     const sources: LibrarySource[] = [];
     for (const entry of await this.everyProject()) {

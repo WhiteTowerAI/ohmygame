@@ -10,9 +10,12 @@ interface AssetMetadata {
   version: 1;
   prompts: Record<string, string>;
   previews: Record<string, string>;
-  libraryAssets: Record<string, string>;
   origins: Record<string, LibraryAssetOrigin>;
   purposes: Record<string, LibraryAssetPurpose>;
+  /** The source result each file was added from, as `publisher/name:source#item`, so adding it again finds the file. */
+  sources: Record<string, string>;
+  /** Which way a generated 3D model faces, which a model processed later needs. */
+  axes: Record<string, "+X" | "+Z">;
 }
 
 /** What the project records of its assets; a file this version can't read reads as empty. */
@@ -43,15 +46,16 @@ async function loadAssetMetadata(workspacePath: string): Promise<AssetMetadata |
 export async function writeAssetMetadata(
   workspacePath: string,
   assetPath: string,
-  values: { prompt?: string; previewPath?: string; libraryAssetId?: string; origin?: LibraryAssetOrigin; purpose?: LibraryAssetPurpose },
+  values: { prompt?: string; previewPath?: string; origin?: LibraryAssetOrigin; purpose?: LibraryAssetPurpose; source?: string; axis?: "+X" | "+Z" },
 ): Promise<void> {
   const metadata = await loadAssetMetadata(workspacePath);
   if (!metadata) return;
   if (values.prompt) metadata.prompts[assetPath] = values.prompt;
   if (values.previewPath) metadata.previews[assetPath] = values.previewPath;
-  if (values.libraryAssetId) metadata.libraryAssets[assetPath] = values.libraryAssetId;
   if (values.origin) metadata.origins[assetPath] = values.origin;
   if (values.purpose) metadata.purposes[assetPath] = values.purpose;
+  if (values.source) metadata.sources[assetPath] = values.source;
+  if (values.axis) metadata.axes[assetPath] = values.axis;
   await writeMetadata(workspacePath, metadata);
 }
 
@@ -59,7 +63,7 @@ export async function renameAssetMetadata(workspacePath: string, from: string, t
   const metadata = await loadAssetMetadata(workspacePath);
   if (!metadata) return;
   let changed = false;
-  const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.libraryAssets, metadata.origins, metadata.purposes];
+  const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.origins, metadata.purposes, metadata.sources, metadata.axes];
   for (const entries of records) {
     for (const assetPath of Object.keys(entries)) {
       if (assetPath !== from && !assetPath.startsWith(`${from}/`)) continue;
@@ -77,7 +81,7 @@ export async function deleteAssetMetadata(workspacePath: string, assetPath: stri
   if (!metadata) return [];
   const previews = Object.entries(metadata.previews).filter(([entry]) => entry === assetPath || entry.startsWith(`${assetPath}/`)).map(([, preview]) => preview);
   let changed = false;
-  const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.libraryAssets, metadata.origins, metadata.purposes];
+  const records: Record<string, string>[] = [metadata.prompts, metadata.previews, metadata.origins, metadata.purposes, metadata.sources, metadata.axes];
   for (const entries of records) {
     for (const entry of Object.keys(entries)) {
       if (entry !== assetPath && !entry.startsWith(`${assetPath}/`)) continue;
@@ -129,9 +133,10 @@ export async function migrateLegacyAssetMetadata(workspacePath: string): Promise
     version: 1,
     prompts: { ...legacy.prompts, ...current.prompts },
     previews: { ...legacy.previews, ...current.previews },
-    libraryAssets: { ...legacy.libraryAssets, ...current.libraryAssets },
     origins: { ...legacy.origins, ...current.origins },
     purposes: { ...legacy.purposes, ...current.purposes },
+    sources: current.sources,
+    axes: current.axes,
   });
   await rm(legacyPath, { force: true });
 }
@@ -156,33 +161,33 @@ async function writeMetadata(workspacePath: string, metadata: AssetMetadata): Pr
 }
 
 function emptyMetadata(): AssetMetadata {
-  return { version: 1, prompts: {}, previews: {}, libraryAssets: {}, origins: {}, purposes: {} };
+  return { version: 1, prompts: {}, previews: {}, origins: {}, purposes: {}, sources: {}, axes: {} };
 }
 
 function parseAssetMetadata(value: unknown): AssetMetadata | undefined {
   if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== 1) return undefined;
   const prompts = (value as { prompts?: unknown }).prompts;
   const previews = (value as { previews?: unknown }).previews;
-  const libraryAssets = (value as { libraryAssets?: unknown }).libraryAssets ?? {};
   const origins = (value as { origins?: unknown }).origins ?? {};
   const purposes = (value as { purposes?: unknown }).purposes ?? {};
-  if (!validEntries(origins, ["generated", "uploaded", "workspace", "builtin", "unknown"]) || !validEntries(purposes, ["asset", "reference"])) return undefined;
+  const sources = (value as { sources?: unknown }).sources ?? {};
+  const axes = (value as { axes?: unknown }).axes ?? {};
+  if (!validEntries(origins, ["generated", "uploaded", "workspace", "builtin", "unknown"]) || !validEntries(purposes, ["asset", "reference"]) || !validEntries(axes, ["+X", "+Z"])) return undefined;
+  if (!sources || typeof sources !== "object" || Array.isArray(sources) || !Object.entries(sources).every(([entry, source]) => entry && typeof source === "string" && source)) return undefined;
   if (prompts === null || typeof prompts !== "object" || !Object.entries(prompts).every(([assetPath, prompt]) => (
     Boolean(assetPath) && typeof prompt === "string" && Boolean(prompt.trim())
   ))) return undefined;
   if (previews !== undefined && (previews === null || typeof previews !== "object" || !Object.entries(previews).every(([assetPath, previewPath]) => (
       Boolean(assetPath) && typeof previewPath === "string" && /^\.ohmygame\/asset-previews\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg)$/.test(previewPath)
   )))) return undefined;
-  if (libraryAssets === null || typeof libraryAssets !== "object" || !Object.entries(libraryAssets).every(([assetPath, assetId]) => (
-    Boolean(assetPath) && typeof assetId === "string" && Boolean(assetId)
-  ))) return undefined;
   return {
     version: 1,
     prompts: prompts as Record<string, string>,
     previews: (previews ?? {}) as Record<string, string>,
-    libraryAssets: libraryAssets as Record<string, string>,
     origins: origins as Record<string, LibraryAssetOrigin>,
     purposes: purposes as Record<string, LibraryAssetPurpose>,
+    sources: sources as Record<string, string>,
+    axes: axes as Record<string, "+X" | "+Z">,
   };
 }
 

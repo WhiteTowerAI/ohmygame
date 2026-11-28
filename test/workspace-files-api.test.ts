@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { readAssetMetadata, writeAssetMetadata } from "../src/daemon/asset-metadata.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
-import type { LibraryAsset, ProjectState, WorkspaceFile } from "../src/shared/contracts.js";
+import type { ProjectState, WorkspaceFile } from "../src/shared/contracts.js";
 
 const realpathAlias = vi.hoisted(() => ({ from: "", to: "" }));
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -164,27 +164,25 @@ describe("project file management", () => {
     expect((await app.inject({ method: "PATCH", url: `${base}?path=media`, payload: { name: "art" } })).statusCode).toBe(200);
     expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: { "art/hero.png": "generated" }, prompts: { "art/hero.png": "hero" } });
     expect((await app.inject({ method: "DELETE", url: `${base}?path=art` })).statusCode).toBe(204);
-    expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: {}, purposes: {}, libraryAssets: {}, prompts: {}, previews: {} });
+    expect(await readAssetMetadata(project.workspacePath)).toMatchObject({ origins: {}, purposes: {}, prompts: {}, previews: {} });
     await expect(readFile(path.join(project.workspacePath, ".ohmygame", "asset-previews", "hero.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("reads legacy upload/reference provenance and changes its use when it becomes a canvas asset", async () => {
+  it("follows a canvas asset's file when it is renamed, and takes it off the canvas when it is deleted", async () => {
     const { app, project, base } = await setup();
-    const upload = await app.inject({ method: "POST", url: "/library/assets", payload: { name: "ref.png", purpose: "reference", image: { mediaType: "image/png", data: "iVBORw0KGgo=" } } });
-    expect(upload.statusCode, upload.body).toBe(201);
-    const asset = upload.json<LibraryAsset>();
-    // Emulates historical project metadata containing only a Library link.
     await writeFile(path.join(project.workspacePath, "ref.png"), "image");
-    await writeAssetMetadata(project.workspacePath, "ref.png", { libraryAssetId: asset.id });
+    await writeAssetMetadata(project.workspacePath, "ref.png", { origin: "uploaded", purpose: "reference" });
     expect((await app.inject({ method: "GET", url: base })).json<WorkspaceFile[]>().find((file) => file.path === "ref.png")).toMatchObject({ origin: "uploaded", purpose: "reference" });
     const canvas = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject({ method: "GET", url: `${canvas}/workspace` })).json();
+    const added = await app.inject({ method: "POST", url: `${canvas}/assets/media`, payload: { projectId: project.id, path: "ref.png" } });
+    expect(added.statusCode, added.body).toBe(201);
+    const asset = added.json<{ id: string }>();
     const boardUrl = `${canvas}/boards/${workspace.boards[0].id}`;
     const board = (await app.inject({ method: "GET", url: boardUrl })).json<CanvasBoardDetail>();
     board.board.nodes.push({ id: "portrait", type: "asset", position: { x: 0, y: 0 }, data: { assetId: asset.id, mediaType: "image" } });
     board.board.editorLayout.nodes.portrait = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: boardUrl, payload: board })).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url: base })).json<WorkspaceFile[]>().find((file) => file.path === "ref.png")).toMatchObject({ origin: "uploaded", purpose: "asset" });
     expect((await app.inject({ method: "PATCH", url: `${base}?path=ref.png`, payload: { name: "portrait.png" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: `${canvas}/workspace` })).json().assets[0].path).toBe("portrait.png");
     expect((await app.inject({ method: "DELETE", url: `${base}?path=portrait.png` })).statusCode).toBe(204);

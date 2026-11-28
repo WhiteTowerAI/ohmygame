@@ -588,7 +588,8 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ```text
 .ohmygame/
 ├── .gitignore        leaves local/ and build/ out of the project's repository
-├── assets.json       prompts, previews, Library links and origins of assets
+├── assets.json       prompts, previews, origins and sources of assets,
+│                     and which way generated 3D models face
 ├── asset-previews/   preview images of generated assets
 ├── media/            media OhMyGame generated (generated/) or copied in from
 │                     elsewhere (imported/) for the game to use
@@ -629,7 +630,8 @@ folder whose `ohmygame.json` names `interactive-story` loads as one: the file
 is rewritten to name `general` and `settings.json` gets `kind: "web-game"`
 (left alone when it can't be read), and `project.json` follows. An archive
 naming the type imports as a web game. Opening an old local Story copies media
-still referenced by Library ID into `assets/library/` and updates its graph.
+its graph still names by Library ID from the old `<data>/library/` into
+`assets/library/` and updates the graph.
 If a referenced asset is missing, restore it or correct the graph and reopen
 the project. A Story without its own page still needs a web entry point.
 A web story keeps its own page and
@@ -769,8 +771,9 @@ beside **This project** (`src/renderer/asset-source-browser.tsx`), searched
 with the panel's search box. Nothing from a source is downloaded until the
 person adds it; then it is copied into the project's
 `.ohmygame/media/imported/`, with a line for its author, license and link in
-the workspace's `CREDITS.md`, made when missing. Adding it again finds the
-same file, and another project gets its copy without a new download.
+the workspace's `CREDITS.md`, made when missing. Adding it to the same project
+again finds the file it added, recorded in `.ohmygame/assets.json`, while
+it is there.
 Browsing a source by kind, without search words, is kept while the app runs
 (the twenty used last, with the pages loaded and where the panel was
 scrolled), for the `cacheSeconds` its manifest gives or ten minutes, so coming
@@ -812,16 +815,9 @@ game's own files when asked to use it; `asset_use` and the canvas take a
 copy of their own in the project's media. Images sent before this stay where
 they were copied.
 
-Behind the panels, `<data>/library/` stores every media file projects share by
-ID: `files/<id><ext>` and `assets.json`. A file stored for a project is cloned
-into the project where the disk can (APFS), so it takes space once. A record's
-`saved` says whether the Library page, since removed, listed it.
-
-`assets.json` version 1 put everything generated or uploaded in the Library.
-At startup it is upgraded to version 2 once, keeping as saved only what the
-person chose: project files they saved, uploaded videos and audio and built-in
-media. Everything stays stored, so projects and conversations still find it.
-A store from a newer version is never rewritten; it is reported as unreadable.
+Media live in their projects. Earlier versions also kept every file in a
+shared Library, `<data>/library/`; nothing reads it now except opening an old
+Story, above, and it is left on disk as it was.
 
 Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
 saved in browser storage). Its order is the person's: editing a project doesn't
@@ -1339,7 +1335,7 @@ It reads files without building: a game with a build script shows its last
 `dist`, `build` or `out`, or nothing until it has one. Sizes are before packing
 and optimization, so the ZIP is usually smaller.
 
-Publishing optimizes temporary copies of media; workspace and Library
+Publishing optimizes temporary copies of media; workspace
 originals and project exports are unchanged. For every game, PNG scanlines are
 recompressed losslessly, preserving transparency and metadata, and JPEGs lose
 their Exif, XMP and IPTC blocks (where a camera records place, device and

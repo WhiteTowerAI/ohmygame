@@ -150,7 +150,7 @@ Image generation nodes offer a **Character asset** mode in the prompt input.
 When the user generates, `characterAssetPrompt` from
 `src/shared/canvas-character-tools.ts` expands the description into a complete
 image prompt. The existing image model, reference images, generation history,
-and Library output remain in use. The prompt requests a 16:9 character reference
+and output remain in use. The prompt requests a 16:9 character reference
 sheet with one dominant upper-body illustration on the left and smaller front/side/back full-body views on the right,
 plus three distinct expressions and useful costume or equipment details. Each
 supporting image has a separate purpose, avoiding redundant portraits. Entering
