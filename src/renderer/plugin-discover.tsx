@@ -13,8 +13,6 @@ import { Button, Empty } from "./ui/index.js";
 // several sections, as a provider that makes images and sound is in both; All
 // shows it once.
 
-export type DiscoverSection = PluginsSection;
-
 /**
  * The sections, in the order a game is made. A plugin is in a section when it
  * names one of its categories or makes one of its kinds. Search also reads each
@@ -57,9 +55,9 @@ function ordered(plugins: readonly MarketPlugin[]): MarketPlugin[] {
  * side list can show them greyed while searching. Featured, once shown, comes
  * first when nothing is searched; Other holds what's in no section.
  */
-export function discoverSections(plugins: readonly MarketPlugin[], query: string): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
+export function discoverSections(plugins: readonly MarketPlugin[], query: string): { id: PluginsSection; plugins: MarketPlugin[] }[] {
   const matches = (plugin: MarketPlugin, named: boolean) => !query || named || marketSearchText(plugin).includes(query);
-  const sections: { id: DiscoverSection; plugins: MarketPlugin[] }[] = SECTIONS.map((section) => {
+  const sections: { id: PluginsSection; plugins: MarketPlugin[] }[] = SECTIONS.map((section) => {
     const named = Boolean(query) && namesSection(query, section);
     return { id: section.id, plugins: ordered(plugins.filter((plugin) => inSection(plugin, section) && matches(plugin, named))) };
   });
@@ -84,7 +82,7 @@ export function marketFact(plugin: MarketPlugin): string | undefined {
 }
 
 /** What Discover shows: one section, or All. */
-export type DiscoverShelf = DiscoverSection | "all";
+export type DiscoverShelf = PluginsSection | "all";
 
 /** All shows this many of each section, and a way into the rest. */
 const SHELF = 4;
@@ -92,7 +90,7 @@ const SHELF = 4;
 const shelfLabel = (id: DiscoverShelf) => t(`pluginCatalog.sections.${id}`);
 
 /** Each plugin once, in the first section it's in, so one that makes images and sound isn't listed twice. */
-function onceEach(sections: readonly { id: DiscoverSection; plugins: MarketPlugin[] }[]): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
+function onceEach(sections: readonly { id: PluginsSection; plugins: MarketPlugin[] }[]): { id: PluginsSection; plugins: MarketPlugin[] }[] {
   const seen = new Set<string>();
   return sections.map((section) => ({ ...section, plugins: section.plugins.filter((plugin) => {
     if (seen.has(plugin.id)) return false;
@@ -102,7 +100,7 @@ function onceEach(sections: readonly { id: DiscoverSection; plugins: MarketPlugi
 }
 
 /** All's few of each section: ones not shown above first, then ones that were, so no section is left out. */
-function shelves(sections: readonly { id: DiscoverSection; plugins: MarketPlugin[] }[]): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
+function shelves(sections: readonly { id: PluginsSection; plugins: MarketPlugin[] }[]): { id: PluginsSection; plugins: MarketPlugin[] }[] {
   const seen = new Set<string>();
   return sections.filter((section) => section.plugins.length).map((section) => {
     const fresh = section.plugins.filter((plugin) => !seen.has(plugin.id)).slice(0, SHELF);
@@ -157,17 +155,15 @@ export function DiscoverView({ plugins, installed, query, shelf, onShelf, onOpen
         <div className="plugins-section-head"><h2>{shelfLabel(picked.id)}</h2></div>
         {picked.plugins.length ? cards(picked.plugins) : <Empty title={t("plugins.noMatch")} />}
       </section>
-      : overview.map((section) => {
-        const shown = section.plugins;
-        const total = count(section.id);
-        return <section key={section.id} className="plugins-section" aria-label={shelfLabel(section.id)}>
-          <div className="plugins-section-head">
-            <h2>{shelfLabel(section.id)}</h2>
-            {total > shown.length ? <Button variant="ghost" size="sm" onClick={() => pick(section.id)}>{t("pluginCatalog.showAllInSection", { count: total })}</Button> : null}
-          </div>
-          {cards(shown)}
-        </section>;
-      })}
+      : overview.map((section) => <section key={section.id} className="plugins-section" aria-label={shelfLabel(section.id)}>
+        <div className="plugins-section-head">
+          <h2>{shelfLabel(section.id)}</h2>
+          {count(section.id) > section.plugins.length ? <Button variant="ghost" size="sm" onClick={() => pick(section.id)}>
+            {t("pluginCatalog.showAllInSection", { count: count(section.id) })}
+          </Button> : null}
+        </div>
+        {cards(section.plugins)}
+      </section>)}
     </div>
   </div>;
 }
@@ -189,9 +185,7 @@ export function DiscoverList({ plugins, installed, query, shelf, selected, hidde
 }): ReactNode {
   const list = useRef<HTMLElement>(null);
   const sections = discoverSections(plugins, query);
-  const picked = sections.filter((section) => section.id === shelf && section.plugins.length);
-  // A plugin opened from elsewhere, not in the section, has All beside it.
-  const shown = picked.some((section) => section.plugins.some((plugin) => plugin.id === selected)) ? picked : onceEach(sections);
+  const shown = shelf === "all" ? onceEach(sections) : sections.filter((section) => section.id === shelf && section.plugins.length);
   // The open plugin stays in view.
   useLayoutEffect(() => {
     list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });

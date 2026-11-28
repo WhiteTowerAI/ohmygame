@@ -10,9 +10,9 @@ import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
 import { MarketPluginPage } from "./plugin-catalog.js";
-import { DiscoverList, DiscoverView, type DiscoverSection, type DiscoverShelf } from "./plugin-discover.js";
+import { DiscoverList, DiscoverView, type DiscoverShelf } from "./plugin-discover.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
-import { settingsHash, type PluginsTab } from "./routes.js";
+import { settingsHash, type PluginsSection, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { marketPluginSource, PluginAddDialog } from "./plugin-add-dialog.js";
@@ -29,7 +29,7 @@ const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISH
 export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
   /** Opens Discover at this section, as a link from where such plugins are used does. */
-  section?: DiscoverSection;
+  section?: PluginsSection;
   /** The tab the route names; a plugin's page and back keep the one last shown. */
   tab?: PluginsTab;
   onPluginChange: (pluginId?: string, tab?: "installed") => void;
@@ -463,7 +463,7 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
       ? editor(detail, false)
       : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
         // A keyword searches the whole market, not just the section it was opened from.
-        onSearch={(keyword) => { search(keyword); listScroll.current = 0; showDiscover(); }} />
+        onSearch={(keyword) => { setShelf("all"); setQuery(keyword); listScroll.current = 0; showDiscover(); }} />
       : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
         : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />;
   }

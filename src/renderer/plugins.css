@@ -100,21 +100,6 @@
   gap: var(--space-3);
 }
 
-.plugins-section h2 .plugins-count {
-  margin-left: var(--space-2);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-regular);
-}
-
-/* the end of a long list: Show more, or View all on the front page */
-.plugins-all {
-  display: flex;
-  justify-content: center;
-}
-
-
 /* screenshots: one row that scrolls sideways, each opening larger */
 .plugin-shots-row {
   display: flex;
