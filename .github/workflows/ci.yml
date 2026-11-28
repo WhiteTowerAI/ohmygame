@@ -53,17 +53,25 @@ jobs:
       - run: bun run test:node-runtime
 
   platform-tests:
-    name: platform-tests (${{ matrix.os }}, ${{ matrix.shard }}/2)
+    name: platform-tests (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.shards }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15, windows-latest]
         shard: [1, 2]
+        shards: [2]
+        # The same tests take about twice as long on Windows, the slowest check.
+        exclude:
+          - os: windows-latest
+        include:
+          - { os: windows-latest, shard: 1, shards: 3 }
+          - { os: windows-latest, shard: 2, shards: 3 }
+          - { os: windows-latest, shard: 3, shards: 3 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-platform
-      - run: bun run test -- --shard=${{ matrix.shard }}/2 ${{ runner.os == 'Windows' && '--config=vitest.windows.config.ts' || '' }}
+      - run: bun run test -- --shard=${{ matrix.shard }}/${{ matrix.shards }}
 
   platform-build:
     strategy:

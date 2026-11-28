@@ -174,10 +174,11 @@ build and startup.
 this sequence covers the full application build without building them twice.
 These checks run on Ubuntu. Plugin preparation, types, tests and the Node
 startup check also run on macOS and Windows, the platforms the app ships for.
-On all three platforms, two test shards run alongside the build checks. Windows
-distributes test files by descending size, alternating between the two shards.
-Run `bun run test -- --shard=1/2 --config=vitest.windows.config.ts` locally
-to use the same sharding strategy (use `2/2` for the second shard).
+Test shards run alongside the build checks: two on Ubuntu and macOS, and three
+on Windows, where the same tests take about twice as long.
+[vitest.config.ts](vitest.config.ts) distributes test files by descending size,
+dealing them to the shards in turn. Run `bun run test -- --shard=1/2` locally
+to run the files of one shard (`1/3` for a Windows shard).
 On macOS and Windows, the Node startup and Electron recording checks share
 one host build, and the build job also loads the plugins' panels in Electron.
 Windows jobs reuse `node_modules` for an exact match on the runner architecture,
