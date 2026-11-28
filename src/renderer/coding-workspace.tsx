@@ -409,6 +409,8 @@ export function CodingWorkspace({
   const recording = useGameRecording(supportsPreview ? project?.id : undefined);
   const recordItem = recordMenuItem(recording, player.open || preview?.status === "ready");
   const recordButton = <GameRecordStatus recording={recording} />;
+  // A finished recording is a new file in the project's media.
+  useEffect(() => { if (recording.state.saved) setFilesRevision((value) => value + 1); }, [recording.state.saved]);
   const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setCodeFileRequest({ path, id: ++codeRequestId.current });
@@ -1800,7 +1802,15 @@ export function AssetsView(props: {
           setAdded((current) => new Map(current).set(source.id, new Map(current.get(source.id)).set(item, path)));
           props.onFilesChanged?.();
         }}
-        onShow={(path) => { setTab(PROJECT_ASSETS); setShown({ path }); }} />
+        onShow={(path) => {
+          // A file deleted since it was added is added again instead.
+          if (!props.loading && !props.files.some((file) => file.path === path)) {
+            setAdded((current) => new Map(current).set(source.id, new Map([...current.get(source.id) ?? []].filter(([, kept]) => kept !== path))));
+            return;
+          }
+          setTab(PROJECT_ASSETS);
+          setShown({ path });
+        }} />
     </div>
   );
 }

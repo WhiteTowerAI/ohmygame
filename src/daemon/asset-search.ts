@@ -4,7 +4,7 @@ import type {
   LibrarySourceItem,
   LibrarySourceResults,
 } from "../shared/contracts.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import type { LibrarySources, SourcedAsset, SourceItemToAdd } from "./library-sources.js";
@@ -304,6 +304,9 @@ async function addCredit(
   credit: SourcedAsset["sourcedFrom"],
 ): Promise<boolean> {
   const file = path.join(workspacePath, CREDITS_FILE);
+  // Written in place, so never through a link to a file outside the project.
+  const existing = await lstat(file).catch(() => undefined);
+  if (existing && !existing.isFile()) throw new Error(`${CREDITS_FILE} is not a file in the project`);
   const current = await readFile(file, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined;

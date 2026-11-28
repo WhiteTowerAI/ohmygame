@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -222,6 +222,14 @@ it("adds a result to the project with its credit, once", async () => {
   expect(both.map((response) => response.json<{ name: string }>().name)).toEqual(["same-a.png", "same-b.png"]);
 
   expect((await add(app, "missing", "circle")).statusCode).toBe(404);
+
+  // A CREDITS.md that links elsewhere is left alone, and so is what it links to.
+  const linked = await newProject(app);
+  const outside = path.join(dataDirectory, "outside.md");
+  await writeFile(outside, "kept\n");
+  await symlink(outside, path.join(linked.workspacePath, "CREDITS.md"));
+  expect((await add(app, linked.id, "square", { author: "Acme", license: "CC0" })).statusCode).not.toBe(201);
+  expect(await readFile(outside, "utf8")).toBe("kept\n");
 });
 
 it("refuses a file outside the plugin's data folder or whose data isn't what it says", async () => {
