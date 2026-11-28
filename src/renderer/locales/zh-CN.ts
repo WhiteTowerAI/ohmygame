@@ -1728,6 +1728,7 @@ const zhCN: typeof en = {
     close: "关闭{{title}}",
     closeOthers: "关闭其他",
     add: "添加面板",
+    all: "全部面板",
     moreTools: "更多工具",
     resize: "调整{{area}}大小",
     chat: "对话",

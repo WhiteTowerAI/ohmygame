@@ -78,17 +78,36 @@
   display: none;
 }
 
-/* The toolbar beside the tabs starts at no width and takes what they leave, so
-   it gives way first; the tabs shrink and scroll only once it has none left. */
+/* The tabs take what they need up to 60% of the strip, and scroll past it;
+   the toolbar takes the rest. Neither depends on which tab is open, so opening
+   one moves nothing. A crowded strip fades its tabs at the edges they scroll
+   past, and ▾ lists them all. */
 .dock-tab-list {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 2px;
   min-width: 0;
+  max-width: 60%;
   height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.dock-tabs.is-scrolled-start .dock-tab-list {
+  mask-image: linear-gradient(to right, transparent, black 24px);
+}
+
+.dock-tabs.is-scrolled-end .dock-tab-list {
+  mask-image: linear-gradient(to left, transparent, black 24px);
+}
+
+.dock-tabs.is-scrolled-start.is-scrolled-end .dock-tab-list {
+  mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+}
+
+.dock-tabs:not(.is-crowded) .dock-all {
+  display: none;
 }
 
 .dock-tab-list > .ui-context-area {
@@ -96,14 +115,12 @@
 }
 
 /* Every strip's tabs look alike: as tall and round as the bar's buttons, the
-   open one filled. Crowded strips shrink the other tabs' labels; the open one
-   stays whole. */
+   open one filled, each as wide as its label whether open or not. */
 .dock-tab {
   position: relative;
   display: flex;
-  flex: 0 1 auto;
+  flex: none;
   align-items: center;
-  min-width: 52px;
   height: 28px;
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
@@ -116,7 +133,6 @@
 }
 
 .dock-tab.is-active {
-  flex-shrink: 0;
   background: var(--color-selected);
   color: var(--color-text);
 }
@@ -166,10 +182,6 @@
   cursor: pointer;
 }
 
-.dock-tab.is-active .dock-tab-button:not(:last-child) {
-  padding-right: 2px;
-}
-
 .dock-tab[draggable="true"] {
   cursor: grab;
 }
@@ -180,8 +192,10 @@
   place-items: center;
 }
 
+/* A long title stops short, so one tab can't take the strip. */
 .dock-tab-label {
   min-width: 0;
+  max-width: 12em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -203,35 +217,33 @@
   text-align: center;
 }
 
-/* Only the open tab has a close button; it takes its space while that tab is
-   open, so hovering it moves nothing. */
+/* A tab's close button shows only while the pointer or keyboard focus is on
+   the tab, over the end of its label, which fades under it: it takes no room,
+   so opening a tab moves nothing. */
 .dock-tab-close {
-  display: grid;
-  flex: none;
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: none;
   place-items: center;
   width: 18px;
   height: 18px;
-  margin: 0 5px 0 2px;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--color-text-tertiary);
-  opacity: 0;
   cursor: pointer;
+  translate: 0 -50%;
   transition: background-color var(--duration-fast), color var(--duration-fast);
 }
 
-.dock-tab:not(.is-active) .dock-tab-close {
-  display: none;
+.dock-tab:is(:hover, :has(:focus-visible)) .dock-tab-close {
+  display: grid;
 }
 
-.dock-tab.is-active .dock-tab-close {
-  opacity: 1;
-}
-
-.dock-tab:hover .dock-tab-close {
-  color: inherit;
+.dock-tab:is(:hover, :has(:focus-visible)):has(.dock-tab-close) .dock-tab-button {
+  mask-image: linear-gradient(to left, transparent 24px, black 34px);
 }
 
 /* Darker than the tab under it, whichever fill that has. */
@@ -240,56 +252,18 @@
   color: var(--color-text);
 }
 
+.dock-all,
 .dock-add {
   flex: none;
 }
 
-/* A strip whose labels don't fit keeps only icons for the tabs you aren't on. */
-.dock-tabs.is-compact .dock-tab:not(.is-active) {
-  min-width: 0;
-}
-
-.dock-tabs.is-compact .dock-tab:not(.is-active) :is(.dock-tab-label, .dock-tab-close) {
-  display: none;
-}
-
-.dock-tabs.is-compact .dock-tab:not(.is-active) .dock-tab-button {
-  padding: 0 var(--space-2);
-}
-
-/* A lone tab is the area's title: no selected fill, and its close button
-   shows only while the pointer or focus is on it. */
+/* A lone tab is the area's title: no selected fill. */
 .dock-tabs.is-single .dock-tab.is-active {
   background: transparent;
 }
 
 .dock-tabs.is-single .dock-tab.is-active:hover {
   background: var(--color-hover);
-}
-
-.dock-tabs.is-single .dock-tab.is-active .dock-tab-close {
-  opacity: 0;
-}
-
-.dock-tabs.is-single .dock-tab.is-active:is(:hover, :focus-within) .dock-tab-close {
-  opacity: 1;
-}
-
-/* A narrow area keeps only icons for the tabs you aren't on, and toolbar
-   buttons marked collapsible drop their text. */
-@container dock-area (max-width: 520px) {
-  .dock-tab:not(.is-active) {
-    min-width: 0;
-  }
-
-  .dock-tab:not(.is-active) .dock-tab-label,
-  .dock-tab:not(.is-active) .dock-tab-close {
-    display: none;
-  }
-
-  .dock-tab:not(.is-active) .dock-tab-button {
-    padding: 0 var(--space-2);
-  }
 }
 
 /* the active panel's own controls, after the tabs */
@@ -319,7 +293,7 @@
   }
 }
 
-/* Titles in a toolbar shorten before the tabs give up their labels. */
+/* A toolbar's controls keep their size; what doesn't fit folds into ···. */
 .dock-toolbar > * {
   flex: none;
 }

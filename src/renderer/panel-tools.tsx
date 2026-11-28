@@ -9,11 +9,10 @@ import {
 import { DropdownMenu, type MenuEntry } from "./ui/index.js";
 
 // A panel's toolbar shares its area's tab strip. When the strip is too narrow
-// for it, even with the other tabs down to their icons, the strip folds the
-// panel's tools into a menu one at a time, lowest priority first (see
-// DockTabStrip in panel-layout.tsx). A panel marks what may fold with
-// <PanelTool>, and its own ··· menu becomes a <PanelToolsMenu> that lists what
-// folded; without one, the strip shows a ··· of its own.
+// for it, the strip folds the panel's tools into a menu one at a time, lowest
+// priority first (see DockTabStrip in panel-layout.tsx). A panel marks what may
+// fold with <PanelTool>, and its own ··· menu becomes a <PanelToolsMenu> that
+// lists what folded; without one, the strip shows a ··· of its own.
 
 interface Tool {
   priority: number;

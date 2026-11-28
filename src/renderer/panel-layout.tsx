@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Maximize, Minimize, MoreHorizontal, Plus, X } from "./icons.js";
+import { ChevronDown, Maximize, Minimize, MoreHorizontal, Plus, X } from "./icons.js";
 import { PanelTools, toolScopeOf, type ToolScope } from "./panel-tools.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
@@ -39,6 +39,9 @@ export interface PanelDef {
 }
 
 const MIN_SIZE = 200;
+/** How near a crowded strip's edge a dragged tab scrolls it, and how far each time. */
+const DRAG_EDGE = 32;
+const DRAG_SCROLL = 12;
 const SIDE_MIN = 160;
 const CENTER_MIN = 320;
 /** Below this width the rail toggle, project menu and chat actions need separate rows on macOS. */
@@ -366,6 +369,12 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                   // A mouse wheel scrolls a crowded strip sideways.
                   const list = event.currentTarget;
                   if (!event.deltaX && list.scrollWidth > list.clientWidth) list.scrollLeft += event.deltaY;
+                }}
+                onDragOverCapture={(event) => {
+                  // A tab dragged near an edge, over a tab or not, scrolls the strip to place it among tabs out of view.
+                  const list = event.currentTarget, box = list.getBoundingClientRect();
+                  if (event.clientX < box.left + DRAG_EDGE) list.scrollLeft -= DRAG_SCROLL;
+                  else if (event.clientX > box.right - DRAG_EDGE) list.scrollLeft += DRAG_SCROLL;
                 }}>
               {ids.map((id) => {
                 const panel = byId.get(id)!;
@@ -412,12 +421,20 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                   <ContextMenu key={id} items={menu}>{tab}</ContextMenu>
                 );
               })}
+              </div>
+              {ids.length > 1 ? (
+                <DropdownMenu trigger={(props) => (
+                  <IconButton {...props} size="sm" label={t("panels.all")} className="dock-all"><ChevronDown size="sm" /></IconButton>
+                )} items={ids.map((id) => {
+                  const panel = byId.get(id)!;
+                  return { label: panel.title, icon: panel.icon, checked: id === active, onSelect: () => activate(area, id) };
+                })} />
+              ) : null}
               {closed.length ? (
                 <DropdownMenu trigger={(props) => (
                   <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size="sm" /></IconButton>
                 )} items={addMenu(area)} />
               ) : null}
-              </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
               <DockToolsMenu />
               {present.length ? (
@@ -478,22 +495,37 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
 }
 
 /**
- * An area's tab strip. The active panel's toolbar shortens its titles first;
- * when it still does not fit beside the tabs, the tabs you aren't on keep only
- * their icons, and then the toolbar's tools fold into a menu one at a time
- * (see panel-tools.tsx). As the strip widens, the tools come back first, each
- * once its toolbar has the room it lacked; then the tabs get their labels back
- * once the strip is wider than when it compacted, or the tabs change. A single
- * tab reads as the area's title, without a selected fill or close button.
+ * An area's tab strip. Its tabs keep their labels and take up to 60% of the
+ * strip, scrolling past it (see panel-layout.css), so opening one moves none.
+ * The active panel's toolbar shortens its titles first; when it still does not
+ * fit, its tools fold into a menu one at a time (see panel-tools.tsx), and come
+ * back each once its toolbar has the room it lacked. A single tab reads as the
+ * area's title, without a selected fill.
  */
 function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { single: boolean; resetKey: string; titlebar: boolean; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(false);
-  const compactWidth = useRef(0);
+  // Whether the tabs scroll, and past which edges, as classes for ▾ and the fades.
+  const [scroll, setScroll] = useState("");
   // The active panel's tools, and their version, so folding one checks again.
   const [tools, setTools] = useState<ToolScope>();
   const [toolsVersion, setToolsVersion] = useState(0);
-  useLayoutEffect(() => setCompact(false), [resetKey]);
+  useLayoutEffect(() => {
+    const list = strip.current?.querySelector<HTMLElement>(".dock-tab-list");
+    if (!list) return;
+    const measure = () => {
+      const { scrollLeft, scrollWidth, clientWidth } = list;
+      setScroll(`${scrollWidth > clientWidth + 1 ? " is-crowded" : ""}${scrollLeft > 1 ? " is-scrolled-start" : ""}${scrollLeft + clientWidth < scrollWidth - 1 ? " is-scrolled-end" : ""}`);
+    };
+    measure();
+    list.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(list);
+    for (const tab of list.querySelectorAll(".dock-tab")) observer?.observe(tab);
+    return () => {
+      list.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [resetKey]);
   // The open tab scrolls into view in a crowded strip, without moving anything around it.
   useLayoutEffect(() => {
     const list = strip.current?.querySelector(".dock-tab-list");
@@ -502,7 +534,7 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
     const box = list.getBoundingClientRect(), at = tab.getBoundingClientRect();
     if (at.left < box.left) list.scrollLeft -= box.left - at.left;
     else if (at.right > box.right) list.scrollLeft += at.right - box.right;
-  }, [resetKey, compact]);
+  }, [resetKey]);
   useLayoutEffect(() => {
     const element = strip.current;
     const list = element?.querySelector(".dock-tab-list");
@@ -526,23 +558,16 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
       if (waiting) return;
       const over = Math.max(overflow(element), toolbar ? overflow(toolbar) : 0);
       if (over > 1) {
-        if (!compact && element.querySelector(".dock-tab:not(.is-active)")) {
-          compactWidth.current = element.clientWidth;
-          setCompact(true);
-        } else if (scope?.canFold() && toolbar) {
+        if (scope?.canFold() && toolbar) {
           waiting = true;
           scope.fold(toolbar.clientWidth + over);
         }
         return;
       }
-      if (scope?.folded) {
-        if (toolbar && toolbar.clientWidth >= scope.nextNeed()) {
-          waiting = true;
-          scope.unfold();
-        }
-        return;
+      if (scope?.folded && toolbar && toolbar.clientWidth >= scope.nextNeed()) {
+        waiting = true;
+        scope.unfold();
       }
-      if (compact && element.clientWidth > compactWidth.current + 24) setCompact(false);
     };
     check();
     const arrivals = new MutationObserver(check);
@@ -564,8 +589,8 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
       observer?.disconnect();
       unsubscribe?.();
     };
-  }, [compact, resetKey, toolsVersion]);
-  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
+  }, [resetKey, toolsVersion]);
+  return <div ref={strip} className={`dock-tabs${scroll}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
     <StripTools.Provider value={{ scope: tools, version: toolsVersion }}>{children}</StripTools.Provider>
   </div>;
 }

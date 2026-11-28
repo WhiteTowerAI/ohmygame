@@ -330,7 +330,32 @@ describe("the panel layout", () => {
     expect(current.center.panels).toEqual([]);
   });
 
-  it("names every tab, so a narrow area's icon-only tabs still read", async () => {
+  it("lists a crowded strip's tabs under ▾, which opens one", async () => {
+    // The center's tabs need 900 of their 600; the others fit.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-tab-list") ? 600 : 1000;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("dock-tab-list") && this.closest(".dock-area-center") ? 900 : this.clientWidth;
+    });
+    let current: Layout = { ...layout, center: { panels: ["game", "code"], active: "game", size: 0 }, right: { panels: [], size: 280 } };
+    const show = () => act(async () => root.render(createElement(PanelLayout, {
+      layout: current, panels, onChange: (next: Layout) => { current = next; void show(); }, empty: null })));
+    await show();
+    const strip = (area: string) => container.querySelector(`.dock-area-${area} .dock-tabs`)!;
+    expect(strip("center").classList.contains("is-crowded")).toBe(true);
+    expect(strip("center").classList.contains("is-scrolled-end")).toBe(true);
+    expect(strip("left").classList.contains("is-crowded")).toBe(false);
+    await act(async () => strip("center").querySelector<HTMLButtonElement>(".dock-all")!.click());
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role^="menuitem"]')];
+    expect(items.map((item) => `${item.textContent}${item.getAttribute("aria-checked") === "true" ? "*" : ""}`)).toEqual(["Game*", "Code"]);
+    await act(async () => items[1]!.click());
+    expect(current.center.active).toBe("code");
+    // Opening a tab leaves the strip as it was.
+    expect(strip("center").classList.contains("is-crowded")).toBe(true);
+  });
+
+  it("names every tab, with what it counts", async () => {
     await render(layout);
     expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("aria-label"))).toEqual(["Chat", "Game", "Code (2)"]);
     expect(container.querySelector(".dock")!.classList.contains("is-stacked")).toBe(false);
