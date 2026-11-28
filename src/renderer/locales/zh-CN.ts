@@ -3081,6 +3081,7 @@ const zhCN: typeof en = {
     searchInstalled: "搜索已安装的插件…",
     newPlugin: "新建插件",
     moreActions: "更多操作",
+    moreActionsFor: "{{name}} 的更多操作",
     groupUpdates: "有更新",
     groupMine: "我做的",
     groupOthers: "其他",

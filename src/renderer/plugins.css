@@ -121,43 +121,6 @@
   justify-content: center;
 }
 
-/* a market plugin's numbers, in one row as an app store shows them */
-.plugin-stats {
-  display: flex;
-  margin: 0;
-  padding: var(--space-3) 0;
-  overflow-x: auto;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.plugin-stats > div {
-  display: flex;
-  flex: 1 0 auto;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-width: 88px;
-  padding: 0 var(--space-3);
-}
-
-.plugin-stats > div + div {
-  border-left: 1px solid var(--color-border);
-}
-
-.plugin-stats dt {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.plugin-stats dd {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 
 /* screenshots: one row that scrolls sideways, each opening larger */
 .plugin-shots-row {
@@ -1037,6 +1000,37 @@
   color: var(--color-text-secondary);
   font-size: var(--text-md);
   line-height: 1.6;
+}
+
+/* The every-project switch, a row of its own under the head. */
+.plugin-enable {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.plugin-enable .ui-switch {
+  margin-top: 2px;
+}
+
+.plugin-enable-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-enable-text strong {
+  font-weight: var(--weight-medium);
+}
+
+.plugin-enable-text small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 /* the side card */

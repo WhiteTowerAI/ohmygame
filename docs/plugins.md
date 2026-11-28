@@ -93,11 +93,10 @@ person's own.
   - A card opens the plugin's page, the same page whether it's installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;
-    a row of its numbers, as an app store shows them (stars, version, size,
-    when it was updated); its screenshots, long description, what it adds and
-    asks for; and at the side its publisher (after their GitHub avatar),
-    categories, keywords, project types, first publish and repository, with
-    whether its source is verified.
+    its screenshots, long description, what it adds and asks for; and at the
+    side its publisher (after their GitHub avatar), categories, keywords,
+    project types, version, size, when it was updated and first published, and
+    repository, with whether its source is verified.
     It doesn't load the package's README: that is written for developers,
     often only in English, and would need its Markdown and pictures made safe;
     the manifest's localized `longDescription` and screenshots are the page,
@@ -112,13 +111,22 @@ many are on, as described in [Routes](#routes). One on in every project is
 on here and says so; switching it off is saved in the project. The type's own
 plugin stays on. **Manage all plugins** opens the Plugins page.
 
-A plugin's page has its main action at the top, as **Get** is for one not
-installed: **Update to …** when there's a newer version, and **Try now** for
-one with examples. Below are **About** (the long description and Try it prompts),
-**Skills**, and **Settings** tabs, beside a **Management** card with the
-**Every project** switch, version, source, and other actions. A plugin that stopped
-after crashing shows **Restart** there. A Try it prompt turns the plugin on in
-the project it starts in and mentions it.
+A plugin's page has its next step at the top, as **Get** is for one not
+installed: **Update to …** when there's a newer version, **Try now** for one
+with examples, and for the person's own plugin **Edit with AI** and **Publish
+to GitHub**. Beside them, ⋯ has the rest of what its row's right-click menu
+offers: **View log**, **Open folder**, **Export** for the person's own, and
+**Uninstall** when it has one version to remove. Under the head, the
+**On in every project** switch has a row of its own that says what on and off
+mean. Below are **About** (the long description and Try it prompts),
+**Skills**, and **Settings** tabs, beside an **Information** card: where it
+came from, its categories, keywords, project types, repository and version,
+or with several versions each with its own **Uninstall**. A plugin that
+stopped after crashing says so at the top, with **Turn on again**. A Try it
+prompt turns the plugin on in the project it starts in and mentions it. A
+plugin not installed has the same page and card, with its version, size and
+dates in the card; stars show only for a community plugin, as the market
+counts them only for a verified repository of one plugin.
 
 ## Files
 
@@ -369,8 +377,8 @@ Quit stop it. Register connection cleanup with `context.onDispose`, and return
 from `activate` after starting the connection; do not await its entire lifetime.
 Closing a project does not end an app connection. Desktop close-to-background
 remains the person's separate opt-in setting.
-A plugin's Management section offers to enable it when that app-wide session
-plugin is enabled and granted access. Dismissing the prompt leaves the setting
+A plugin's page offers, under its every-project switch, to enable it when
+that app-wide session plugin is on in every project and granted access. Dismissing the prompt leaves the setting
 unchanged; it is also available in Settings. Quit and computer sleep still interrupt connections.
 
 `context.project` is absent in the app host. `context.configuration` contains the
@@ -1681,8 +1689,8 @@ installed it isn't offered again, even before the next check.
 **Update** on a plugin's card in Installed adds that update directly when it
 asks for nothing new (`newAsks` empty), or opens its review dialog when it asks
 for more. The **Updates** section offers this action on the full list. When
-searching or filtering, the matching cards offer it in place. The switch for
-all projects is available in the plugin's **Management** section.
+searching, the matching rows offer it in place. The switch for all projects
+is on the plugin's page, under its head.
 
 **Update all**, beside **Updates**, adds each update in turn that asks for
 nothing new. One that asks for more stays listed for its own review, and the

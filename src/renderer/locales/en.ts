@@ -3128,6 +3128,7 @@ const en = {
     searchInstalled: "Search installed plugins…",
     newPlugin: "New plugin",
     moreActions: "More actions",
+    moreActionsFor: "More actions for {{name}}",
     groupUpdates: "Updates",
     groupMine: "Made by you",
     groupOthers: "Others",

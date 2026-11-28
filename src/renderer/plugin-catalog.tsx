@@ -382,9 +382,9 @@ function marketAddRows(adds: Record<string, number>): PluginAddRow[] {
 
 /**
  * A plugin on the market that isn't installed, on the same page an installed
- * one has: its name, what it is and Get first, then its numbers in one row,
- * as an app store shows them, its screenshots and description, what it adds
- * and asks for, and at the side who publishes it and where it comes from.
+ * one has: its name, what it is and Get first, then its screenshots and
+ * description, what it adds and asks for, and at the side the same Information
+ * card, with its version, size and dates.
  */
 export function MarketPluginPage({ plugin, getDisabled, onGet, onSearch }: {
   plugin: MarketPlugin;
@@ -404,12 +404,6 @@ export function MarketPluginPage({ plugin, getDisabled, onGet, onSearch }: {
   const updated = date(plugin.publishedAt);
   const created = date(plugin.createdAt);
   const shots = useMarketImages("screenshot", plugin.source, (plugin.screenshots ?? []).map((shot) => shot.path));
-  const stats = [
-    plugin.stars !== undefined ? { label: t("pluginCatalog.starsShort"), value: compact.format(plugin.stars) } : undefined,
-    { label: t("plugins.version"), value: plugin.version },
-    plugin.size !== undefined ? { label: t("pluginCatalog.size"), value: formatBytes(plugin.size) } : undefined,
-    updated ? { label: t("pluginCatalog.updated"), value: updated } : undefined,
-  ].filter((stat): stat is { label: string; value: string } => Boolean(stat));
   return <div className="plugin-page">
     <PluginHead tile={<MarketTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description}
       badges={<MarketBadges plugin={plugin} />}>
@@ -417,9 +411,6 @@ export function MarketPluginPage({ plugin, getDisabled, onGet, onSearch }: {
         <Button variant="primary" disabled={getDisabled} onClick={onGet}>{t("pluginCatalog.get")}</Button>
       </div>
     </PluginHead>
-    <dl className="plugin-stats">
-      {stats.map((stat) => <div key={stat.label}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}
-    </dl>
     <PluginScreenshots shots={(plugin.screenshots ?? []).flatMap((shot, index) => {
       const src = shots[index];
       return src ? [{ src, ...(shot.caption ? { caption: shot.caption } : {}) }] : [];
@@ -446,7 +437,13 @@ export function MarketPluginPage({ plugin, getDisabled, onGet, onSearch }: {
           {plugin.keywords?.length ? <><dt>{t("pluginCatalog.keywords")}</dt><dd><PluginKeywords keywords={plugin.keywords} onSearch={onSearch} /></dd></> : null}
           <dt>{t("pluginCatalog.worksWith")}</dt>
           <dd>{worksWith.length ? worksWith.join(" · ") : t("pluginCatalog.everyType")}</dd>
+          <dt>{t("plugins.version")}</dt>
+          <dd className="plugins-mono">v{plugin.version}</dd>
+          {plugin.size !== undefined ? <><dt>{t("pluginCatalog.size")}</dt><dd>{formatBytes(plugin.size)}</dd></> : null}
+          {updated ? <><dt>{t("pluginCatalog.updated")}</dt><dd>{updated}</dd></> : null}
           {created ? <><dt>{t("pluginCatalog.firstPublished")}</dt><dd>{created}</dd></> : null}
+          {/* The market counts stars only for a verified repository of one plugin, so never OhMyGame's own. */}
+          {plugin.stars !== undefined ? <><dt>{t("pluginCatalog.starsShort")}</dt><dd>{compact.format(plugin.stars)}</dd></> : null}
           {plugin.source ? <><dt>{t("pluginMarketSettings.listedBy")}</dt><dd>{new URL(plugin.source).host}</dd></> : null}
           {plugin.repository ? <><dt>{t("plugins.repository")}</dt><dd>
             <a href={plugin.repository} target="_blank" rel="noreferrer">{repositoryLabel(plugin.repository.replace(/^https:\/\/github\.com\//, ""))}<ExternalLink size="xs" /></a>

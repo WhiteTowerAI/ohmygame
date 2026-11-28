@@ -342,6 +342,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     }
   }, [pluginId, compact, query]);
 
+  const pluginMenu = useInstalledPluginMenu({ market, updates, everyProject, busy: updateDisabled, onChanged: reload,
+    onUpdate: (plugin) => void updatePlugin(plugin),
+    onRemoved: (id) => { if (activeRoute.current === id) showCatalog(); } });
+
   const editor = (group: StorePluginGroup, embedded: boolean) => <StorePluginDetail key={group.plugin.id} group={group}
     safeMode={safeMode} market={market} updates={updates} installDisabled={updateDisabled} everyProject={everyProject}
     onUpdate={(listed) => openAddDialog({ listed })} onUpdateSource={({ source }) => openAddDialog({ source })}
@@ -362,10 +366,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         headerSearch()?.focus();
       }
     }} />;
-
-  const pluginMenu = useInstalledPluginMenu({ market, updates, everyProject, busy: updateDisabled, onChanged: reload,
-    onUpdate: (plugin) => void updatePlugin(plugin),
-    onRemoved: (id) => { if (activeRoute.current === id) showCatalog(); } });
 
   const installedTab = <>
     {updatedAll ? <Alert tone={updatedAll.failed.length ? "danger" : updatedAll.review ? "info" : "success"}
@@ -416,7 +416,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         </Activity>)}
       </section>
     </div>
-    {pluginMenu.dialogs}
   </>;
 
   const pageError = error ?? everyProject.error ?? pluginMenu.error;
@@ -459,6 +458,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         </Activity> : null}
       </div>
     </>}
+    {pluginMenu.dialogs}
     {marketSettings ? <PluginMarketSourcesDialog sources={market?.sources} onClose={() => setMarketSettings(false)} onSaved={readMarket} /> : null}
     {dialog ? <PluginAddDialog {...dialog} onClose={() => setOperation(undefined)} onAdded={installedFromDialog} /> : null}
   </section>;

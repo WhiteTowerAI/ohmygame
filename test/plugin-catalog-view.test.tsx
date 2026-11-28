@@ -364,11 +364,11 @@ describe("plugin catalog browsing", () => {
       expect(side.textContent).toContain("Art");
       expect(side.textContent).toContain("Web Game");
       expect(side.textContent).toContain("First published");
-      // Its numbers are in one row: version, size and when it was updated.
-      const stats = container.querySelector(".plugin-stats")!.textContent;
-      expect(stats).toContain("Version1.0.0");
-      expect(stats).toContain("Size1.5 MB");
-      expect(stats).toContain("Updated");
+      // Its version, size and when it was updated are there too, as an installed one's page has them.
+      expect(side.textContent).toContain("Versionv1.0.0");
+      expect(side.textContent).toContain("Size1.5 MB");
+      expect(side.textContent).toContain("Updated");
+      expect(container.querySelector(".plugin-stats")).toBeNull();
       expect(container.textContent).toContain("Picks things.");
       expect(container.textContent).toContain("Run its own code on this computer");
       expect(container.querySelector(".plugin-store-adds")?.textContent).toContain("Panel1");
