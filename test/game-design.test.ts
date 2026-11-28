@@ -216,7 +216,7 @@ describe("Markdown design workspace", () => {
       if (!projectId) throw new Error("Project context missing");
       return { ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId, id: defaultId } };
     });
-    const { store, project, projects, assets, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
+    const { store, project, projects, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
     const first = await store.generateNode(project.id, boardId, node.id);
     expect(first.model).toEqual({ provider: project.id, id: "project-image" });
     expect(await waitForJob(store, project.id)).toMatchObject({ status: "failed", error: "Temporary service failure" });
@@ -737,7 +737,7 @@ describe("Markdown design workspace", () => {
   });
 
   it("generates video without requiring unrelated missing assets", async () => {
-    const { store, project, boardId, tools, assets } = await runtime();
+    const { store, project, boardId, tools } = await runtime();
     await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: { missing: { name: "Missing", path: "assets/missing.png" } } }));
     const board = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 560, y: 0 });
     if (video.type !== "video") throw new Error("Expected video node");
@@ -770,7 +770,7 @@ describe("Markdown design workspace", () => {
   });
   it("preserves prompt and position changes while finishing on an inactive board", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store, project, boardId, node, assets } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { store, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Original prompt" });
     await expect.poll(() => Boolean(finish)).toBe(true);
     await store.changeBoards(project.id, { type: "create", name: "Other board" });
@@ -784,7 +784,7 @@ describe("Markdown design workspace", () => {
   });
   it("lets a checkpoint wait for a finished run's save, not for the run", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store: editor, projects, assets, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { store: editor, projects, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     const writes = new ProjectWrites(), store = new CanvasStore(projects, tools, undefined, {}, writes); stores.push(store);
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     // The provider is still working, and a snapshot goes ahead anyway.
@@ -803,7 +803,7 @@ describe("Markdown design workspace", () => {
   });
   it("drops a finished run's save that waits for a project being removed", async () => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { projects, assets, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { projects, tools, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     const writes = new ProjectWrites(), store = new CanvasStore(projects, tools, undefined, {}, writes); stores.push(store);
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     // Removal holds the workspace, cancels the project's runs and waits for them.
@@ -816,7 +816,7 @@ describe("Markdown design workspace", () => {
   });
   it.each(["node", "board"] as const)("keeps output and history when its %s is removed", async (remove) => {
     let finish!: (value: Awaited<ReturnType<ImageGenerator["generate"]>>) => void;
-    const { store, project, boardId, node, assets } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
+    const { store, project, boardId, node } = await runtime({ generate: async () => new Promise((resolve) => { finish = resolve; }) });
     await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" }); await expect.poll(() => Boolean(finish)).toBe(true);
     if (remove === "board") { await store.changeBoards(project.id, { type: "create", name: "Other" }); await store.changeBoards(project.id, { type: "delete", boardId }); }
     else { const board = await store.board(project.id, boardId); board.board.nodes = []; board.board.editorLayout.nodes = {}; await store.saveBoard(project.id, board.board, board.revision); }
@@ -882,7 +882,7 @@ describe("Markdown design workspace", () => {
     expect((await store.jobs(project.id))[0]!.status).toBe("running");
   });
   it.each(["generate-video", "image-to-3d", "animate-3d"] as const)("stores %s output in the matching node", async (toolId) => {
-    const { store, project, boardId, tools, assets } = await runtime(), board = await store.board(project.id, boardId);
+    const { store, project, boardId, tools } = await runtime(), board = await store.board(project.id, boardId);
     const node: AssetCanvasNode = toolId === "animate-3d"
       ? { id: "animation", type: "animate-3d", position: { x: 0, y: 0 }, data: { heightMeters: 1.7, actionIds: [] } }
       : createAssetGenerationNode(toolId === "generate-video" ? "video" : "model-3d", { x: 0, y: 0 });
