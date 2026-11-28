@@ -35,7 +35,8 @@ import { splitPluginMentions } from "../shared/plugins.js";
 import { PluginGlyph, PluginMentionGlyph } from "./plugin-icons.js";
 import { ImageGallery } from "./image-viewer.js";
 import { AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
-import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
+import { humanizeIdentifier, mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
+import { builtInTool, builtInToolIcon, pluginTool, toolDisplayName, type PluginToolPlugin } from "./tool-presentation.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { ModelThumbnail } from "./model-thumbnail.js";
@@ -585,15 +586,15 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
   // An agent may run its calls one at a time: the one running names the group, not those behind it.
   const busy = tools.some((tool) => tool.status === "inProgress");
   const runningTool = tools.findLast((tool) => tool.status === "inProgress") ?? tools.findLast((tool) => tool.status === "preparing");
-  const runningPresentation = runningTool ? toolPresentation(runningTool) : undefined;
-  const Icon = runningPresentation?.icon ?? toolGroupIcon(tools);
-  const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label) : undefined;
+  const plugins = useContext(PluginsContext);
+  const runningPresentation = runningTool ? toolPresentation(runningTool, plugins) : undefined;
+  const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label, plugins) : undefined;
   const showThinking = thinking && !runningTool;
-  const summaryLabel = showThinking ? t("timeline.thinking") : runningLabel ?? toolGroupSummary(tools);
+  const summaryLabel = showThinking ? t("timeline.thinking") : runningLabel ?? toolGroupSummary(tools, plugins);
   return (<>
     <LazyDetails className="tool-activity-group" summary={
       <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
-        {showThinking ? null : <Icon size={13} aria-hidden="true" />}
+        {showThinking ? null : <ToolGlyph presentation={runningPresentation ?? { icon: toolGroupIcon(tools) }} />}
         <ShimmerText text={summaryLabel} active={Boolean(runningTool || showThinking)} className="tool-label" title={summaryLabel} role={showThinking ? "status" : undefined} />
         <ChevronRight className="tool-group-chevron" size="sm" aria-hidden="true" />
       </summary>}>
@@ -608,6 +609,14 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
 
 type ToolIcon = IconComponent | typeof GodotIcon;
 
+/** A tool's icon, or the plugin's own for a plugin's tool. */
+function ToolGlyph({ presentation }: { presentation: { icon: ToolIcon; plugin?: PluginToolPlugin } }) {
+  const Icon = presentation.icon;
+  return presentation.plugin
+    ? <span className="tool-brand-icon tool-plugin-glyph" aria-hidden="true"><PluginGlyph plugin={presentation.plugin} size={13} /></span>
+    : <Icon size={13} aria-hidden="true" />;
+}
+
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "generate_image")) return WandSparkles;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return Pencil;
@@ -615,6 +624,8 @@ function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find"))) return Search;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "game_use")) return Gamepad2;
+  const named = tools.find((tool) => tool.type === "dynamicToolCall" && builtInToolIcon(tool.tool));
+  if (named?.type === "dynamicToolCall") return builtInToolIcon(named.tool)!;
   const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
   if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
   if (mcpCalls.length > 0) return Plug;
@@ -901,15 +912,15 @@ function isQueued(item: ToolItem): boolean {
 }
 
 function ToolActivity({ item, completed = false, queued = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean; queued?: boolean }) {
-  const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
-  const Icon = presentation.icon;
+  const plugins = useContext(PluginsContext);
+  const presentation = completed ? completedToolPresentation(item, plugins) : toolPresentation(item, plugins);
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
-    ? queued ? t("timeline.queued", { tool: item.tool }) : preparingToolLabel(item.tool)
+    ? queued ? t("timeline.queued", { tool: toolDisplayName(item.tool, plugins) }) : preparingToolLabel(item.tool, plugins)
     : presentation.label;
   const expandable = hasToolDetails(item);
   const row = (
     <div className={`tool-activity tool-row${expandable ? " tool-row-expandable" : ""} timeline-activity tool-${item.status}`}>
-      <Icon size={13} aria-hidden="true" />
+      <ToolGlyph presentation={presentation} />
       <span className="tool-label" title={label}>{label}</span>
       {item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool) && item.status === "completed" && item.lineChanges ? <ChangeCounts lines={item.lineChanges} /> : null}
       {expandable ? <ChevronRight className="tool-detail-chevron" size="xs" aria-hidden="true" /> : null}
@@ -1101,7 +1112,7 @@ function ArtifactThumbnail({ projectId, artifact }: { projectId: string; artifac
   </div>;
 }
 
-function preparingToolLabel(toolName: string): string {
+function preparingToolLabel(toolName: string, plugins: ConversationCapabilities["plugins"]): string {
   switch (toolName) {
     case "bash":
     case "read":
@@ -1111,11 +1122,11 @@ function preparingToolLabel(toolName: string): string {
     case "mcp":
     case "game_use":
     case "tool": return t(`timeline.preparing.${toolName}`);
-    default: return t("timeline.preparing.other", { tool: toolName });
+    default: return t("timeline.preparing.other", { tool: toolDisplayName(toolName, plugins) });
   }
 }
 
-function runningToolGroupLabel(item: ToolCallItem, label: string): string {
+function runningToolGroupLabel(item: ToolCallItem, label: string, plugins: ConversationCapabilities["plugins"]): string {
   if (item.type === "mcpToolCall") return label;
   switch (item.tool) {
     case "edit":
@@ -1125,11 +1136,13 @@ function runningToolGroupLabel(item: ToolCallItem, label: string): string {
     case "find": return t("timeline.group.search");
     case "ls": return t("timeline.group.list");
     case "web_search": return t("timeline.group.web");
-    default: return item.status === "preparing" ? preparingToolLabel(item.tool) : label;
+    default: return item.status === "preparing" ? preparingToolLabel(item.tool, plugins) : label;
   }
 }
 
-function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>): { icon: ToolIcon; label: string } {
+type ToolPresentation = { icon: ToolIcon; label: string; plugin?: PluginToolPlugin };
+
+function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>, plugins: ConversationCapabilities["plugins"]): ToolPresentation {
   if (item.type === "mcpToolCall") {
     return { icon: mcpToolBrand(item) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(item) };
   }
@@ -1146,12 +1159,11 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "ls": return { icon: FileText, label: withTarget("listing", values) };
     case "web_search": return { icon: Search, label: searchLabel("searchingWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, false) };
-    case "generate_image": return { icon: WandSparkles, label: t("timeline.generatingImage") };
-    default: return { icon: Toolbox, label: toolName };
+    default: return namedToolPresentation(toolName, plugins, false);
   }
 }
 
-function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>): { icon: ToolIcon; label: string } {
+function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>, plugins: ConversationCapabilities["plugins"]): ToolPresentation {
   if (item.type === "mcpToolCall") {
     return { icon: mcpToolBrand(item) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(item) };
   }
@@ -1168,9 +1180,18 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "ls": return { icon: FileText, label: withTarget("listed", values) };
     case "web_search": return { icon: Search, label: searchLabel("searchedWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, true) };
-    case "generate_image": return { icon: WandSparkles, label: t("timeline.generatedImage") };
-    default: return { icon: Toolbox, label: t("timeline.used", { tool: toolName }) };
+    default: return namedToolPresentation(toolName, plugins, true);
   }
+}
+
+/** One of OhMyGame's own tools by its texts, a plugin's under the plugin, and any other by its name in words. */
+function namedToolPresentation(toolName: string, plugins: ConversationCapabilities["plugins"], completed: boolean): ToolPresentation {
+  const builtIn = builtInTool(toolName);
+  if (builtIn) return { icon: builtIn.icon, label: completed ? builtIn.done() : builtIn.running };
+  const plugin = pluginTool(toolName, plugins);
+  if (plugin) return { icon: Plug, plugin: plugin.plugin, label: t("timeline.pluginTool", { plugin: plugin.plugin.displayName, tool: plugin.tool }) };
+  const name = humanizeIdentifier(toolName);
+  return { icon: Toolbox, label: completed ? t("timeline.used", { tool: name }) : name };
 }
 
 function playtestLabel(values: Record<string, unknown> | undefined, completed: boolean): string {
