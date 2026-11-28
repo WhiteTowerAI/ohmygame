@@ -2654,6 +2654,85 @@ describe("OpenCode adapter", () => {
     };
   }
 
+  it("does not cache the early model list before OpenCode registers its providers", async () => {
+    const ctx = await context();
+    let catalogReady = false;
+    let modelReads = 0;
+    const server = createServer((request, response) => {
+      const route = new URL(request.url!, "http://localhost").pathname;
+      response.setHeader("content-type", "application/json");
+      const reply = (value: unknown) =>
+        response.end(JSON.stringify({ data: value }));
+      if (route === "/api/event") {
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write("data: {}\n\n");
+        return;
+      }
+      if (route === "/api/info")
+        return response.end(JSON.stringify({ version: "2.4.1" }));
+      if (route === "/api/location")
+        return response.end(
+          JSON.stringify({
+            directory: ctx.privateDirectory,
+            project: { id: "project" },
+          }),
+        );
+      if (route === "/api/agent")
+        return reply(["build", "plan"].map((id) => ({ id })));
+      if (route === "/api/provider")
+        return reply(
+          catalogReady
+            ? [{ id: "opencode" }, { id: "opencode-go" }]
+            : [{ id: "opencode" }],
+        );
+      if (route === "/api/model") {
+        modelReads++;
+        // Before the provider registers, its models are merged into opencode.
+        if (modelReads >= 3) catalogReady = true;
+        return reply([
+          {
+            id: "deepseek-v4.1-flash",
+            providerID: "opencode",
+            enabled: true,
+            capabilities: { tools: true },
+          },
+          {
+            id: "kimi-k3",
+            providerID: catalogReady ? "opencode-go" : "opencode",
+            enabled: true,
+            capabilities: { tools: true },
+          },
+        ]);
+      }
+      response.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          server.closeAllConnections();
+        }),
+    );
+    const port = (server.address() as { port: number }).port;
+    fakeCli((message, cli) => {
+      if (message.type === "spawned")
+        queueMicrotask(() => cli.send({ url: `http://127.0.0.1:${port}` }));
+    });
+    const output = await OpenCodeDriver.discover({
+      binaryPath: "/usr/local/bin/fake",
+      env: {},
+      privateDirectory: ctx.privateDirectory,
+    });
+    expect(modelReads).toBeGreaterThanOrEqual(3);
+    expect(discovery.parseOpenCodeModels(output)).toEqual([
+      expect.objectContaining({ id: "opencode/deepseek-v4.1-flash" }),
+      expect.objectContaining({ id: "opencode-go/kimi-k3" }),
+    ]);
+  });
+
   it("waits for v2 configuration transforms before offering a turn", async () => {
     const f = await openCodeFixture();
     f.deferConfiguration();

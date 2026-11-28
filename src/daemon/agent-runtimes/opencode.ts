@@ -34,6 +34,14 @@ import {
 } from "./compatibility.js";
 
 const START_TIMEOUT_MS = 30_000;
+/** How long OpenCode may take to register every provider's models after it listens. */
+const CATALOG_SETTLE_TIMEOUT_MS = 5_000;
+/** How often to re-read the catalog while it loads. */
+const CATALOG_POLL_INTERVAL_MS = 250;
+/** OpenCode lists models before it lists their providers, so never trust an early read. */
+const CATALOG_MIN_WAIT_MS = 1_500;
+/** Reads that must agree after the minimum wait before the catalog is trusted. */
+const CATALOG_STABLE_READS = 3;
 /** The "allow" mode: a session rule after OpenCode's own that allows everything. */
 const ALLOW_ALL = { action: "*", resource: "*", effect: "allow" };
 const SESSION_PREFIX = "opencode-v2:";
@@ -91,7 +99,7 @@ export class OpenCodeDriver implements NativeDriver {
     });
     try {
       await driver.#start();
-      return await driver.#api("GET", "/model");
+      return await driver.#modelCatalog();
     } catch (cause) {
       if (cause instanceof AgentRuntimeCompatibilityError) throw cause;
       throw cliProbeError(
@@ -475,6 +483,36 @@ export class OpenCodeDriver implements NativeDriver {
         this.#starting = undefined;
       }
     })());
+  }
+
+  /**
+   * OpenCode v2 starts answering /model before every provider is registered: a
+   * first read can list a subscription provider's models under `opencode`, or
+   * leave them out, and only later reports them under `opencode-go`. Read the
+   * provider list and catalog until they agree and stop changing, so a probe
+   * never caches a partial list and hides models the person has access to.
+   */
+  async #modelCatalog(): Promise<unknown> {
+    const deadline = Date.now() + CATALOG_SETTLE_TIMEOUT_MS;
+    const trustedAt = Date.now() + CATALOG_MIN_WAIT_MS;
+    let previous: string | undefined;
+    let stable = 0;
+    let latest: unknown;
+    for (;;) {
+      const [providers, models] = await Promise.all([
+        // A server without a usable /provider list settles on stability alone.
+        this.#api("GET", "/provider").catch(() => undefined),
+        this.#api("GET", "/model"),
+      ]);
+      latest = models;
+      const signature = catalogSignature(providers, models);
+      if (signature === undefined || signature !== previous) stable = 0;
+      else if (Date.now() >= trustedAt && ++stable >= CATALOG_STABLE_READS)
+        return latest;
+      previous = signature;
+      if (Date.now() >= deadline) return latest;
+      await delay(CATALOG_POLL_INTERVAL_MS);
+    }
   }
 
   /** V2 uses the person's CLI configuration, with app instructions and staged Skills added. */
@@ -973,6 +1011,37 @@ class OpenCodeHttpError extends Error {
   ) {
     super(message);
   }
+}
+
+/** The provider and model ids a catalog read reported, or undefined while they disagree. */
+function catalogSignature(
+  providers: unknown,
+  models: unknown,
+): string | undefined {
+  const modelProviders = new Set<string>();
+  const modelIds: string[] = [];
+  for (const value of Array.isArray(models) ? models : []) {
+    const model = record(value);
+    const providerID = model?.providerID;
+    const id = model?.id;
+    if (typeof providerID !== "string") continue;
+    modelProviders.add(providerID);
+    if (typeof id === "string") modelIds.push(`${providerID}/${id}`);
+  }
+  if (modelIds.length === 0) return undefined;
+  // `/provider` is the server's authoritative list. A model from a provider
+  // that is not listed yet is from an earlier, merged catalog snapshot. A reply
+  // that is not a list says nothing about providers, so settle without it.
+  if (Array.isArray(providers)) {
+    const known = new Set(
+      providers.flatMap((value) => {
+        const provider = record(value);
+        return typeof provider?.id === "string" ? [provider.id] : [];
+      }),
+    );
+    if (![...modelProviders].every((id) => known.has(id))) return undefined;
+  }
+  return JSON.stringify([[...modelProviders].sort(), modelIds.sort()]);
 }
 
 /** OpenCode names models `provider/model`; the provider comes first, the rest is the model. */
