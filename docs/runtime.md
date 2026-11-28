@@ -1170,7 +1170,8 @@ has finished, in any project, including while the main window is closed.
 
 Recent Projects, the Projects grid and list, and the sidebar show when a
 project has a new result or needs input. The editor's project rail shows which
-conversation needs attention. Opening the corresponding conversation at the
+conversation needs attention and, when none does, a spinner on each project
+with a running agent. Opening the corresponding conversation at the
 end of its timeline in a focused window clears a new result. An approval or
 question stays marked until it is resolved. These indicators work
 independently of desktop notification preferences. Unread results are kept

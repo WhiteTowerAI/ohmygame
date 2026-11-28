@@ -38,6 +38,7 @@ import { communityProfileHash, conversationHash, projectHash, settingsHash, type
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
+import { useProjectActivity } from "./use-project-activity.js";
 import { useProjectImagePreview } from "./use-project-image-preview.js";
 import { UserAvatar } from "./user-avatar.js";
 import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
@@ -440,16 +441,17 @@ export function editedAgo(value: string, now = Date.now()): string {
 }
 
 // A project in the rail.
-function RailProject({ project, open, conversations, reorder }: {
+function RailProject({ project, open, conversations, running, reorder }: {
   project: ProjectState;
   open: (hash: string) => void;
   conversations?: RailConversations;
+  running: boolean;
   reorder: ProjectItemProps;
 }) {
   return <RailConversationsItem projectId={project.id} name={project.name} updatedAt={project.updatedAt}
     cover={<SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />}
     hash={projectHash(project.id)} conversationHash={(id) => conversationHash(project.id, id)}
-    open={open} conversations={conversations} reorder={reorder} />;
+    open={open} conversations={conversations} running={running} reorder={reorder} />;
 }
 
 // An item in a full-window rail that holds a project: a game's, or a plugin's
@@ -457,7 +459,7 @@ function RailProject({ project, open, conversations, reorder }: {
 // between them, or to another item, is one move. From the keyboard, the right
 // arrow opens the list and the arrows move through it; the left arrow or Escape
 // goes back to the icon.
-export function RailConversationsItem({ projectId, name, updatedAt, cover, hash, conversationHash: hashOf, open: openProject, conversations, reorder, className = "" }: {
+export function RailConversationsItem({ projectId, name, updatedAt, cover, hash, conversationHash: hashOf, open: openProject, conversations, running = false, reorder, className = "" }: {
   projectId: string;
   name: string;
   /** When it last changed, as an ISO date. */
@@ -469,11 +471,13 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
   open: (hash: string) => void;
   /** Given for the open item; others load theirs on hover. */
   conversations?: RailConversations;
+  /** An agent is working in it; shown when nothing needs attention. */
+  running?: boolean;
   /** Dragging to reorder, where the rail has it. */
   reorder?: ProjectItemProps;
   className?: string;
 }) {
-  const attention = useProjectAttention(projectId);
+  const attention = useProjectAttention(projectId) ?? (running ? "running" : undefined);
   const anchor = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const timer = useRef<number>(undefined);
@@ -629,12 +633,13 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const current = project ?? projects.find((item) => item.id === projectId);
   const shown = !current || listed.some((item) => item.id === current.id) ? listed : [...listed, current];
   const reorder = useProjectReorder(shown);
+  const activity = useProjectActivity(true);
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
     <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
       <div {...reorder.listProps}>
         {shown.map((item) => (
-          <RailProject key={item.id} project={item} open={openHash} reorder={reorder.itemProps(item.id)}
+          <RailProject key={item.id} project={item} open={openHash} running={activity.has(item.id)} reorder={reorder.itemProps(item.id)}
             conversations={item.id === projectId ? conversations : undefined} />
         ))}
         {reorder.line}

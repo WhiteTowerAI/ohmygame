@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthState } from "../src/renderer/auth.js";
-import type { ProjectState } from "../src/shared/contracts.js";
+import type { ProjectActivitySnapshot, ProjectState } from "../src/shared/contracts.js";
 
 const auth = vi.hoisted(() => ({
   state: { status: "signed-out" } as AuthState,
@@ -55,6 +55,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   ],
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
+  streamProjectActivity: async (_signal: AbortSignal, onSnapshot: (snapshot: ProjectActivitySnapshot) => void) =>
+    onSnapshot({ activity: [{ projectId: "old", status: "running" }], names: [] }),
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
 const { ProjectRail } = await import("../src/renderer/app-sidebar.js");
@@ -389,6 +391,12 @@ describe("in a project", () => {
     await act(async () => button("Old Garden")!.click());
     expect(onLeave).toHaveBeenCalledTimes(2);
     expect(window.location.hash).toBe("#/projects/old");
+  });
+
+  it("marks a project whose agent is running", () => {
+    expect(button("Old Garden")!.getAttribute("aria-description")).toBe("Running");
+    expect(button("Old Garden")!.querySelector(".project-attention-mark.is-running")).not.toBeNull();
+    expect(button("New Rocket")!.hasAttribute("aria-description")).toBe(false);
   });
 
   it("lists a project's conversations on hover, newest first", async () => {

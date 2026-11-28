@@ -7,6 +7,8 @@
   color: var(--warning);
 }
 
+.project-attention-mark.is-running { color: var(--text-muted); }
+
 .project-attention-mark.is-unread::before {
   content: "";
   width: 7px;
