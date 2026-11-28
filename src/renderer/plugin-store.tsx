@@ -216,7 +216,8 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
   const { plugin } = group;
   const nameId = useId();
   const metadataId = useId();
-  const publisher = pluginPublisherName(plugin.id);
+  // The seal already says OhMyGame's, and the person's own need no name.
+  const publisher = isOfficialStorePlugin(plugin) || plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) ? undefined : pluginPublisherName(plugin.id);
   const enabled = storePluginEnabled(plugin);
   const listed = marketUpdate(plugin, market);
   const fromSource = listed ? undefined : sourceUpdate(plugin, market, updates);
@@ -248,8 +249,8 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
           ]} />
         </span>
         <span id={metadataId} className="installed-plugin-meta">
-          <span className="installed-plugin-version" title={plugin.version}>{plugin.version}</span>{" "}
-          <span className="installed-plugin-publisher" title={publisher}>{publisher}</span>
+          <span className="installed-plugin-version" title={plugin.version}>{plugin.version}</span>
+          {publisher ? <>{" "}<span className="installed-plugin-publisher" title={publisher}>{publisher}</span></> : null}
           {showEveryProject ? <>{" "}<span className="installed-plugin-scope" title={t("plugins.scopeEveryProject")}>
             <span aria-hidden="true">{t("plugins.scopeEveryProjectShort")}</span>
             <span className="visually-hidden">{t("plugins.scopeEveryProject")}</span>

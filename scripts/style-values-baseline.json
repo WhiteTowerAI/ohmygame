@@ -88,7 +88,7 @@
     "fontWeight": 9,
     "radius": 75,
     "shadow": 24,
-    "zIndex": 57
+    "zIndex": 56
   },
   "src/renderer/ui/chip.css": {
     "shadow": 1

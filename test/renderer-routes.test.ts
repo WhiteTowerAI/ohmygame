@@ -58,7 +58,9 @@ describe("renderer routes", () => {
     // The marketplace can open at the plugins that add a project type.
     expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
     expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
-    expect(parseAppRoute(pluginsTabHash("mine"))).toEqual({ page: "plugins", tab: "mine" });
+    expect(parseAppRoute(pluginsTabHash("installed"))).toEqual({ page: "plugins", tab: "installed" });
+    // Mine became Installed's Made by you group, so an old link opens Installed.
+    expect(parseAppRoute("#/plugins?tab=mine")).toEqual({ page: "plugins", tab: "installed" });
     expect(parseAppRoute("#/plugins?tab=skills")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins/%")).toEqual({ page: "plugins" });

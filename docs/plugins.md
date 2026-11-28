@@ -13,10 +13,13 @@ from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
-the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
-default. Tabs show no counts; **Installed** has a dot when an installed plugin
-has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
+The Plugins page reads `GET /plugin-store/plugins` and has two tabs, kept in
+the route as `#/plugins?tab=discover|installed`, **Discover** first and by
+default. An old `tab=mine` link opens Installed. Tabs show no counts;
+**Installed** has a dot when an installed plugin has an update. The header has
+one search for whichever tab is open, **New plugin**, which opens the
+[Plugin Builder](#making-a-plugin), and a ⋯ menu with **Add plugin**, **Add
+MCP service** and **Plugin sources**. `src/renderer/plugin-catalog.tsx` holds what Discover and
 Installed share for category navigation, plus the market sorting, cards,
 overview and plugin dialog.
 
@@ -40,26 +43,32 @@ bundled, from its `@ohmygame` npm scope, or released from a `WhiteTowerAI/`
 repository. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
-that failed). Discover and Installed display each publisher as `@publisher`,
-including `@ohmygame`.
+that failed). Discover and Installed display each publisher as `@publisher`;
+an installed row leaves it out when the seal already says OhMyGame, and for the
+person's own.
 
 - **Installed** opens a plugin list alongside its details. Select a plugin to
   see its overview, skills, settings, and management actions. In a narrow
   window, open the details from the list and use **Installed** to go back.
   Switching plugins keeps the last detail tab and any unsaved settings for
-  each plugin while the page is open. The **Official** seal appears beside the
-  plugin name. Each row shows the installed version and publisher underneath.
+  each plugin while the page is open. The list is in groups, each by name:
+  **Updates**, then **Made by you**, then **Others**; with only one group it
+  has no heading. **Made by you** holds the person's own plugins
+  (`personal/<name>`, made with AI) and those developed from a folder, then the
+  Plugin Builder's drafts not installed yet: each plugin's newest workspace
+  whose plugin isn't installed (`GET /plugins/setup-sessions`). A draft opens its
+  workspace, and its right-click menu deletes it after asking. A package added
+  from a folder or file is someone's release, so it's under **Others**. Each row
+  shows the installed version and publisher underneath, and **Every project**
+  for one on in every project.
   Right-clicking a row offers its update, **On in every project**, the log,
   **Edit with AI** for your own plugins, its folder, and **Uninstall** when it
   has one version to remove; the uninstall dialog is the one its page uses.
-  The list header shows counts for **All**, **On in every project**, and
-  **Updates**. In **All**, enabled plugins that default to on show **Every
-  project** after the publisher. Use the menu beside search to filter by category.
   The switch in the plugin details sets the default for compatible projects.
   Projects can override it.
-  Update a plugin directly from the list, or choose **Update all** under
-  **Updates** with an empty search. Updates that ask for new permissions need
-  individual review.
+  Update a plugin directly from the list, or choose **Update all** beside
+  **Updates** when it has more than one and nothing is searched. Updates that
+  ask for new permissions need individual review.
 - **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
   from a side list as in an app store (`MarketRail`): **Overview**, **All
   plugins**, each category with how many plugins it has, and two filters,
@@ -96,16 +105,6 @@ including `@ohmygame`.
     the listed version; once added, the page becomes the installed one. A
     link to a plugin that isn't installed opens the same page. Back returns
     to the list where it was scrolled to.
-- **Mine** is for making plugins: **Create a plugin with AI** across the top,
-  then **Your plugins**, a card for each plugin the person makes, as projects
-  are (`MinePlugins` in `plugin-builder.tsx`). A plugin made with AI
-  (`personal/<name>`) opens its AI workspace without a dialog, and a draft not
-  installed yet is a card too; each says whether it's installed, and when its
-  workspace was last changed. One developed from a folder opens its page. A
-  package added from a folder or file is someone's release, so it's only under
-  Installed, where every plugin is switched on and off. A card's menu opens the
-  plugin's page, any earlier workspace of the plugin, or deletes its workspace,
-  which keeps the installed plugin.
 
 A project's **Plugins** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how

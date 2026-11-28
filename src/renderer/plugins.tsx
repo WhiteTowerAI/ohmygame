@@ -1,32 +1,29 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { MinePlugins } from "./plugin-builder.js";
+import { PluginDraftRow, pluginDrafts, usePluginWorkspaces } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, CirclePlus, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert } from "./icons.js";
+import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
-import { CATALOG_CATEGORIES, categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
+import { categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { useListPage } from "./use-list-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { marketPluginSource, PluginAddDialog } from "./plugin-add-dialog.js";
-import { Alert, Button, DropdownMenu, Empty, FilterChips, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
+import { Alert, Button, DropdownMenu, Empty, IconButton, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
 /**
  * One the person makes: made with AI, or developed from a folder. Installed
- * lists them with the rest; Mine is where they're made. A package added from a
- * folder or file is someone's release, so it's only under Installed.
+ * lists them first, with the Plugin Builder's drafts. A package added from a
+ * folder or file is someone's release, so it's with the rest.
  */
 const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || plugin.origin?.type === "development";
-
-type InstalledStatus = "all" | "everyProject" | "updates";
-type InstalledSection = CatalogFilter | InstalledStatus;
 
 export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
@@ -58,7 +55,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Under Model providers: what the providers make.
   const [providerKind, setProviderKind] = useState<ProviderKindFilter>("all");
   const [only, setOnly] = useState<MarketOnly[]>([]);
-  const [installedSection, setInstalledSection] = useState<InstalledSection>("all");
   const pageRef = useRef<HTMLElement>(null);
   const inventoryRef = useRef<HTMLElement>(null);
   const detailBack = useRef<HTMLButtonElement>(null);
@@ -162,11 +158,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const normalizedQuery = query.trim().toLowerCase();
   const groups = groupStorePlugins(store).sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
   const matching = groups.filter(({ plugin }) => !normalizedQuery || storePluginSearchText(plugin).includes(normalizedQuery));
-  const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.createWithAi"), icon: <Sparkles size="sm" />, onSelect: createWithAi },
-    { label: t("plugins.addMcp"), icon: <Server size="sm" />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
-    "separator",
+  // What the header's ⋯ holds: ways to add that most people never need.
+  const moreItems: MenuEntry[] = [
     { label: t("pluginAdd.menu"), icon: <Package size="sm" />, disabled: installing, onSelect: () => openAddDialog() },
+    { label: t("plugins.addMcp"), icon: <Server size="sm" />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
+    ...(market && market.status !== "off" ? ["separator" as const, { label: t("pluginMarketSettings.open"), icon: <SlidersHorizontal size="sm" />, disabled: installing, onSelect: () => setMarketSettings(true) }] : []),
   ];
   // Nav counts describe the installed library and stay available while searching.
   const everyProjectIds = new Set(groups.filter(({ plugin }) => plugin.everyProject && storePluginEnabled(plugin))
@@ -176,25 +172,17 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     return target ? [{ plugin, target }] : [];
   });
   const updateIds = new Set(toUpdate.map(({ plugin }) => plugin.id));
-  const installed = matching.filter(({ plugin }) => {
-    if (installedSection === "everyProject") return everyProjectIds.has(plugin.id);
-    if (installedSection === "updates") return updateIds.has(plugin.id);
-    return inCatalogCategory(plugin.categories, installedSection);
-  });
-  const installedStatuses = [
-    { value: "all", label: t("pluginCatalog.all"), count: groups.length },
-    { value: "everyProject", label: t("plugins.scopeEveryProject"), count: everyProjectIds.size },
-    { value: "updates", label: t("pluginCatalog.updates"), count: toUpdate.length },
-  ] satisfies { value: InstalledStatus; label: string; count: number }[];
-  const activeStatus = installedStatuses.find(({ value }) => value === installedSection);
-  const activeCategory = installedSection !== "all" && installedSection !== "everyProject" && installedSection !== "updates"
-    ? categoryLabel(installedSection) : undefined;
-  const installedCategories = CATALOG_CATEGORIES.filter((category) => category === installedSection
-    || groups.some(({ plugin }) => inCatalogCategory(plugin.categories, category)));
-  const installedEmpty = !groups.length ? t("plugins.noneInstalled")
-    : normalizedQuery ? t("plugins.noMatch")
-    : installedSection === "everyProject" ? t("plugins.noneEveryProject")
-    : installedSection === "updates" ? t("plugins.noUpdates") : t("plugins.noMatch");
+  // Installed in groups: what has an update, what the person makes, then the rest, each by name.
+  const workspaces = usePluginWorkspaces();
+  const drafts = pluginDrafts(workspaces.sessions ?? [], new Set(groups.map(({ plugin }) => plugin.id)), normalizedQuery);
+  const installedGroups = [
+    { id: "updates", title: t("plugins.groupUpdates"), plugins: matching.filter(({ plugin }) => updateIds.has(plugin.id)) },
+    { id: "mine", title: t("plugins.groupMine"), plugins: matching.filter(({ plugin }) => isMine(plugin) && !updateIds.has(plugin.id)) },
+    { id: "others", title: t("plugins.groupOthers"), plugins: matching.filter(({ plugin }) => !isMine(plugin) && !updateIds.has(plugin.id)) },
+  ].filter((group) => group.plugins.length || (group.id === "mine" && drafts.length));
+  const shownInstalled = installedGroups.flatMap((group) => group.plugins);
+  // One group needs no heading.
+  const groupHeadings = installedGroups.length > 1;
 
   function updateTarget(plugin: StorePlugin): UpdateTarget | undefined {
     const listed = marketUpdate(plugin, market);
@@ -277,7 +265,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     {/* The main index may be one the person set, so where it's set is right here. */}
     {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
       action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
-    {marketSettings ? <PluginMarketSourcesDialog sources={market?.sources} onClose={() => setMarketSettings(false)} onSaved={readMarket} /> : null}
     {marketPlugins.length ? <div className="plugins-browse">
       <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} settingsDisabled={installing} onSettings={() => setMarketSettings(true)} />
       <div className="plugins-browse-main">
@@ -313,25 +300,13 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </div>} />}
   </>;
 
-  // Mine: a new plugin with AI, then a card for each plugin the person makes, as projects are.
-  const mineTab = <>
-    <div className="plugins-create">
-      <span className="plugin-tile"><Sparkles size="md" /></span>
-      <span className="plugins-create-text">
-        <strong>{t("plugins.createPluginWithAi")}</strong>
-      </span>
-      <Button variant="primary" icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createStart")}</Button>
-    </div>
-    <MinePlugins plugins={groups.filter(({ plugin }) => isMine(plugin))} query={normalizedQuery} onOpenPlugin={onPluginChange} />
-  </>;
-
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
   // A plugin that isn't installed has the same page, from what the market says about it.
   const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
   const page = pluginId;
 
   const inInstalled = tab === "installed" && (!pluginId || Boolean(detail));
-  const installedSelection = inInstalled ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? groups[0] : undefined;
+  const installedSelection = inInstalled ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? shownInstalled[0] : undefined;
   const selectedId = installedSelection?.plugin.id;
   const showInstalledDetail = Boolean(selectedId && (!compact || pluginId));
   useEffect(() => {
@@ -361,9 +336,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       detailBack.current.focus();
       pendingFocus.current = undefined;
     } else if (target && target !== "detail" && !pluginId && inventoryRef.current) {
-      const list = inventoryRef.current;
-      const row = target === "row" ? list.querySelector<HTMLButtonElement>('[aria-current="true"]') : null;
-      (row ?? list.querySelector<HTMLInputElement>('input[type="search"]'))?.focus({ preventScroll: true });
+      const row = target === "row" ? inventoryRef.current.querySelector<HTMLButtonElement>('[aria-current="true"]') : null;
+      (row ?? headerSearch())?.focus({ preventScroll: true });
       pendingFocus.current = undefined;
     }
   }, [pluginId, compact, query]);
@@ -381,12 +355,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     }} onTry={onTryPlugin}
     onSearch={(keyword) => {
       setQuery(keyword);
-      setInstalledSection("all");
       if (!embedded || compact) {
         if (embedded) pendingFocus.current = "search";
         showCatalog();
       } else {
-        inventoryRef.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
+        headerSearch()?.focus();
       }
     }} />;
 
@@ -406,34 +379,30 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     </Alert> : null}
     <div className="installed-plugins" data-compact={compact || undefined}>
       <aside ref={inventoryRef} className="installed-plugin-inventory" aria-label={t("plugins.installedTab")} hidden={compact && showInstalledDetail}>
-        <div className="installed-plugin-filters">
-          <div className="installed-plugin-search">
-            <SearchInput size="sm" value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} />
-            {installedCategories.length ? <DropdownMenu placement="bottom-end" items={installedCategories.map((category) => ({
-              label: categoryLabel(category), checked: category === installedSection,
-              onSelect: () => setInstalledSection(category === installedSection ? "all" : category),
-            }))} trigger={(props) => <Button {...props} size="sm" variant={activeCategory ? "secondary" : "ghost"}
-              aria-label={t("pluginCatalog.categoriesLabel")} aria-description={activeCategory} title={activeCategory ?? t("pluginCatalog.categoriesLabel")}
-              icon={<SlidersHorizontal size="sm" />}>
-              {activeCategory ? <span className="installed-plugin-category">{activeCategory}</span> : null}
-            </Button>} /> : null}
-          </div>
-          <FilterChips<InstalledStatus> label={t("plugins.installedFilter")} options={installedStatuses}
-            value={activeStatus ? [activeStatus.value] : []} onChange={(next) => setInstalledSection(next.at(-1) ?? "all")} />
-          {installedSection === "updates" && toUpdate.length > 0 && !normalizedQuery ? <Button size="sm" disabled={updateDisabled}
-            icon={operation?.kind === "batch" ? <SpinnerIcon size="sm" /> : <RefreshCw size="sm" />}
-            onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button> : null}
-        </div>
-        {installed.length ? <ul className="installed-plugin-list">{installed.map((group) => <StorePluginRow key={group.plugin.id}
-          group={group} market={market} updates={updates} selected={group.plugin.id === selectedId}
-          showEveryProject={installedSection === "all" && everyProjectIds.has(group.plugin.id)}
-          updating={operation?.kind !== "dialog" && operation?.id === group.plugin.id} updateDisabled={updateDisabled}
-          menu={pluginMenu.menuFor(group)}
-          onUpdate={() => void updatePlugin(group.plugin)} onOpen={() => {
-            if (compact) pendingFocus.current = "detail";
-            onPluginChange(group.plugin.id, "installed");
-          }} />)}</ul>
-          : <Empty title={installedEmpty} action={!groups.length
+        {workspaces.error ? <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error: workspaces.error })} /> : null}
+        {installedGroups.length ? installedGroups.map((group) => <section key={group.id} className="installed-plugin-group" aria-label={group.title}>
+          {groupHeadings || group.id === "updates" ? <div className="installed-plugin-group-head">
+            {groupHeadings ? <h2>{group.title}</h2> : null}
+            {/* Update all takes every update, so not while a search hides some. */}
+            {group.id === "updates" && group.plugins.length > 1 && !normalizedQuery ? <Button size="sm" variant="ghost" disabled={updateDisabled}
+              icon={operation?.kind === "batch" ? <SpinnerIcon size="sm" /> : <RefreshCw size="sm" />}
+              onClick={() => void updateAll()}>{t("plugins.updateAll")}</Button> : null}
+          </div> : null}
+          <ul className="installed-plugin-list">
+            {group.plugins.map((plugin) => <StorePluginRow key={plugin.plugin.id}
+              group={plugin} market={market} updates={updates} selected={plugin.plugin.id === selectedId}
+              showEveryProject={everyProjectIds.has(plugin.plugin.id)}
+              updating={operation?.kind !== "dialog" && operation?.id === plugin.plugin.id} updateDisabled={updateDisabled}
+              menu={pluginMenu.menuFor(plugin)}
+              onUpdate={() => void updatePlugin(plugin.plugin)} onOpen={() => {
+                if (compact) pendingFocus.current = "detail";
+                onPluginChange(plugin.plugin.id, "installed");
+              }} />)}
+            {group.id === "mine" ? drafts.map((session) => <PluginDraftRow key={session.id} session={session}
+              onDeleted={() => workspaces.removed(session.id)} onError={(cause) => setError(errorMessage(cause))} />) : null}
+          </ul>
+        </section>)
+          : <Empty title={groups.length || workspaces.sessions?.length ? t("plugins.noMatch") : t("plugins.noneInstalled")} action={!groups.length
             ? <Button icon={<Package size="sm" />} onClick={() => setTab("discover")}>{t("plugins.discoverTab")}</Button> : undefined} />}
       </aside>
       <section className="installed-plugin-editor" aria-label={t("plugins.detailPane")} hidden={!showInstalledDetail}>
@@ -470,28 +439,33 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
-        {tab !== "installed" ? <SearchInput value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} /> : null}
-        <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
-          <Button {...props} variant="primary" icon={<CirclePlus size="sm" />}>{t("plugins.add")}</Button>
+        {/* One search for whichever tab is open. */}
+        <SearchInput value={query} onChange={setQuery} placeholder={t(tab === "installed" ? "plugins.searchInstalled" : "plugins.search")} label={t("plugins.searchLabel")} />
+        <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.newPlugin")}</Button>
+        <DropdownMenu placement="bottom-end" items={moreItems} trigger={(props) => (
+          <IconButton {...props} label={t("plugins.moreActions")}><MoreHorizontal size="md" /></IconButton>
         )} />
       </div>} />
       <Tabs<PluginsTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
         { value: "discover", label: t("plugins.discoverTab") },
         { value: "installed", label: t("plugins.installedTab"), attention: toUpdate.length ? t("plugins.updatesAvailable") : undefined },
-        { value: "mine", label: t("plugins.mineTab") },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={t(`plugins.${tab}Tab`)}>
         {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
         {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
         {phase === "ready" && tab === "discover" ? discoverTab : null}
-        {phase === "ready" && tab === "mine" ? mineTab : null}
         {phase === "ready" && (inInstalled || opened.size > 0) ? <Activity mode={inInstalled ? "visible" : "hidden"}>
           <div className="installed-plugin-workspace">{installedTab}</div>
         </Activity> : null}
       </div>
     </>}
+    {marketSettings ? <PluginMarketSourcesDialog sources={market?.sources} onClose={() => setMarketSettings(false)} onSaved={readMarket} /> : null}
     {dialog ? <PluginAddDialog {...dialog} onClose={() => setOperation(undefined)} onAdded={installedFromDialog} /> : null}
   </section>;
+
+  function headerSearch(): HTMLInputElement | null | undefined {
+    return pageRef.current?.querySelector<HTMLInputElement>('.plugins-toolbar input[type="search"]');
+  }
 
   function openPlugin(id: string): void {
     listScroll.current = pageRef.current?.closest<HTMLElement>(".sidebar-page")?.scrollTop;

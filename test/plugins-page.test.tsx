@@ -119,13 +119,7 @@ describe("PluginsSettings", () => {
     });
     const updateButton = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="Update ${name}"]`);
     const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
-    const statusButton = (label: string) => [...host.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")].find((item) =>
-      item.firstChild?.textContent === label)!;
-    const selectStatus = (label: string) => act(async () => statusButton(label).click());
-    const renderUpdates = async () => {
-      await renderInstalled();
-      await selectStatus("Updates");
-    };
+    const renderUpdates = renderInstalled;
     const setQuery = (query: string) => act(async () => {
       const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, query);
@@ -133,42 +127,33 @@ describe("PluginsSettings", () => {
     });
     const cards = () => [...host.querySelectorAll(".installed-plugin-name")].map((card) => card.textContent);
 
-    it("marks every-project plugins in All and keeps the editor open when a row leaves the filter", async () => {
+    it("marks every-project plugins, groups updates first, and switches a plugin from its page", async () => {
       store = [
         { ...store[0]!, everyProject: true },
         { ...pluginRow("ohmygame/beta", "Beta", "1.0.0", "WhiteTowerAI/ohmygame-plugins"), preinstalled: true },
         { ...pluginRow("acme/gamma", "Gamma", "1.0.0", "acme/gamma"), everyProject: true, grants: { enabled: false, allowed: [] } },
       ];
+      market = { ...market, plugins: market.plugins.filter((plugin) => plugin.id === "acme/alpha") };
       api.setStorePluginEveryProject.mockImplementationOnce(async (id, on) => {
         store = store.map((plugin) => plugin.id === id ? { ...plugin, everyProject: on } : plugin);
       });
       await renderInstalled();
       const scopes = () => [...host.querySelectorAll(".installed-plugin-scope")];
+      const headings = () => [...host.querySelectorAll(".installed-plugin-group h2")].map((heading) => heading.textContent);
+      expect(headings()).toEqual(["Updates", "Others"]);
       expect(cards()).toEqual(["Alpha", "Beta", "Gamma"]);
       const officialSeals = host.querySelectorAll('.installed-plugin-title [role="img"][aria-label="Official"]');
       expect(officialSeals).toHaveLength(1);
       expect(officialSeals[0]?.previousElementSibling?.textContent).toBe("Beta");
-      expect(officialSeals[0]?.closest(".installed-plugin-row")?.querySelector(".installed-plugin-meta")?.textContent).toBe("1.0.0 @ohmygame");
+      // The seal says whose it is, so the row doesn't repeat it.
+      expect(officialSeals[0]?.closest(".installed-plugin-row")?.querySelector(".installed-plugin-meta")?.textContent).toBe("1.0.0");
       expect(scopes()).toHaveLength(1);
       expect(scopes()[0]?.closest(".installed-plugin-row")?.querySelector(".installed-plugin-name")?.textContent).toBe("Alpha");
       expect(scopes()[0]?.previousElementSibling?.textContent).toBe("@acme");
       expect(scopes()[0]?.querySelector(".visually-hidden")?.textContent).toBe("On in every project");
-      await selectStatus("On in every project");
-      expect(statusButton("On in every project").textContent).toBe("On in every project1");
-      expect(statusButton("On in every project").getAttribute("aria-pressed")).toBe("true");
-      expect(cards()).toEqual(["Alpha"]);
-      expect(scopes()).toHaveLength(0);
       const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
-      toggle.focus();
       await act(async () => toggle.click());
       expect(api.setStorePluginEveryProject).toHaveBeenCalledExactlyOnceWith("acme/alpha", false);
-      expect(cards()).toEqual([]);
-      expect(host.querySelector(".installed-plugin-editor h1")?.textContent).toContain("Alpha");
-      expect(host.textContent).toContain("No plugins on in every project");
-      expect(statusButton("On in every project").textContent).toBe("On in every project0");
-      await selectStatus("On in every project");
-      expect(statusButton("All").getAttribute("aria-pressed")).toBe("true");
-      expect(cards()).toEqual(["Alpha", "Beta", "Gamma"]);
       expect(scopes()).toHaveLength(0);
       expect(host.querySelector('[role="switch"][aria-label="Turn Alpha on in every project"]')?.getAttribute("aria-checked")).toBe("false");
     });
@@ -241,7 +226,8 @@ describe("PluginsSettings", () => {
       expect(alphaButton()?.title).toBe("Update to 1.1.0");
       // The row's update reads as a button, not a bare reload icon.
       expect(alphaButton()?.textContent).toBe("Update");
-      expect(statusButton("Updates").textContent).toBe("Updates2");
+      // Both have updates, so their one group has no heading, and Update all.
+      expect(host.querySelector(".installed-plugin-group h2")).toBeNull();
       expect(cards()).toEqual(["Alpha", "Beta"]);
       expect(host.querySelector(".installed-plugin-list [role=switch]")).toBeNull();
       await act(async () => alphaButton()!.click());
@@ -292,9 +278,7 @@ describe("PluginsSettings", () => {
 
       expect(updateButton("Beta")).toBeNull();
       expect(updateButton("Alpha")).not.toBeNull();
-      await selectStatus("Updates");
       expect(cards()).toEqual(["Alpha"]);
-      expect(updateButton("Alpha")).not.toBeNull();
       expect(button("Update all")).toBeUndefined();
     });
 

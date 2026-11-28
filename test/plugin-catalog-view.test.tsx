@@ -99,15 +99,15 @@ afterEach(async () => {
 });
 
 /** The page as the app routes it: opening a plugin or a tab changes what it's given. */
-function Routed({ pluginId, tab }: { pluginId?: string; tab?: "installed" | "discover" | "mine" }) {
-  const [route, setRoute] = useState<{ pluginId?: string; tab?: "installed" | "discover" | "mine" }>({ pluginId, tab });
+function Routed({ pluginId, tab }: { pluginId?: string; tab?: "installed" | "discover" }) {
+  const [route, setRoute] = useState<{ pluginId?: string; tab?: "installed" | "discover" }>({ pluginId, tab });
   return <PluginsSettings {...(route.pluginId ? { pluginId: route.pluginId } : {})} {...(route.tab ? { tab: route.tab } : {})}
     onPluginChange={(id, next) => setRoute({ ...(id ? { pluginId: id } : {}), ...(next ? { tab: next } : {}) })}
     onTabChange={(next) => setRoute({ tab: next })} onTryPlugin={async () => {}} />;
 }
 
 /** The page on a tab, Installed unless said; Discover is the page's own first. */
-async function renderCatalog(pluginId?: string, tab: "installed" | "discover" | "mine" = "installed") {
+async function renderCatalog(pluginId?: string, tab: "installed" | "discover" = "installed") {
   await act(async () =>
     root.render(
       <PluginsSettings
@@ -135,14 +135,6 @@ async function click(label: string) {
   expect(button, label).toBeTruthy();
   await act(async () => button.click());
 }
-const categoryButton = () => container.querySelector<HTMLButtonElement>('.installed-plugin-search button[aria-label="Categories"]')!;
-async function selectInstalledCategory(label: string) {
-  await act(async () => categoryButton().click());
-  const options = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')];
-  await act(async () => options.find((option) => option.textContent === label)!.click());
-  return options.map((option) => option.textContent);
-}
-
 async function search(value: string, label = "Search plugins") {
   const input = container.querySelector<HTMLInputElement>(
     `[aria-label="${label}"]`,
@@ -159,39 +151,16 @@ async function search(value: string, label = "Search plugins") {
 describe("plugin catalog browsing", () => {
   it("lists every installed plugin once, including those a project turns on and the person's own", async () => {
     await renderCatalog();
-    expect(cards()).toEqual(store.map((plugin) => plugin.displayName).sort((a, b) => a.localeCompare(b)));
-    expect(container.querySelector(".installed-plugin-filters .ui-filter-chips")?.textContent).toContain("On in every project");
+    // What the person made comes first, under its own heading.
+    const own = ["Alpha", "Zebra"];
+    expect(cards()).toEqual([...own, ...store.map((plugin) => plugin.displayName).filter((name) => !own.includes(name)).sort((a, b) => a.localeCompare(b))]);
+    const mine = container.querySelector('section[aria-label="Made by you"]')!;
+    expect([...mine.querySelectorAll(".installed-plugin-name")].map((name) => name.textContent)).toEqual(own);
     const unreal = [...container.querySelectorAll(".installed-plugin-row")].find((item) => item.textContent?.includes("Unreal Engine"))!;
     expect(unreal.textContent).toContain("Disabled");
     expect(unreal.querySelector('[role="switch"]')).toBeNull();
     await renderCatalog("ohmygame/unity");
     expect(container.querySelector('[aria-label="Turn Unity on in every project"]')?.getAttribute("aria-checked")).toBe("false");
-    await renderCatalog();
-
-    // What the person made is also under Mine, a card each, to edit.
-    await click("Mine");
-    const mine = container.querySelector('section[aria-label="Your plugins"]')!;
-    expect(cards(mine)).toEqual(["Alpha", "Zebra"]);
-    expect(mine.querySelector('[role="switch"]')).toBeNull();
-    expect(container.querySelector(".plugins-create")?.textContent).toContain("Create a plugin with AI");
-  });
-
-  it("shows plugins under each of their categories and preserves the selected category when switching tabs", async () => {
-    store.find((plugin) => plugin.id === "ohmygame/douyin-minigame")!.categories = ["engine", "publishing"];
-    await renderCatalog();
-    expect(cards().filter(name => name === "Douyin Mini Games")).toHaveLength(1);
-    expect(await selectInstalledCategory("Engines & platforms")).toEqual([
-      "Engines & platforms", "Art", "Workflow", "Publishing", "Other",
-    ]);
-    expect(cards()).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "Unreal Engine"]);
-    await selectInstalledCategory("Publishing");
-    expect(cards()).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
-    await click("Mine");
-    await click("Installed");
-    expect(categoryButton().textContent).toContain("Publishing");
-    expect(cards()).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
-    await selectInstalledCategory("Other");
-    expect(cards()).toEqual(["Alpha", "New tool", "Zebra"]);
   });
 
   it("keeps rows in place when switched for every project", async () => {
@@ -213,9 +182,6 @@ describe("plugin catalog browsing", () => {
     expect(cards()).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
     await search("a");
     expect(cards()).toContain("Alpha");
-    await click("Mine");
-    expect(cards()).toContain("Alpha");
-    await click("Installed");
     // Keywords and what a plugin adds by name are searched too.
     await search("sculpt");
     expect(cards()).toEqual(["Blender"]);
@@ -236,17 +202,14 @@ describe("plugin catalog browsing", () => {
 
   it("adds plugins from a menu that closes on Escape", async () => {
     await renderCatalog();
-    const add = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Add",
-    )!;
+    const add = container.querySelector<HTMLButtonElement>('.plugins-toolbar button[aria-label="More actions"]')!;
     await act(async () => add.click());
     expect(add.getAttribute("aria-expanded")).toBe("true");
     const items = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
-    expect(items.map((item) => item.textContent)).toEqual(
-      expect.arrayContaining(["Create with AI", "Add plugin"]),
-    );
+    // Making one with AI is the header's own button.
+    expect(items.map((item) => item.textContent)).toEqual(["Add plugin", "Add MCP service"]);
     // The market is a tab, so the menu doesn't offer it again.
     expect(items.map((item) => item.textContent)).not.toContain("Browse plugins");
     expect(document.activeElement).toBe(items[0]);
@@ -499,8 +462,7 @@ describe("plugin catalog browsing", () => {
       const update = (name: string) => container.querySelector(`.installed-plugin-list button[aria-label="Update ${name}"]`);
       expect(update("Installed owned")).not.toBeNull();
       for (const name of ["local", "branch", "elsewhere", "npm"]) expect(update(`Installed ${name}`), name).toBeNull();
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".ui-filter-chip")].find((item) => item.firstChild?.textContent === "Updates")!.click());
-      expect(cards()).toEqual(["Installed owned"]);
+      expect([...container.querySelectorAll('section[aria-label="Updates"] .installed-plugin-name')].map((name) => name.textContent)).toEqual(["Installed owned"]);
       const installedTab = [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Installed"))!;
       expect(installedTab.querySelector(".ui-tab-dot")?.textContent).toBe("Updates available");
       await renderCatalog("acme/npm");
@@ -579,29 +541,29 @@ describe("plugin catalog browsing", () => {
 
   it("switches tabs with the arrow keys, keeps the tab in the route, and has no counts", async () => {
     const shown: string[] = [];
-    await act(async () => root.render(<PluginsSettings tab="mine" onTabChange={(tab) => shown.push(tab)} onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    await act(async () => root.render(<PluginsSettings tab="installed" onTabChange={(tab) => shown.push(tab)} onPluginChange={() => {}} onTryPlugin={async () => {}} />));
     const tabs = [
-      ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+      ...container.querySelectorAll<HTMLButtonElement>('[role="tablist"][aria-label="Plugins"] [role="tab"]'),
     ];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Discover", "Installed", "Mine"]);
-    expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Discover", "Installed"]);
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect(container.querySelector('[role="tablist"] .plugins-count')).toBeNull();
-    tabs[2].focus();
+    tabs[1].focus();
     await act(async () =>
-      tabs[2].dispatchEvent(
+      tabs[1].dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
       ),
     );
-    expect(document.activeElement).toBe(tabs[1]);
-    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(shown).toEqual(["installed"]);
+    expect(document.activeElement).toBe(tabs[0]);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(shown).toEqual(["discover"]);
   });
 
   it("finds a newly added plugin by its skill name", async () => {
     await renderCatalog();
     await search("fresh-skill");
     expect(cards()).toEqual([]);
-    await click("Add");
+    await click("More actions");
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
         .find((item) => item.textContent?.startsWith("Add plugin"))!

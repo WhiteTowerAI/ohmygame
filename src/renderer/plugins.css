@@ -295,38 +295,6 @@
   -webkit-line-clamp: 2;
 }
 
-/* Mine: making a plugin with AI, one row across the page */
-.plugins-create {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-raised);
-}
-
-.plugins-create .plugin-tile {
-  color: var(--color-accent);
-}
-
-.plugins-create-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.plugins-create-text strong {
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-}
-
-.plugins-create-text small {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-}
-
 .plugin-tile {
   display: grid;
   flex: none;
@@ -701,9 +669,39 @@
 .installed-plugin-inventory {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-4);
   min-width: 0;
   max-height: var(--installed-pane-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Updates, Made by you, Others: a quiet heading over each, with Update all beside the first. */
+.installed-plugin-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.installed-plugin-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding-inline: var(--space-2);
+}
+
+.installed-plugin-group-head h2 {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.installed-plugin-group-head > .ui-button {
+  margin-inline-start: auto;
 }
 
 .installed-plugin-inventory[hidden],
@@ -711,56 +709,12 @@
   display: none;
 }
 
-.installed-plugin-filters {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.installed-plugin-filters > .ui-button {
-  align-self: start;
-}
-
-.installed-plugin-filters .ui-filter-chips {
-  gap: 4px;
-}
-
-.installed-plugin-filters .ui-filter-chip {
-  padding-inline: var(--space-2);
-}
-
-.installed-plugin-search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.installed-plugin-search > .ui-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.installed-plugin-search > .ui-button {
-  max-width: 44%;
-  min-width: 0;
-}
-
-.installed-plugin-category {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .installed-plugin-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
-  min-height: 0;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   list-style: none;
 }
 

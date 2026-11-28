@@ -46,7 +46,8 @@ export function parseAppRoute(hash: string): AppRoute {
     return { page: "plugins", adds: browseMatch[1] as PluginContribution };
   }
   const tabMatch = /^#\/plugins\?tab=(installed|discover|mine)$/.exec(hash);
-  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] as PluginsTab };
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-28. Mine became Installed's Made by you group.
+  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] === "mine" ? "installed" : tabMatch[1] as PluginsTab };
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/?]+)(\?tab=installed)?)?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -132,8 +133,8 @@ export function pluginHash(pluginId?: string, tab?: "installed"): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}${tab ? `?tab=${tab}` : ""}`;
 }
 
-/** The Plugins page's tabs: what others made, what there is to get, and what is the person's own. */
-export type PluginsTab = "installed" | "discover" | "mine";
+/** The Plugins page's tabs: what there is to get, and what is installed, the person's own included. */
+export type PluginsTab = "installed" | "discover";
 
 export function pluginsTabHash(tab: PluginsTab): string {
   return `#/plugins?tab=${tab}`;

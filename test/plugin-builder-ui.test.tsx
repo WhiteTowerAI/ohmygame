@@ -185,7 +185,7 @@ describe("Plugin Builder removal controls", () => {
     await answer("Delete");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
     expect(installed).toBe(true);
-    expect(window.location.hash).toBe("#/plugins?tab=mine");
+    expect(window.location.hash).toBe("#/plugins?tab=installed");
   });
 
   it("toggles the installed plugin from Builder without uninstalling it", async () => {
@@ -254,7 +254,7 @@ describe("Plugin Builder removal controls", () => {
     await choose("Delete plugin draft");
     await answer("Delete");
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
-    expect(window.location.hash).toBe("#/plugins?tab=mine");
+    expect(window.location.hash).toBe("#/plugins?tab=installed");
   });
 
   it("reloads the settings form once an update is installed", async () => {
