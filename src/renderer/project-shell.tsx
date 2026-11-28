@@ -529,7 +529,8 @@ export function ProjectShell({
       if (!disposed) setCapabilities(EMPTY_CAPABILITIES);
     });
     return () => { disposed = true; };
-  }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision]);
+    // Each agent lists the project's own Skills it reads, so another model may list others.
+  }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision, state.settings.model?.provider]);
 
   // A plugin mentioned while it is off here is turned on first; mentioning it is turning it on, which allows it.
   async function turnOnMentionedPlugin(plugin: ConversationCapabilities["plugins"][number]): Promise<boolean> {

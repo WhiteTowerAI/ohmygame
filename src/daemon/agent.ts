@@ -105,6 +105,8 @@ export interface SkillCatalogItem {
   description: string;
   pluginDisplayName?: string;
   marketplaceDisplayName?: string;
+  /** From the project's own folders, which the conversation's coding agent reads. */
+  fromProject?: true;
 }
 
 interface PiPromptImage {
@@ -444,7 +446,8 @@ interface AgentManagerOptions {
   questionTimeoutSeconds?: () => number;
   onActivityChange?: () => void;
   createSession?: SessionFactory;
-  loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
+  /** The Skills a conversation lists before its session starts, which depend on its agent. */
+  loadSkills?: (project: ProjectState, conversation: StoredConversation) => Promise<SkillCatalogItem[]>;
   activeToolNames?: (project: ProjectState, mode: PromptMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
@@ -811,7 +814,7 @@ export class AgentManager {
   async skills(project: ProjectState, conversation: StoredConversation): Promise<SkillCatalogItem[]> {
     const existing = this.#sessions.get(conversationKey(project.id, conversation.summary.id));
     if (existing) return existing.session.getSkills?.() ?? [];
-    if (this.options.loadSkills) return this.options.loadSkills(project);
+    if (this.options.loadSkills) return this.options.loadSkills(project, conversation);
     const managed = await this.#getSession(project, conversation);
     return managed.session.getSkills?.() ?? [];
   }
@@ -3273,6 +3276,22 @@ export async function loadPiSkillCatalog(
     agentDir,
     skillPaths: pluginSkills.map((skill) => skill.path),
     includeDefaults: true,
+  }).skills, pluginSkills);
+}
+
+/** OhMyGame's own Skills, from plugins and the Pi agent folder, which are staged for a coding agent CLI. */
+export async function loadOhMyGameSkills(
+  workspacePath: string,
+  agentDir: string,
+  resolvePluginSkills: () => Promise<PluginSkillRegistration[]>,
+): Promise<SkillCatalogItem[]> {
+  await ensureOhMyGamePiEnvironment(agentDir);
+  const pluginSkills = await resolvePluginSkills();
+  return skillCatalog(loadSkills({
+    cwd: workspacePath,
+    agentDir,
+    skillPaths: [...pluginSkills.map((skill) => skill.path), path.join(agentDir, "skills")],
+    includeDefaults: false,
   }).skills, pluginSkills);
 }
 

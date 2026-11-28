@@ -63,6 +63,7 @@ import { CodexAppServer } from "./codex-app-server.js";
 import { CodexDriver } from "./codex.js";
 import { codexServerIdentity } from "./codex-server-pool.js";
 import { OpenCodeDriver } from "./opencode.js";
+import type { ProjectSkill } from "./project-skills.js";
 
 /**
  * The client name Claude Code reports for OhMyGame's conversations. Run with
@@ -145,6 +146,8 @@ export interface NativeSessionRequest {
     signal?: AbortSignal,
   ): Promise<ApprovalDecision>;
   skills?: () => SkillCatalogItem[];
+  /** The project's own Skills in `skills`, which the agent loads itself. */
+  projectSkills?: readonly ProjectSkill[];
 }
 
 /**
@@ -690,6 +693,7 @@ export class AgentRuntimeService {
       onLimits: (limits) => this.#recordLimits(cacheKey, limits),
       accountLimits: () => this.#limits.get(cacheKey),
       ...(request.skills ? { skills: request.skills } : {}),
+      ...(request.projectSkills?.length ? { projectSkills: request.projectSkills } : {}),
       dispose: async () => {
         for (const stop of revoke) stop();
         await pluginTool?.close().catch(() => {});

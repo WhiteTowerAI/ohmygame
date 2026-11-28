@@ -14,7 +14,7 @@ import type { PromptInput } from "./prompt-editor.js";
 type ContextAction = "plan" | "compact" | "publish" | "later";
 interface ContextMenuItem {
   id: string;
-  section: "Commands" | "Plugins" | "Skills";
+  section: "Commands" | "Project" | "Plugins" | "Skills";
   label: string;
   description: string;
   source?: string;
@@ -59,13 +59,16 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
     ...pluginCommands.map((command): ContextMenuItem => ({ id: `command:${command.id}`, command: slashName(command), section: "Commands", label: command.title, description: command.title, source: command.plugin, pluginCommand: command })),
   ];
   const search = query?.query ?? "";
+  const mentions = matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "/", query: "" });
+  const fromProject = (mention: ComposerMention) => mention.type === "skill" && Boolean(mention.value.fromProject);
   return [
     ...actions.filter((item) => item.command!.startsWith(search) || (item.command === "compact" && search.startsWith("compact ")) || (item.command === "later" && search.startsWith("later "))),
-    ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "/", query: "" }).map((mention): ContextMenuItem => {
+    // The project's own Skills come first: the ones it was set up with.
+    ...[...mentions.filter(fromProject), ...mentions.filter((mention) => !fromProject(mention))].map((mention): ContextMenuItem => {
       const skillName = mention.type === "skill" ? skillDisplayName(mention.value.name) : undefined;
       return {
         id: mention.type === "plugin" ? `plugin:${mention.value.id}` : `skill:${mention.value.name}`,
-        section: mention.type === "plugin" ? "Plugins" : "Skills",
+        section: mention.type === "plugin" ? "Plugins" : fromProject(mention) ? "Project" : "Skills",
         label: mention.type === "plugin" ? mention.value.displayName : mention.value.pluginDisplayName ? `${mention.value.pluginDisplayName}: ${skillName}` : skillName!,
         // One that is off here is turned on when picked.
         description: mention.type === "plugin" && mention.value.off ? t("contextMenu.turnsPluginOn", { description: mention.value.description }) : mention.value.description,

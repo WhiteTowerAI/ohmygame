@@ -424,15 +424,28 @@ Each agent reads its staged roots without asking: Claude Code through
 read them. Running staged scripts follows the agent's own rules.
 Remove staged files only after the CLI stops.
 
+A conversation with a built-in coding agent lists OhMyGame's Skills, which are
+staged, and then the project's own Skills that this agent reads by itself
+(`project-skills.ts`): Claude Code `.claude/skills` and `.claude/commands`,
+Codex `.agents/skills` and `.codex/skills`, and OpenCode `.opencode/skills`,
+`.claude/skills` and `.agents/skills`. A folder another agent reads is not
+listed, and a name OhMyGame's Skills already use is not either. An agent from
+a plugin lists what Pi finds. The list is read when the session starts, and
+read again when the conversation moves to another agent. The composer lists the
+project's own first, under "This project".
+
 A message names Skills as `$name`, anywhere and any number; only names the
 agent has count. The message stays as written, and each agent gets the named
 Skills its own way: Pi a `<skill>` block per Skill before the message (the
 block Pi writes for `/skill:`, which takes only one), Codex a `skill` input
-item with the staged `SKILL.md`, and Claude Code (`ohmygame:<name>`, the
-session plugin's names) and OpenCode a first line asking them to load the
-Skills with their own tool. A Skill that was not staged for the session, such
-as one of the project's own, is asked for in words by its own name. A restored
-Pi message drops its blocks and shows the `$name` again.
+item with the staged or project `SKILL.md`, and Claude Code (`ohmygame:<name>`,
+the session plugin's names) and OpenCode a first line asking them to load the
+Skills with their own tool. Claude Code starts a project Skill itself only
+from a `/name` that opens the message's last block, and only one, so the last
+project Skill named goes there with the text after it; this also starts one
+only the person may start (`disable-model-invocation`). Any other is asked for
+by its file. A restored Pi message drops its blocks and shows the `$name`
+again.
 
 New plugin capabilities must be expressible as Skills or MCP. Pi extensions are
 not portable. Native canvas file edits still need `canvas_check`; media jobs,

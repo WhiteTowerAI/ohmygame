@@ -55,7 +55,7 @@ import { PUBLISH_GAME_TITLE_MAX_LENGTH, publicationOf } from "../shared/publish-
 import { MULTIPLAYER_MANIFEST_SCHEMA } from "@ohmygame/game-sdk/protocol";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
+import { AgentManager, conversationItems, createPiSession, loadOhMyGameSkills, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { AgentMediaModels } from "./agent-media-models.js";
 import { MediaRequests, preferredModel } from "./media-requests.js";
@@ -64,13 +64,14 @@ import { AgentRuntimeService, nativeAgentInstructions } from "./agent-runtimes/s
 import { LimitContinuations } from "./limit-continuation.js";
 import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
+import { loadProjectSkills } from "./agent-runtimes/project-skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { AgentInstructionsError, AgentInstructionsStore, conversationInstructions } from "./agent-instructions.js";
 import { BrowserSettingsStore, BrowserStoreError, ProjectBrowserStore } from "./browser-store.js";
 import { USER_INSTRUCTIONS_MAX_CHARACTERS, type AgentInstructionsView, type ConversationInstructions } from "../shared/agent-instructions.js";
 import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
 import { moveLocalGameServices, moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
-import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
+import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, isBuiltInAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
@@ -1282,13 +1283,32 @@ export function createApp(options: AppOptions = {}) {
       return decision === "allow-always" ? "allow-always" : decision === "allow";
     },
   );
+  /**
+   * A coding agent CLI's Skills: OhMyGame's, which are staged for it, then the
+   * project's own that this agent reads by itself. An agent from a plugin gets
+   * what Pi finds, as its project folders are not known.
+   */
+  const nativeSkills = async (project: ProjectState, runtime: AgentRuntimeId, resolvePlugins = () => projectPluginSkills(project)) => {
+    if (!isBuiltInAgentRuntimeId(runtime))
+      return { catalog: await loadPiSkills(project.workspacePath, piAgentDirectory, resolvePlugins), projectSkills: [] };
+    const [ohmygame, own] = await Promise.all([
+      loadOhMyGameSkills(project.workspacePath, piAgentDirectory, resolvePlugins),
+      loadProjectSkills(runtime, project.workspacePath),
+    ]);
+    const names = new Set(ohmygame.map((skill) => skill.name));
+    const projectSkills = own.filter((skill) => !names.has(skill.name));
+    return {
+      catalog: [...ohmygame, ...projectSkills.map(({ name, description }) => ({ name, description, fromProject: true as const }))],
+      projectSkills,
+    };
+  };
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => projectPluginSkills(project);
-    const [pluginSkills, ownSkills, catalog, effectiveMcp, reasoningLevel] = await Promise.all([
+    const [pluginSkills, ownSkills, skills, effectiveMcp, reasoningLevel] = await Promise.all([
       resolvePlugins(),
       skillFolders(path.join(piAgentDirectory, "skills")),
-      loadPiSkills(project.workspacePath, piAgentDirectory, resolvePlugins).catch(() => []),
+      nativeSkills(project, runtime, resolvePlugins).catch(() => ({ catalog: [], projectSkills: [] })),
       projectMcp(project),
       conversations.nativeReasoningLevel(project, conversation, { provider: runtime, id: modelId }),
     ]);
@@ -1313,7 +1333,8 @@ export function createApp(options: AppOptions = {}) {
       turnNotice: () => readWorkspaceNotice(project),
       requestUserInput: (input, { callId, signal, ...options }) => agents.askQuestionnaire(project.id, conversation.summary.id, callId, input, signal, { persist: true, ...options }),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
-      skills: () => catalog,
+      skills: () => skills.catalog,
+      projectSkills: skills.projectSkills,
     });
   };
   const limitContinuations = new LimitContinuations(async (projectId, conversationId) => {
@@ -1370,11 +1391,12 @@ export function createApp(options: AppOptions = {}) {
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
     },
     ...(options.createSession ? {} : {
-      loadSkills: (project) => loadPiSkills(
-        project.workspacePath,
-        piAgentDirectory,
-        () => projectPluginSkills(project),
-      ),
+      loadSkills: async (project, conversation) => {
+        const provider = (await conversations.model(project, conversation))?.provider;
+        return isAgentRuntimeId(provider)
+          ? (await nativeSkills(project, provider)).catalog
+          : loadPiSkills(project.workspacePath, piAgentDirectory, () => projectPluginSkills(project));
+      },
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
       const selected = await conversations.model(project, conversation);

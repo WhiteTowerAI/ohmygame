@@ -1276,14 +1276,18 @@ it("hands the agent the Skills a message names, leaving the message as written",
     sessionManager: SessionManager.inMemory("/tmp/native-skills"),
     toolNames: [],
     requestUserInput: async () => { throw new Error("Unexpected user input request"); }, requestApproval: async () => "deny",
-    skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }],
+    skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }, { name: "start", description: "", fromProject: true }],
+    projectSkills: [{ name: "start", description: "", file: "/game/.codex/skills/start/SKILL.md", userOnly: false }],
     createDriver: () => driver,
   });
   await session.prompt("Use $map-design, then $review. It costs $5 and $unknown");
   await session.prompt("No Skills here");
-  expect(driver.inputs.map(({ text, skills }) => ({ text, skills }))).toEqual([
-    { text: "Use $map-design, then $review. It costs $5 and $unknown", skills: ["map-design", "review"] },
-    { text: "No Skills here", skills: undefined },
+  await session.prompt("$start with $review");
+  expect(driver.inputs.map(({ text, skills, projectSkills }) => ({ text, skills, projectSkills }))).toEqual([
+    { text: "Use $map-design, then $review. It costs $5 and $unknown", skills: ["map-design", "review"], projectSkills: undefined },
+    { text: "No Skills here", skills: undefined, projectSkills: undefined },
+    // The project's own go apart, for the agent to start as it reads them.
+    { text: "$start with $review", skills: ["review"], projectSkills: [{ name: "start", description: "", file: "/game/.codex/skills/start/SKILL.md", userOnly: false }] },
   ]);
 });
 

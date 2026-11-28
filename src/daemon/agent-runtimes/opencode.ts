@@ -262,9 +262,10 @@ export class OpenCodeDriver implements NativeDriver {
       agent: input.readOnly ? "plan" : "build",
     });
     signal.throwIfAborted();
+    // OpenCode loads Skills, the project's own too, with its own tool, so named ones are asked for in words.
+    const skills = [...input.skills ?? [], ...(input.projectSkills ?? []).map((skill) => skill.name)];
     await this.#api("POST", `/session/${sessionId}/prompt`, {
-      // OpenCode loads Skills with its own tool, so named ones are asked for in words.
-      text: input.skills?.length ? `${skillInstruction(input.skills)}\n\n${input.text}` : input.text,
+      text: skills.length ? `${skillInstruction(skills)}\n\n${input.text}` : input.text,
       files: input.images.map((image, index) => ({
         name: `image-${index + 1}`,
         uri: `data:${image.mimeType};base64,${image.data}`,

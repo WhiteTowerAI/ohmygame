@@ -1181,6 +1181,8 @@ export interface ConversationCapabilities {
     description: string;
     pluginDisplayName?: string;
     marketplaceDisplayName?: string;
+    /** From the project's own folders, which the conversation's coding agent reads. */
+    fromProject?: true;
   }>;
 }
 

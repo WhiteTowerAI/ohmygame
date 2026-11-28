@@ -25,6 +25,14 @@ describe("unified composer context menu", () => {
     expect(composerContextItems({ ...options, query: mentionQuery("@unknown", 8) })).toEqual([]);
   });
 
+  it("lists the project's own skills first, in their own section", () => {
+    const capabilities = { ...options.capabilities, skills: [...options.capabilities.skills, { name: "start", description: "Begin here", fromProject: true as const }] };
+    expect(composerContextItems({ ...options, capabilities, query: mentionQuery("/", 1) }).map(({ id, section }) => `${section} ${id}`))
+      .toEqual(["Commands plan", "Project skill:start", "Skills skill:game-design"]);
+    expect(composerContextItems({ ...options, capabilities, query: mentionQuery("@", 1) }).map((item) => item.id))
+      .toEqual(["skill:start", "plugin:images", "skill:game-design"]);
+  });
+
   it("offers plan commands and skills from a leading slash query", () => {
     const query = mentionQuery("/", 1);
     expect(composerContextItems({ ...options, query, showCompact: true }).map((item) => item.id)).toEqual(["plan", "compact", "skill:game-design"]);
