@@ -2,7 +2,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ExampleSummary } from "../shared/examples.js";
 import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
-import { Spinner, Maximize, Pencil, Play, X } from "./icons.js";
+import { Spinner, FilePlus, Maximize, Pencil, Play, X } from "./icons.js";
 import { projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
 
@@ -38,7 +38,8 @@ export function useExamples(): { examples: ExampleSummary[]; covers: Record<stri
 
 /**
  * A row of example cards: clicking a card plays the example, or shows one with
- * nothing to play, Remix copies it into a new project and opens it. `children` are extra cards for the row.
+ * nothing to play; its action copies it into a new project and opens it.
+ * `children` are extra cards for the row.
  * Cards show the example's name; `showType` adds its project type, for rows that mix types.
  */
 export function ExampleShelf({ examples, covers, showType = false, onOpenProject, children }: {
@@ -80,8 +81,8 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
                 {showType ? <small>{projectTypeLabel(example.type)}</small> : null}
               </span>
             </button>
-            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={t("examples.remixTitle")}>
-              <Pencil size="sm" />{t("examples.remix")}
+            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={copyAction(example).title}>
+              {copyAction(example).icon}{copyAction(example).label}
             </button>
           </div>
         ))}
@@ -102,7 +103,14 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
   );
 }
 
-/** Plays an example's static build in place, or shows its cover when it has nothing to play, with a way to remix it into a project. */
+/** A game is remixed; an example with nothing to play, such as an agent's setup, is used as a template. Both copy it into a new project. */
+function copyAction(example: ExampleSummary): { icon: ReactNode; label: string; title: string } {
+  return example.playable
+    ? { icon: <Pencil size="sm" />, label: t("examples.remix"), title: t("examples.remixTitle") }
+    : { icon: <FilePlus size="sm" />, label: t("examples.useTemplate"), title: t("examples.useTemplateTitle") };
+}
+
+/** Plays an example's static build in place, or shows its cover when it has nothing to play, with a way to copy it into a project. */
 export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onClose }: {
   example: ExampleSummary;
   coverUrl?: string;
@@ -166,9 +174,9 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             </div>
           </div>
           <div className="example-player-actions">
-            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={t("examples.remixTitle")}>
-              {remixing ? <Spinner size="sm" /> : <Pencil size="sm" />}
-              {t("examples.remix")}
+            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={copyAction(example).title}>
+              {remixing ? <Spinner size="sm" /> : copyAction(example).icon}
+              {copyAction(example).label}
             </button>
             {example.playable ? <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size="md" /></button> : null}
             <button type="button" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}><X size="md" /></button>

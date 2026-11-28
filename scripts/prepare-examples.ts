@@ -73,7 +73,7 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       });
       await cp(coverFile, path.join(prepared, cover));
       const summary = { id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover };
-      // A general example has nothing to play; it is only remixed.
+      // A general example has nothing to play; it is used as a template.
       if (entry.type === "general") {
         examples.push(summary);
         continue;

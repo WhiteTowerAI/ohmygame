@@ -10,7 +10,7 @@ export interface ExampleSummary {
   type: (typeof EXAMPLE_PROJECT_TYPES)[number];
   name: string;
   description: string;
-  /** Whether Home can play it. One with nothing to play, such as an agent's setup, is only remixed. */
+  /** Whether Home can play it. One with nothing to play, such as an agent's setup, is used as a template. */
   playable: boolean;
 }
 

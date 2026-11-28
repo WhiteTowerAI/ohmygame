@@ -1117,6 +1117,8 @@ const en = {
     exampleType: "Example · {{type}}",
     remixTitle: "Copy this example into a new project you can change",
     remix: "Remix",
+    useTemplateTitle: "Start a new project from this example",
+    useTemplate: "Use this template",
   },
   creator: {
     create: "Create project",

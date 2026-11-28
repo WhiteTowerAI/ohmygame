@@ -899,7 +899,8 @@ Explore follows with examples, from the
 pinned in `config/examples.json` and packaged by `scripts/prepare-examples.ts`.
 Clicking a web game's card plays it; **Remix** copies it into a new project.
 A general example, such as an agent's setup, has nothing to play: its card
-opens its cover and description with only **Remix**. Asset presets are
+opens its cover and description with only **Use this template**, which copies
+it the same way. Asset presets are
 available in the canvas.
 
 ![New project dialog showing Web Game and the available project types](assets/new-project-dialog.webp)

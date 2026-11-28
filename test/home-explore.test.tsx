@@ -106,17 +106,19 @@ it("keeps Last Bus visible when the fifth example starts a partial row", async (
   }
 });
 
-it("shows an example with nothing to play instead of playing it, with only Remix", async () => {
+it("shows an example with nothing to play instead of playing it, used as a template", async () => {
   examples.unshift({ id: "studio", type: "general", name: "Studio", description: "Agents and docs.", playable: false });
   try {
     await renderHome();
     const card = container!.querySelector<HTMLButtonElement>('[aria-label="View Studio"]')!;
     expect(card.querySelector(".home-explore-play")).toBeNull();
+    expect(card.parentElement!.querySelector(".home-explore-remix")!.textContent).toBe("Use this template");
     await act(async () => card.click());
     const shown = document.querySelector('[role="dialog"][aria-label="View Studio"]')!;
     expect(shown.querySelector("iframe")).toBeNull();
     expect(shown.querySelector('[aria-label="Fullscreen"]')).toBeNull();
     expect(shown.textContent).toContain("Agents and docs.");
+    expect(shown.querySelector(".example-player-remix")!.textContent).toBe("Use this template");
     await act(async () => shown.querySelector<HTMLButtonElement>(".example-player-remix")!.click());
     expect(createProject).toHaveBeenCalledWith({ type: "general", exampleId: "studio", name: "Studio" });
   } finally {
