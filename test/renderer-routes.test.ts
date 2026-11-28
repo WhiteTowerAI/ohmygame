@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginBrowseHash, pluginHash, pluginBuilderHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, pluginBuilderHash, pluginsSectionHash, pluginsTabHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -55,9 +55,10 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins")).toEqual({ page: "plugins" });
-    // The marketplace can open at the plugins that add a project type.
-    expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
-    expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
+    // Discover can open at one of its sections; an old link to project types opens Engines.
+    expect(parseAppRoute(pluginsSectionHash("agent"))).toEqual({ page: "plugins", section: "agent" });
+    expect(parseAppRoute("#/plugins?section=unknown")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/plugins?adds=projectType")).toEqual({ page: "plugins", section: "engine" });
     expect(parseAppRoute(pluginsTabHash("installed"))).toEqual({ page: "plugins", tab: "installed" });
     // Mine became Installed's Made by you group, so an old link opens Installed.
     expect(parseAppRoute("#/plugins?tab=mine")).toEqual({ page: "plugins", tab: "installed" });

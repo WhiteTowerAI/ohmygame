@@ -3,6 +3,7 @@ import type { PluginCategory } from "../shared/plugin-manifest.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
 import { language, t } from "./i18n.js";
+import type { PluginsSection } from "./routes.js";
 import { isOfficialPlugin, MarketPluginCard, marketSearchText, MarketTile, pluginPublisherName } from "./plugin-catalog.js";
 import { PluginMarks } from "./plugin-marks.js";
 import { Button, Empty } from "./ui/index.js";
@@ -11,7 +12,7 @@ import { Button, Empty } from "./ui/index.js";
 // do with it rather than by the categories authors pick. A plugin can be in
 // several sections, as a provider that makes images and sound is in both.
 
-export type DiscoverSection = (typeof SECTIONS)[number]["id"] | "featured" | "other";
+export type DiscoverSection = PluginsSection;
 
 /**
  * The sections, in the order a game is made. A plugin is in a section when it
@@ -28,7 +29,7 @@ const SECTIONS = [
   { id: "design", categories: ["design", "story", "workflow", "templates"], kinds: [], words: ["关卡", "玩法", "地图", "剧情", "策划", "模板", "level", "map", "tilemap", "gameplay", "story", "template", "workflow"] },
   { id: "ship", categories: ["testing", "publishing", "online"], kinds: [], words: ["测试", "发布", "上架", "联机", "test", "publish", "release", "multiplayer", "online"] },
   { id: "connect", categories: ["integration"], kinds: [], words: ["连接", "集成", "消息", "机器人", "integration", "connect", "bot", "message"] },
-] as const satisfies readonly { id: string; categories: readonly PluginCategory[]; kinds: readonly ProviderCapability[]; words: readonly string[] }[];
+] as const satisfies readonly { id: Exclude<PluginsSection, "featured" | "other">; categories: readonly PluginCategory[]; kinds: readonly ProviderCapability[]; words: readonly string[] }[];
 
 /** Past this many, a section shows this many until All N opens the rest. */
 const SECTION_LIMIT = 12;

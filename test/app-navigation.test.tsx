@@ -173,11 +173,25 @@ describe("project return navigation", () => {
   });
 
   it("keeps the Plugins tab in the address and as the project entry", async () => {
+    // Mine became Installed's Made by you group.
     await mount("#/plugins?tab=mine");
-    expect(window.location.hash).toBe("#/plugins?tab=mine");
-    expect(navigation.route).toEqual({ page: "plugins", tab: "mine" });
+    expect(window.location.hash).toBe("#/plugins?tab=installed");
+    expect(navigation.route).toEqual({ page: "plugins", tab: "installed" });
     await navigate(conversationHash("project", "chat", "design"));
-    expect(navigation.projectReturnTo).toBe("#/plugins?tab=mine");
+    expect(navigation.projectReturnTo).toBe("#/plugins?tab=installed");
+  });
+
+  it("opens Discover at a link's section once, though the browser reports the change twice", async () => {
+    await mount("#/settings/agents");
+    await act(async () => {
+      const changed = new Promise<void>((resolve) => window.addEventListener("hashchange", () => resolve(), { once: true }));
+      window.location.hash = "#/plugins?section=agent";
+      // Chromium fires popstate before hashchange; the first read trims the section from the address.
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await changed;
+    });
+    expect(window.location.hash).toBe("#/plugins");
+    expect(navigation.route).toEqual({ page: "plugins", section: "agent" });
   });
 
   it("keeps an installed plugin selected in its canonical address", async () => {

@@ -4,7 +4,7 @@ import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert, X } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
-import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
@@ -25,10 +25,10 @@ import "./plugins.css";
  */
 const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) || plugin.origin?.type === "development";
 
-export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
+export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
-  /** Opens Discover at the plugins that add this, as 更多类型… in the new-project dialog does. */
-  adds?: PluginContribution;
+  /** Opens Discover at this section, as a link from where such plugins are used does. */
+  section?: DiscoverSection;
   /** The tab the route names; a plugin's page and back keep the one last shown. */
   tab?: PluginsTab;
   onPluginChange: (pluginId?: string, tab?: "installed") => void;
@@ -51,7 +51,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [tab, showTab] = useState<PluginsTab>(routeTab ?? "discover");
   const [query, setQuery] = useState("");
   // A section of Discover to scroll to, once: where a link into it points.
-  const [jumpTo, setJumpTo] = useState<DiscoverSection | undefined>(initialAdds === "projectType" ? "engine" : undefined);
+  const [jumpTo, setJumpTo] = useState<DiscoverSection | undefined>(section);
   const pageRef = useRef<HTMLElement>(null);
   const inventoryRef = useRef<HTMLElement>(null);
   const detailBack = useRef<HTMLButtonElement>(null);
@@ -77,10 +77,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   }, []);
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
   useEffect(() => {
-    if (!initialAdds) return;
+    if (!section) return;
     showTab("discover");
-    if (initialAdds === "projectType") setJumpTo("engine");
-  }, [initialAdds]);
+    setJumpTo(section);
+  }, [section]);
   function setTab(next: PluginsTab): void {
     showTab(next);
     onTabChange?.(next);

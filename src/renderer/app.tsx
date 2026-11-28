@@ -90,7 +90,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} tab={route.tab} onPluginChange={navigateToPlugin}
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} section={route.section} tab={route.tab} onPluginChange={navigateToPlugin}
       onTabChange={tab => navigate(pluginsTabHash(tab), { replace: true, state: historyState() })} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout>;
   if (route.page === "home") {

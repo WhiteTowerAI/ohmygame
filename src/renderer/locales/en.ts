@@ -437,6 +437,8 @@ const en = {
     allConnected: "Every provider here is connected.",
     loadingProviders: "Loading providers",
     noMatch: "No providers match these filters.",
+    fromPlugins: "More from plugins",
+    fromPluginsHint: "Plugins can add other providers.",
     group: {
       providers: "Providers",
       free: "Free cloud",

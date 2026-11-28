@@ -437,6 +437,8 @@ const zhCN: typeof en = {
     allConnected: "这里的服务商都已连接。",
     loadingProviders: "正在加载服务商",
     noMatch: "没有符合筛选条件的服务商。",
+    fromPlugins: "插件里的更多服务商",
+    fromPluginsHint: "插件可以加入其他服务商。",
     group: {
       providers: "服务商",
       free: "免费云端",

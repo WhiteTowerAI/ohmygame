@@ -15,7 +15,12 @@ from the [plugin market](#the-plugin-market).
 
 The Plugins page reads `GET /plugin-store/plugins` and has two tabs, kept in
 the route as `#/plugins?tab=discover|installed`, **Discover** first and by
-default. An old `tab=mine` link opens Installed. Tabs show no counts;
+default. An old `tab=mine` link opens Installed. `#/plugins?section=<id>`
+(`pluginsSectionHash`) opens Discover at one of its sections, as **Browse
+plugins** does from **More coding agents** (Agents & models) and from
+Providers settings (the section for the kind picked there); the address then
+drops it, so going back to the page doesn't jump again. An old
+`adds=projectType` link opens **Engines & platforms**. Tabs show no counts;
 **Installed** has a dot when an installed plugin has an update. The header has
 one search for whichever tab is open, **New plugin**, which opens the
 [Plugin Builder](#making-a-plugin), and a ⋯ menu with **Add plugin**, **Add
@@ -960,8 +965,8 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   Picking one that is off turns it on in the project first; a prompt that
   mentions a plugin not on in its project gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
-  from `GET /project-types` (with what each type's plugin `asks` for), then
-  a link to the plugins that add types (`#/plugins?adds=projectType`). There
+  from `GET /project-types` (with what each type's plugin `asks` for); a
+  mark beside it says plugins can add more types, without leaving Home. There
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
   except those that add types, which are picked as the type. The new-project

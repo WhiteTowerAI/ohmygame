@@ -148,7 +148,7 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   // Other agents come from plugins, which the last row leads to.
   expect(names).toEqual(["OhMyGame", "Claude Code", "Codex", "More coding agents", "Automatically use recommended answers", "Agent instructions"]);
   await act(async () => [...row("More coding agents")!.querySelectorAll("button")].find((button) => button.textContent === "Browse plugins")!.click());
-  expect(window.location.hash).toBe("#/plugins?tab=discover");
+  expect(window.location.hash).toBe("#/plugins?section=agent");
   expect(row("OhMyGame")!.textContent).toContain("now GPT-5");
   expect(row("OhMyGame")!.querySelector(".ui-badge")?.textContent).toBe("Default");
   expect(row("Claude Code")!.querySelector(".ui-badge")).toBeNull();

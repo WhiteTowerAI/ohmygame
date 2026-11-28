@@ -191,3 +191,14 @@ it("leads with connections, then default models, then the catalogue it filters",
   expect(catalogue.textContent).toContain("tripo");
   expect(catalogue.textContent).not.toContain("meshy");
 });
+
+it("finds more providers in Discover, at the section for the kind picked", async () => {
+  api.providers.mockResolvedValue([{ ...provider("tripo"), configured: false, status: "not_configured" }]);
+  await act(async () => root.render(<ModelsSettings view={{ page: "providers" }} onViewChange={() => {}} onOpenAgents={() => {}} />));
+  const browse = () => [...container.querySelectorAll(".settings-row")].find((row) => row.textContent?.includes("More from plugins"))!.querySelector("button")!;
+  await act(async () => browse().click());
+  expect(window.location.hash).toBe("#/plugins?tab=discover");
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "Language")!.click());
+  await act(async () => browse().click());
+  expect(window.location.hash).toBe("#/plugins?section=agent");
+});
