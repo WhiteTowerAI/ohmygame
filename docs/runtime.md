@@ -894,7 +894,14 @@ help mark says plugins can add more types, without leaving Home, and
 **+** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.
-Explore follows with playable examples. Asset presets are available in the canvas.
+Explore follows with examples, from the
+[ohmygame-examples](https://github.com/WhiteTowerAI/ohmygame-examples) commit
+pinned in `config/examples.json` and packaged by `scripts/prepare-examples.ts`.
+Clicking a web game's card plays it; **Remix** copies it into a new project.
+A general example, such as an agent's setup, has nothing to play: its card
+opens its cover and description with only **Use this template**, which copies
+it the same way. Asset presets are
+available in the canvas.
 
 ![New project dialog showing Web Game and the available project types](assets/new-project-dialog.webp)
 

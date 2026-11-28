@@ -46,7 +46,7 @@ export class ExampleStore {
   }
 
   list(): ExampleSummary[] {
-    return this.#examples.map(({ id, type, name, description }) => ({ id, type, name, description }));
+    return this.#examples.map(({ id, type, name, description, play }) => ({ id, type, name, description, playable: play !== undefined }));
   }
 
   async cover(id: string): Promise<Buffer | undefined> {
@@ -59,9 +59,11 @@ export class ExampleStore {
   async playUrl(id: string): Promise<string> {
     const example = this.#example(id);
     if (!example) throw new ExampleError(`Example not found: ${id}`, 404);
+    const play = example.play;
+    if (play === undefined) throw new ExampleError(`${example.name} has nothing to play`, 400);
     let url = this.#playUrls.get(id);
     if (!url) {
-      url = this.#playableDirectory(example).then((directory) => this.#playServer.mount(directory)).then((mount) => mount.url);
+      url = this.#playServer.mount(path.join(this.#directory!, play)).then((mount) => mount.url);
       this.#playUrls.set(id, url);
       url.catch(() => this.#playUrls.delete(id));
     }
@@ -71,11 +73,6 @@ export class ExampleStore {
   async close(): Promise<void> {
     this.#playUrls.clear();
     await this.#playServer.close();
-  }
-
-  /** A prepared build, or else the example's own files, played as they are. */
-  async #playableDirectory(example: PreparedExample): Promise<string> {
-    return path.join(this.#directory!, example.play ?? example.directory);
   }
 
   /** Creates a project whose workspace starts as a copy of the example. */

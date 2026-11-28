@@ -2,7 +2,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ExampleSummary } from "../shared/examples.js";
 import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
-import { Spinner, Maximize, Pencil, Play, X } from "./icons.js";
+import { Spinner, FilePlus, Maximize, Pencil, Play, X } from "./icons.js";
 import { projectTypeLabel } from "./project-types.js";
 import { t } from "./i18n.js";
 
@@ -37,8 +37,9 @@ export function useExamples(): { examples: ExampleSummary[]; covers: Record<stri
 }
 
 /**
- * A row of example cards: clicking a card plays the example, Remix copies it
- * into a new project and opens it. `children` are extra cards for the row.
+ * A row of example cards: clicking a card plays the example, or shows one with
+ * nothing to play; its action copies it into a new project and opens it.
+ * `children` are extra cards for the row.
  * Cards show the example's name; `showType` adds its project type, for rows that mix types.
  */
 export function ExampleShelf({ examples, covers, showType = false, onOpenProject, children }: {
@@ -70,18 +71,18 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
       <div className="home-whats-new-grid">
         {examples.map((example) => (
           <div className="home-explore-card" key={example.id}>
-            <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={t("examples.playName", { name: example.name })} title={example.description}>
+            <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={t(example.playable ? "examples.playName" : "examples.viewName", { name: example.name })} title={example.description}>
               <span className="home-whats-new-icon home-explore-cover" aria-hidden="true">
                 {covers[example.id] ? <img src={covers[example.id]} alt="" /> : null}
-                <span className="home-explore-play"><Play size="sm" />{t("examples.play")}</span>
+                {example.playable ? <span className="home-explore-play"><Play size="sm" />{t("examples.play")}</span> : null}
               </span>
               <span className="home-whats-new-copy">
                 <strong>{example.name}</strong>
                 {showType ? <small>{projectTypeLabel(example.type)}</small> : null}
               </span>
             </button>
-            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={t("examples.remixTitle")}>
-              <Pencil size="sm" />{t("examples.remix")}
+            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={copyAction(example).title}>
+              {copyAction(example).icon}{copyAction(example).label}
             </button>
           </div>
         ))}
@@ -102,7 +103,14 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
   );
 }
 
-/** Plays an example's static build in place, with a way to remix it into a project. */
+/** A game is remixed; an example with nothing to play, such as an agent's setup, is used as a template. Both copy it into a new project. */
+function copyAction(example: ExampleSummary): { icon: ReactNode; label: string; title: string } {
+  return example.playable
+    ? { icon: <Pencil size="sm" />, label: t("examples.remix"), title: t("examples.remixTitle") }
+    : { icon: <FilePlus size="sm" />, label: t("examples.useTemplate"), title: t("examples.useTemplateTitle") };
+}
+
+/** Plays an example's static build in place, or shows its cover when it has nothing to play, with a way to copy it into a project. */
 export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onClose }: {
   example: ExampleSummary;
   coverUrl?: string;
@@ -116,12 +124,13 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
   const [loadError, setLoadError] = useState<string>();
 
   useEffect(() => {
+    if (!example.playable) return;
     let disposed = false;
     void playExample(example.id)
       .then((result) => { if (!disposed) setUrl(result.url); })
       .catch((cause) => { if (!disposed) setLoadError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { disposed = true; };
-  }, [example.id]);
+  }, [example.id, example.playable]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -138,9 +147,11 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
 
   return (
     <div className="example-player-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="example-player" ref={playerRef} role="dialog" aria-modal="true" aria-label={t("examples.playName", { name: example.name })}>
+      <section className="example-player" ref={playerRef} role="dialog" aria-modal="true" aria-label={t(example.playable ? "examples.playName" : "examples.viewName", { name: example.name })}>
         <div className="example-player-stage">
-          {url ? (
+          {!example.playable ? (
+            coverUrl ? <img className="example-player-cover" src={coverUrl} alt="" /> : null
+          ) : url ? (
             <iframe
               src={url}
               title={example.name}
@@ -163,11 +174,11 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             </div>
           </div>
           <div className="example-player-actions">
-            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={t("examples.remixTitle")}>
-              {remixing ? <Spinner size="sm" /> : <Pencil size="sm" />}
-              {t("examples.remix")}
+            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={copyAction(example).title}>
+              {remixing ? <Spinner size="sm" /> : copyAction(example).icon}
+              {copyAction(example).label}
             </button>
-            <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size="md" /></button>
+            {example.playable ? <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size="md" /></button> : null}
             <button type="button" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}><X size="md" /></button>
           </div>
         </div>

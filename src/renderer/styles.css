@@ -2178,6 +2178,13 @@ select.settings-search-input {
   background: #050608;
 }
 
+.example-player-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .example-player-status {
   display: flex;
   height: 100%;

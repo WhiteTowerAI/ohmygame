@@ -49,6 +49,23 @@ async function writeExamples(): Promise<string> {
     description: "A short story.",
     directory: "train/files",
     cover: "train/cover.webp",
+    play: "train/files",
+  });
+  // A general example, such as an agent's setup, has nothing to play.
+  const studio = path.join(directory, "studio", "files");
+  await mkdir(path.join(studio, ".claude", "agents"), { recursive: true });
+  await mkdir(path.join(studio, "dist"), { recursive: true });
+  await writeFile(path.join(studio, ".claude", "agents", "producer.md"), "# Producer\n");
+  await writeFile(path.join(studio, ".gitignore"), "production/\n");
+  await writeFile(path.join(studio, "dist", "notes.md"), "kept\n");
+  await writeFile(path.join(directory, "studio", "cover.webp"), "RIFF-studio");
+  catalog.examples.push({
+    id: "studio",
+    type: "general",
+    name: "Studio",
+    description: "Agents and docs for a studio.",
+    directory: "studio/files",
+    cover: "studio/cover.webp",
   });
   await writeFile(path.join(directory, "catalog.json"), JSON.stringify(catalog));
   return directory;
@@ -140,8 +157,9 @@ describe("examples", () => {
     const app = await startApp(await writeExamples());
 
     expect((await app.inject({ method: "GET", url: "/examples" })).json()).toEqual([
-      { id: "pond", type: "web-game", name: "Pond", description: "A small pond." },
-      { id: "train", type: "web-game", name: "Night Train", description: "A short story." },
+      { id: "pond", type: "web-game", name: "Pond", description: "A small pond.", playable: true },
+      { id: "train", type: "web-game", name: "Night Train", description: "A short story.", playable: true },
+      { id: "studio", type: "general", name: "Studio", description: "Agents and docs for a studio.", playable: false },
     ]);
     const cover = await app.inject({ method: "GET", url: "/examples/pond/cover" });
     expect(cover.statusCode).toBe(200);
@@ -191,6 +209,20 @@ describe("examples", () => {
     expect(project).toMatchObject({ name: "Night Train", type: "web-game" });
     expect(await readFile(path.join(project.workspacePath, "index.html"), "utf8")).toBe("<title>Night Train</title>");
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).body).toBe("RIFF-train");
+  });
+
+  it("remixes an example with nothing to play, such as an agent's setup, as its files are", async () => {
+    const app = await startApp(await writeExamples());
+
+    expect((await app.inject({ method: "POST", url: "/examples/studio/play" })).statusCode).toBe(400);
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "general", exampleId: "studio" } });
+    expect(response.statusCode).toBe(201);
+    const project = response.json();
+    expect(project).toMatchObject({ name: "Studio", type: "general" });
+    expect(await readFile(path.join(project.workspacePath, ".claude", "agents", "producer.md"), "utf8")).toBe("# Producer\n");
+    expect(await readFile(path.join(project.workspacePath, ".gitignore"), "utf8")).toBe("production/\n");
+    expect(await readFile(path.join(project.workspacePath, "dist", "notes.md"), "utf8")).toBe("kept\n");
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).body).toBe("RIFF-studio");
   });
 
   it("has no examples when none were prepared", async () => {

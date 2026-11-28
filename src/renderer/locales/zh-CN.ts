@@ -1097,10 +1097,13 @@ const zhCN: typeof en = {
     loadingName: "正在加载 {{name}}",
     play: "试玩",
     playName: "试玩 {{name}}",
+    viewName: "查看 {{name}}",
     example: "示例",
     exampleType: "示例 · {{type}}",
     remixTitle: "把这个示例复制成一个可以修改的新项目",
     remix: "改编",
+    useTemplateTitle: "以这个示例为起点新建一个项目",
+    useTemplate: "使用此模板",
   },
   creator: {
     create: "创建项目",
