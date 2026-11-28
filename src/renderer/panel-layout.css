@@ -219,38 +219,50 @@
   text-align: center;
 }
 
-/* A tab keeps room for its close button, which shows while the pointer or
-   focus is on it: hovering covers no label and opening a tab moves nothing. */
-.dock-tab:has(.dock-tab-close) .dock-tab-button {
-  padding-right: 28px;
-}
-
+/* A tab's close button, open tab's too, shows over the end of its label only
+   while the pointer or keyboard focus is on it, so it takes no room and
+   opening a tab moves nothing. Its fill is the tab's, fading over the label. */
 .dock-tab-close {
+  --close-fill: var(--color-hover);
   position: absolute;
   top: 50%;
   right: 5px;
-  display: grid;
+  display: none;
   place-items: center;
   width: 18px;
   height: 18px;
   padding: 0;
   border: 0;
   border-radius: 4px;
-  background: transparent;
+  background: var(--close-fill);
   color: var(--color-text-tertiary);
   cursor: pointer;
-  opacity: 0;
   translate: 0 -50%;
-  transition: color var(--duration-fast), opacity var(--duration-fast);
+  transition: color var(--duration-fast);
 }
 
-.dock-tab:is(:hover, :focus-within) .dock-tab-close {
-  opacity: 1;
+.dock-tab-close::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 10px;
+  background: linear-gradient(to right, transparent, var(--close-fill));
+  pointer-events: none;
+}
+
+.dock-tab.is-active .dock-tab-close {
+  --close-fill: var(--color-selected);
+}
+
+.dock-tab:is(:hover, :has(:focus-visible)) .dock-tab-close {
+  display: grid;
 }
 
 /* Darker than the tab under it, whichever fill that has. */
 .dock-tab-close:hover {
-  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+  background: color-mix(in srgb, var(--color-text) 10%, var(--close-fill));
   color: var(--color-text);
 }
 
@@ -258,13 +270,18 @@
   flex: none;
 }
 
-/* A lone tab is the area's title: no selected fill. */
+/* A lone tab is the area's title: no selected fill, and its close button
+   shows only while the pointer or focus is on it. */
 .dock-tabs.is-single .dock-tab.is-active {
   background: transparent;
 }
 
 .dock-tabs.is-single .dock-tab.is-active:hover {
   background: var(--color-hover);
+}
+
+.dock-tabs.is-single .dock-tab-close {
+  --close-fill: var(--color-hover);
 }
 
 /* the active panel's own controls, after the tabs */
