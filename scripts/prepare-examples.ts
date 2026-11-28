@@ -10,6 +10,7 @@ import { git, replaceDirectory } from "./runtime-directory.js";
 // desktop build: each example's source (copied into new projects), its cover,
 // and for web games with a build script a static build played straight from
 // Home; one without, such as an interactive story, plays from its own files.
+// A general example, such as an agent's setup, is copied with nothing to play.
 // Pass --require to fail when the repository is unreachable;
 // otherwise a missing download only disables examples.
 
@@ -67,14 +68,20 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       const cover = `${entry.id}/cover${path.extname(coverFile).toLowerCase()}`;
       await cp(exampleDirectory, path.join(prepared, directory), {
         recursive: true,
-        filter: (file) => !["node_modules", "dist", ".git"].includes(path.basename(file)),
+        // A web game's dependencies and build are made again; a general example's folders are all its own.
+        filter: (file) => !(entry.type === "web-game" ? ["node_modules", "dist", ".git"] : [".git"]).includes(path.basename(file)),
       });
       await cp(coverFile, path.join(prepared, cover));
       const summary = { id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover };
+      // A general example has nothing to play; it is only remixed.
+      if (entry.type === "general") {
+        examples.push(summary);
+        continue;
+      }
       // A game without package.json, such as an interactive story, plays as it is from its index.html.
       if (!(await stat(path.join(exampleDirectory, "package.json")).catch(() => undefined))?.isFile()) {
         await stat(path.join(exampleDirectory, "index.html"));
-        examples.push(summary);
+        examples.push({ ...summary, play: directory });
         continue;
       }
       const play = `${entry.id}/play`;
@@ -129,7 +136,9 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     const catalog: unknown = JSON.parse(await readFile(path.join(directory, "catalog.json"), "utf8"));
     if (!isPreparedExampleCatalog(catalog)) return false;
     for (const example of catalog.examples) {
-      await stat(path.join(directory, example.directory, example.play ? "package.json" : "index.html"));
+      // A web game always plays; one packaged before a page without a build named its files as `play` is prepared again.
+      if (example.type === "web-game" && !example.play) return false;
+      await stat(path.join(directory, example.directory));
       await stat(path.join(directory, example.cover));
       if (example.play) await stat(path.join(directory, example.play, "index.html"));
     }

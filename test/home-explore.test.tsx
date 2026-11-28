@@ -6,9 +6,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ExampleSummary } from "../src/shared/examples.js";
 
 const examples: ExampleSummary[] = [
-  ...["circuit", "tidal", "ember", "wetland"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
-  { id: "last-bus", type: "web-game", name: "Last Bus", description: "" },
-  ...["garden", "harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "" })),
+  ...["circuit", "tidal", "ember", "wetland"].map((id) => ({ id, type: "web-game" as const, name: id, description: "", playable: true })),
+  { id: "last-bus", type: "web-game", name: "Last Bus", description: "", playable: true },
+  ...["garden", "harbor", "orbit", "meadow"].map((id) => ({ id, type: "web-game" as const, name: id, description: "", playable: true })),
 ];
 
 vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), async (original) => ({
@@ -103,6 +103,24 @@ it("keeps Last Bus visible when the fifth example starts a partial row", async (
     expect(titles).toEqual(examples.map((example) => example.name));
   } finally {
     examples.push(...all);
+  }
+});
+
+it("shows an example with nothing to play instead of playing it, with only Remix", async () => {
+  examples.unshift({ id: "studio", type: "general", name: "Studio", description: "Agents and docs.", playable: false });
+  try {
+    await renderHome();
+    const card = container!.querySelector<HTMLButtonElement>('[aria-label="View Studio"]')!;
+    expect(card.querySelector(".home-explore-play")).toBeNull();
+    await act(async () => card.click());
+    const shown = document.querySelector('[role="dialog"][aria-label="View Studio"]')!;
+    expect(shown.querySelector("iframe")).toBeNull();
+    expect(shown.querySelector('[aria-label="Fullscreen"]')).toBeNull();
+    expect(shown.textContent).toContain("Agents and docs.");
+    await act(async () => shown.querySelector<HTMLButtonElement>(".example-player-remix")!.click());
+    expect(createProject).toHaveBeenCalledWith({ type: "general", exampleId: "studio", name: "Studio" });
+  } finally {
+    examples.shift();
   }
 });
 

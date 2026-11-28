@@ -3,24 +3,27 @@ import type { ProjectType } from "./contracts.js";
 export const EXAMPLE_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** Project types an example can start. Examples are copied into a workspace and run as is. */
-export const EXAMPLE_PROJECT_TYPES = ["web-game"] as const satisfies readonly ProjectType[];
+export const EXAMPLE_PROJECT_TYPES = ["general", "web-game"] as const satisfies readonly ProjectType[];
 
 export interface ExampleSummary {
   id: string;
   type: (typeof EXAMPLE_PROJECT_TYPES)[number];
   name: string;
   description: string;
+  /** Whether Home can play it. One with nothing to play, such as an agent's setup, is only remixed. */
+  playable: boolean;
 }
 
 /** An example as packaged by scripts/prepare-examples.ts. Paths are relative to the catalog. */
-export interface PreparedExample extends ExampleSummary {
+export interface PreparedExample extends Omit<ExampleSummary, "playable"> {
   /** Source copied into a new project's workspace. */
   directory: string;
   cover: string;
   /**
-   * Static build played without creating a project. Web games are built when
-   * the app is packaged; one without a build, such as an interactive story,
-   * plays as its own page from its files.
+   * What is played without creating a project: a web game's static build,
+   * made when the app is packaged, or for a web game without a build, such as
+   * an interactive story, its own files, played as a page. An example without
+   * it has nothing to play.
    */
   play?: string;
 }
