@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import type { AgentNotice, AgentNoticesResponse } from "../shared/agent-notices.js";
 import { request } from "./api.js";
-import { DangerCircle } from "./icons.js";
+import { DangerCircle, Spinner } from "./icons.js";
 import { t } from "./i18n.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import "./project-attention.css";
 
 type Attention = "unread" | "waiting";
+/** What a project mark shows: attention first, else a running agent. */
+type ProjectMark = Attention | "running";
 type Target = Pick<AgentNotice, "projectId" | "conversationId">;
 
 function conversationKey({ projectId, conversationId }: Target): string {
@@ -137,15 +139,15 @@ export function useProjectAttention(projectId: string, conversationId?: string):
     ? attention.conversation({ projectId, conversationId }) : attention.project(projectId));
 }
 
-export function attentionLabel(attention: Attention | undefined): string | undefined {
+export function attentionLabel(attention: ProjectMark | undefined): string | undefined {
   return attention ? t(`projectAttention.${attention}`) : undefined;
 }
 
-export function ProjectAttentionMark({ attention }: { attention: Attention | undefined }) {
+export function ProjectAttentionMark({ attention }: { attention: ProjectMark | undefined }) {
   if (!attention) return null;
   return (
     <span aria-hidden="true" title={attentionLabel(attention)} className={`project-attention-mark is-${attention}`}>
-      {attention === "waiting" ? <DangerCircle size="xs" /> : null}
+      {attention === "waiting" ? <DangerCircle size="xs" /> : attention === "running" ? <Spinner size="xs" /> : null}
     </span>
   );
 }
