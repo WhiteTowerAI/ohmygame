@@ -73,7 +73,7 @@ export type PluginToolPlugin = Plugins[number] | { id: string; displayName: stri
 
 /** One of OhMyGame's own tools: its icon and texts. */
 export function builtInTool(name: string): { icon: IconComponent; name: string; running: string; done: (count?: number) => string } | undefined {
-  const tool = BUILT_IN_TOOLS[name];
+  const tool = Object.hasOwn(BUILT_IN_TOOLS, name) ? BUILT_IN_TOOLS[name] : undefined;
   if (!tool) return undefined;
   return {
     icon: tool.icon,
@@ -107,5 +107,5 @@ export function toolDisplayName(name: string, plugins: Plugins): string {
 
 /** The icon a tool shows when no plugin's icon stands for it. */
 export function builtInToolIcon(name: string): IconComponent | undefined {
-  return BUILT_IN_TOOLS[name]?.icon ?? (pluginTool(name, []) ? Plug : undefined);
+  return builtInTool(name)?.icon ?? (pluginTool(name, []) ? Plug : undefined);
 }

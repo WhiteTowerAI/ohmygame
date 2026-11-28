@@ -35,7 +35,7 @@ export function humanizeIdentifier(value: string): string {
     .filter(Boolean);
   if (words.length === 0) return "Tool";
   return words.map((word, index) => {
-    if (DISPLAY_WORDS[word]) return DISPLAY_WORDS[word];
+    if (Object.hasOwn(DISPLAY_WORDS, word)) return DISPLAY_WORDS[word]!;
     return index === 0 ? word[0].toUpperCase() + word.slice(1) : word;
   }).join(" ");
 }

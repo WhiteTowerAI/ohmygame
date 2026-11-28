@@ -1110,6 +1110,9 @@ describe("AgentTimeline", () => {
       tool("export", "acme__pixelfx__export_sheet"),
       tool("gone", "other__tools__make_map"),
       tool("model", "generate_3d_asset", "inProgress"),
+      // Names that are also Object's own keys read as names, not as its properties.
+      tool("object", "constructor", "inProgress"),
+      tool("object-tool", "acme__pixelfx__constructor"),
     ]} plugins={plugins} activeTurnId="turn-1" />);
 
     expect(html).toContain("Generated audio");
@@ -1119,6 +1122,8 @@ describe("AgentTimeline", () => {
     // A plugin that is gone is named from its id.
     expect(html).toContain("Tools: Make map");
     expect(html).toContain("Generating a 3D model");
+    expect(html).toContain("Pixel FX: Constructor");
+    expect(html).not.toContain("native code");
     expect(html).not.toContain("generate_audio");
     expect(html).not.toContain("acme__pixelfx");
   });
