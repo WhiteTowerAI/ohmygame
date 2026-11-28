@@ -37,7 +37,7 @@ import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
-import { pluginHash, pluginsTabHash } from "./routes.js";
+import { pluginHash, pluginsSectionHash } from "./routes.js";
 import { usePluginIcon } from "./plugin-mark-icon.js";
 
 type PermissionModeKey =
@@ -231,7 +231,7 @@ export function CodingAgentsGroup({
           title={t("codingAgents.more")}
           description={t("codingAgents.moreHint")}
         >
-          <Button size="sm" onClick={() => { window.location.hash = pluginsTabHash("discover"); }}>
+          <Button size="sm" onClick={() => { window.location.hash = pluginsSectionHash("agent"); }}>
             {t("codingAgents.browsePlugins")}
           </Button>
         </SettingsRow>

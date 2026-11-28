@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CircleCheck, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
+import { ChevronDown, ChevronRight, CircleCheck, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Plug, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -59,7 +59,7 @@ import { followProviderSettings } from "./model-settings-events.js";
 import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 import { groupProviders } from "./provider-groups.js";
-import { pluginHash } from "./routes.js";
+import { pluginHash, pluginsSectionHash, pluginsTabHash } from "./routes.js";
 import { t } from "./i18n.js";
 // The plugin page shows providers too, before Settings may have loaded.
 import "./settings.css";
@@ -221,6 +221,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
             {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
           </SettingsGroup>
         ) : null}
+        {/* Plugins add the rest, so Discover opens where the kind picked above is. */}
+        <SettingsRow icon={<Plug size="md" />} title={t("providers.fromPlugins")} description={t("providers.fromPluginsHint")}>
+          <Button size="sm" onClick={() => {
+            window.location.hash = capability === "all" ? pluginsTabHash("discover") : pluginsSectionHash(capability === "language" ? "agent" : capability);
+          }}>{t("codingAgents.browsePlugins")}</Button>
+        </SettingsRow>
       </section>
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>

@@ -1,5 +1,4 @@
 import type { ProjectType } from "../shared/contracts.js";
-import { PLUGIN_CONTRIBUTIONS, type PluginContribution } from "../shared/plugins.js";
 import { isProjectType } from "../shared/project-runtime.js";
 
 export type SidebarPage =
@@ -30,8 +29,8 @@ export type AppRoute =
   | ({ page: "projects" } & ProjectListFilters)
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
-  /** `adds` opens the marketplace filtered to plugins that add that. */
-  | { page: "plugins"; pluginId?: string; adds?: PluginContribution; tab?: PluginsTab }
+  /** `section` opens Discover at that section, as a link from where such plugins are used does. */
+  | { page: "plugins"; pluginId?: string; section?: PluginsSection; tab?: PluginsTab }
   | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string; conversationId?: string }
   | { page: "game"; gameId: string }
@@ -41,12 +40,15 @@ export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})(?:\/conversations\/([^/]+))?$/.exec(hash);
   if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1], ...(builderMatch[2] ? { conversationId: decodeURIComponent(builderMatch[2]) } : {}) };
-  const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
-  if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
-    return { page: "plugins", adds: browseMatch[1] as PluginContribution };
+  const sectionMatch = /^#\/plugins\?section=([a-z0-9]+)$/.exec(hash);
+  if (sectionMatch?.[1] && (PLUGINS_SECTIONS as readonly string[]).includes(sectionMatch[1])) {
+    return { page: "plugins", section: sectionMatch[1] as PluginsSection };
   }
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-28. `adds=projectType` was Discover filtered to project types.
+  if (/^#\/plugins\?adds=projectType$/.test(hash)) return { page: "plugins", section: "engine" };
   const tabMatch = /^#\/plugins\?tab=(installed|discover|mine)$/.exec(hash);
-  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] as PluginsTab };
+  // compat: since beta.5.12, remove from beta.7 and 2027-01-28. Mine became Installed's Made by you group.
+  if (tabMatch?.[1]) return { page: "plugins", tab: tabMatch[1] === "mine" ? "installed" : tabMatch[1] as PluginsTab };
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/?]+)(\?tab=installed)?)?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -132,16 +134,20 @@ export function pluginHash(pluginId?: string, tab?: "installed"): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}${tab ? `?tab=${tab}` : ""}`;
 }
 
-/** The Plugins page's tabs: what others made, what there is to get, and what is the person's own. */
-export type PluginsTab = "installed" | "discover" | "mine";
+/** The Plugins page's tabs: what there is to get, and what is installed, the person's own included. */
+export type PluginsTab = "installed" | "discover";
 
 export function pluginsTabHash(tab: PluginsTab): string {
   return `#/plugins?tab=${tab}`;
 }
 
-/** The marketplace, showing the plugins that add `adds`. */
-export function pluginBrowseHash(adds: PluginContribution): string {
-  return `#/plugins?adds=${adds}`;
+/** Discover's sections (`plugin-discover.tsx`), in the order a game is made. */
+export const PLUGINS_SECTIONS = ["featured", "engine", "agent", "image", "audio", "3d", "video", "design", "ship", "connect", "other"] as const;
+export type PluginsSection = (typeof PLUGINS_SECTIONS)[number];
+
+/** Discover, scrolled to one of its sections. */
+export function pluginsSectionHash(section: PluginsSection): string {
+  return `#/plugins?section=${section}`;
 }
 
 export function pluginBuilderHash(sessionId: string, conversationId?: string): string {

@@ -13,24 +13,27 @@ from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
-The Plugins page reads `GET /plugin-store/plugins` and has three tabs, kept in
-the route as `#/plugins?tab=discover|installed|mine`, **Discover** first and by
-default. Tabs show no counts; **Installed** has a dot when an installed plugin
-has an update. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share for category navigation, plus the market sorting, cards,
-overview and plugin dialog.
+The Plugins page reads `GET /plugin-store/plugins` and has two tabs, kept in
+the route as `#/plugins?tab=discover|installed`, **Discover** first and by
+default. An old `tab=mine` link opens Installed. `#/plugins?section=<id>`
+(`pluginsSectionHash`) opens Discover at one of its sections, as **Browse
+plugins** does from **More coding agents** (Agents & models) and from
+Providers settings (the section for the kind picked there); the address then
+drops it, and the page keeps the section across tabs. An old
+`adds=projectType` link opens **Engines & platforms**. Tabs show no counts;
+**Installed** has a dot when an installed plugin has an update. The header has
+one search for whichever tab is open and an **Add** menu: **Create with AI**,
+which opens the [Plugin Builder](#making-a-plugin), **From GitHub or this
+computer**, **Add MCP service** and, below a line, **Plugin sources**. `src/renderer/plugin-discover.tsx` is
+Discover's overview; `src/renderer/plugin-catalog.tsx` holds what Discover and
+Installed share: cards, search text, the market's plugin page and the add
+dialog.
 
-Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A plugin is listed in each category it names, and one with none is under
-**Other**. Search reads a plugin's name, description, id and
+Search reads a plugin's name, description, id and
 [keywords](#more-manifest-fields), and the titles of its model providers and
 agents, so "Gemini" finds the plugin that adds Gemini CLI. Installed search
 also reads skill names and shows the plugins that provide them. A plugin's page
-lists its keywords. Picking a keyword searches across every category. Under
-**Model providers**,
-Discover adds a row of what the providers make (language, image, video), and
-each provider's card shows those as small tags; they come from the manifest,
-so a plugin can't claim a kind it doesn't implement. An
+lists its keywords; picking one searches for it. An
 installed plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
@@ -40,72 +43,89 @@ bundled, from its `@ohmygame` npm scope, or released from a `WhiteTowerAI/`
 repository. Everything else is a quiet text
 label (**Beta**, **Included**, **In development**, **Update available**), red
 only when it needs the person (**Stopped**, **Blocked**, a development build
-that failed). Discover and Installed display each publisher as `@publisher`,
-including `@ohmygame`.
+that failed). Discover and Installed display each publisher as `@publisher`;
+an installed row leaves it out when the seal already says OhMyGame, and for the
+person's own.
 
 - **Installed** opens a plugin list alongside its details. Select a plugin to
   see its overview, skills, settings, and management actions. In a narrow
   window, open the details from the list and use **Installed** to go back.
   Switching plugins keeps the last detail tab and any unsaved settings for
-  each plugin while the page is open. The **Official** seal appears beside the
-  plugin name. Each row shows the installed version and publisher underneath.
+  each plugin while the page is open. The list is in groups, each by name:
+  **Updates**, then **Made by you**, then **Others**; with only one group it
+  has no heading. **Made by you** holds the person's own plugins
+  (`personal/<name>`, made with AI) and those developed from a folder, then the
+  Plugin Builder's drafts not installed yet: each plugin's newest workspace
+  whose plugin isn't installed (`GET /plugins/setup-sessions`). A draft opens its
+  page beside the list like any other row, at `#/plugins/_draft/<workspace id>`,
+  the id it runs as: what it adds so far, **Keep making**, which opens its
+  workspace, and ⋯ or right-click to delete it after asking. A package added
+  from a folder or file is someone's release, so it's under **Others**. Each row
+  shows the installed version and publisher underneath, and **Every project**
+  for one on in every project.
   Right-clicking a row offers its update, **On in every project**, the log,
   **Edit with AI** for your own plugins, its folder, and **Uninstall** when it
   has one version to remove; the uninstall dialog is the one its page uses.
-  The list header shows counts for **All**, **On in every project**, and
-  **Updates**. In **All**, enabled plugins that default to on show **Every
-  project** after the publisher. Use the menu beside search to filter by category.
   The switch in the plugin details sets the default for compatible projects.
   Projects can override it.
-  Update a plugin directly from the list, or choose **Update all** under
-  **Updates** with an empty search. Updates that ask for new permissions need
-  individual review.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
-  from a side list as in an app store (`MarketRail`): **Overview**, **All
-  plugins**, each category with how many plugins it has, and two filters,
-  **Official** and **Source verified**. The counts follow the search and
-  filters, and a category nothing is in is left out. On a narrow window the
-  side list becomes a row above the cards.
-  - **Overview** with more than twelve plugins is the same few rows however
-    many there are (`marketFront`): **Featured** (picked by the index),
-    **Recommended** (the market's order, below, taking the best of each
-    category first, so the row shows what kinds there are rather than a run
-    of one kind), **New** (first published in the last 90 days) and
-    **Recently updated**. Each plugin shows once, in the first row that takes
-    it, and each row has **View all**. A search or filter shows one list
-    instead.
-  - Any other view is one list with its count, a **Contains** filter and an
-    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 48 cards at a time and mounts the next 48 as the list's end scrolls into view.
+  Update a plugin directly from the list, or choose **Update all** beside
+  **Updates** when it has more than one and nothing is searched. Updates that
+  ask for new permissions need individual review.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins in
+  sections by what someone wants to make, in the order a game is made
+  (`SECTIONS` in `plugin-discover.tsx`): **Engines & platforms**, **Agents &
+  models**, **Images & pixel art**, **Sound**, **3D**, **Video**, **Levels &
+  gameplay**, **Testing & publishing** and **Connections**. A plugin is in a
+  section when it declares one of the section's
+  [categories](#more-manifest-fields) or makes one of its provider kinds, so a
+  provider that makes images and sound is in both; the kinds come from the
+  manifest, so a plugin can't claim one it doesn't implement. What no section
+  takes is under **Other**. Within a section plugins go by name. **Featured**
+  (the index's picks: first in All, an entry of its own in the side list,
+  and first in each section) is reserved but not shown until the market's
+  picks are made: `SHOW_FEATURED` in `plugin-discover.tsx` turns it on. There
+  is no sort or filter: forty-odd plugins fit in sections, and a search does
+  the rest.
+  - A side list picks what's shown: **All**, first and by default, or one
+    section, each with how many plugins it has. All shows four of each
+    section, ones not shown above it first so a provider in several sections
+    isn't repeated unless a section would be left short, and **All N** picks
+    the section for the rest. A picked section shows all of it, from the top.
+    On a narrow window the side list becomes a row above the cards.
+  - A search narrows what's shown and lists each match once; a new search
+    starts from All. Sections it left empty stay in the side list, greyed. Search also
+    reads each section's words in both languages, so "配音" or "voice" finds
+    every plugin under **Sound** even when it says "speech".
   - A card is one button. It shows the plugin's icon, or its first letter,
     then its name, **Installed** when it is, and its description. **Official**
     and **Beta** are on the plugin's page: nearly every plugin listed is both,
-    so on cards they said nothing. Its last line has the publisher at the
-    left, cut short if long, and the version at the right.
-  - A card opens the plugin's page, the same page whether it's installed or
+    so on cards they said nothing. A last line tells cards apart when there is
+    something to tell (`marketFact`): **Community** and the publisher for one
+    not OhMyGame's, and what a provider makes when that's more than one kind
+    (**Image · Video**).
+  - A card opens the plugin's page without leaving Discover: the cards fold
+    into one list at the side, of the picked section or All, marking the open
+    one (`DiscoverList`), so the next plugin to compare is a click away; Installed's
+    list looks the same. The close button or Esc returns to the cards where
+    they were scrolled to. Esc leaves a field, a menu or a dialog to close
+    first. A window too narrow for both hides the list, and the close button
+    goes back; the page stays the same one, so a resize keeps what's typed in
+    it.
+  - The page is the same whether the plugin is installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;
-    a row of its numbers, as an app store shows them (stars, version, size,
-    when it was updated); its screenshots, long description, what it adds and
-    asks for; and at the side its publisher (after their GitHub avatar),
-    categories, keywords, project types, first publish and repository, with
-    whether its source is verified.
+    its screenshots, long description, what it adds and asks for; and at the
+    side its publisher (after their GitHub avatar), categories, keywords,
+    project types, version, size, when it was updated and first published, and
+    repository, with whether its source is verified.
     It doesn't load the package's README: that is written for developers,
     often only in English, and would need its Markdown and pictures made safe;
     the manifest's localized `longDescription` and screenshots are the page,
     and the repository link leads to the README. **Get** opens [Add plugin](#adding-a-plugin)'s review at
-    the listed version; once added, the page becomes the installed one. A
-    link to a plugin that isn't installed opens the same page. Back returns
-    to the list where it was scrolled to.
-- **Mine** is for making plugins: **Create a plugin with AI** across the top,
-  then **Your plugins**, a card for each plugin the person makes, as projects
-  are (`MinePlugins` in `plugin-builder.tsx`). A plugin made with AI
-  (`personal/<name>`) opens its AI workspace without a dialog, and a draft not
-  installed yet is a card too; each says whether it's installed, and when its
-  workspace was last changed. One developed from a folder opens its page. A
-  package added from a folder or file is someone's release, so it's only under
-  Installed, where every plugin is switched on and off. A card's menu opens the
-  plugin's page, any earlier workspace of the plugin, or deletes its workspace,
-  which keeps the installed plugin.
+    the listed version; once added, the page becomes the installed one, open
+    on **Settings** when the plugin needs a key or a required setting first
+    (it adds a model provider, or asks for a secret or required setting). A
+    link to a plugin that isn't installed opens the same page.
 
 A project's **Plugins** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how
@@ -113,13 +133,22 @@ many are on, as described in [Routes](#routes). One on in every project is
 on here and says so; switching it off is saved in the project. The type's own
 plugin stays on. **Manage all plugins** opens the Plugins page.
 
-A plugin's page has its main action at the top, as **Get** is for one not
-installed: **Update to …** when there's a newer version, and **Try now** for
-one with examples. Below are **About** (the long description and Try it prompts),
-**Skills**, and **Settings** tabs, beside a **Management** card with the
-**Every project** switch, version, source, and other actions. A plugin that stopped
-after crashing shows **Restart** there. A Try it prompt turns the plugin on in
-the project it starts in and mentions it.
+A plugin's page has its next step at the top, as **Get** is for one not
+installed: **Update to …** when there's a newer version, **Try now** for one
+with examples, and for the person's own plugin **Edit with AI** and **Publish
+to GitHub**. Beside them, ⋯ has the rest of what its row's right-click menu
+offers: **View log**, **Open folder**, **Export** for the person's own, and
+**Uninstall** when it has one version to remove. Under the head, the
+**On in every project** switch has a row of its own that says what on and off
+mean. Below are **About** (the long description and Try it prompts),
+**Skills**, and **Settings** tabs, beside an **Information** card: where it
+came from, its categories, keywords, project types, repository and version,
+or with several versions each with its own **Uninstall**. A plugin that
+stopped after crashing says so at the top, with **Turn on again**. A Try it
+prompt turns the plugin on in the project it starts in and mentions it. A
+plugin not installed has the same page and card, with its version, size and
+dates in the card; stars show only for a community plugin, as the market
+counts them only for a verified repository of one plugin.
 
 ## Files
 
@@ -370,8 +399,8 @@ Quit stop it. Register connection cleanup with `context.onDispose`, and return
 from `activate` after starting the connection; do not await its entire lifetime.
 Closing a project does not end an app connection. Desktop close-to-background
 remains the person's separate opt-in setting.
-A plugin's Management section offers to enable it when that app-wide session
-plugin is enabled and granted access. Dismissing the prompt leaves the setting
+A plugin's page offers, under its every-project switch, to enable it when
+that app-wide session plugin is on in every project and granted access. Dismissing the prompt leaves the setting
 unchanged; it is also available in Settings. Quit and computer sleep still interrupt connections.
 
 `context.project` is absent in the app host. `context.configuration` contains the
@@ -752,7 +781,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
-| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-discover.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
@@ -760,7 +789,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-discover.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -944,8 +973,8 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
   Picking one that is off turns it on in the project first; a prompt that
   mentions a plugin not on in its project gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
-  from `GET /project-types` (with what each type's plugin `asks` for), then
-  a link to the plugins that add types (`#/plugins?adds=projectType`). There
+  from `GET /project-types` (with what each type's plugin `asks` for); a
+  mark beside it says plugins can add more types, without leaving Home. There
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
   except those that add types, which are picked as the type. The new-project
@@ -1682,8 +1711,8 @@ installed it isn't offered again, even before the next check.
 **Update** on a plugin's card in Installed adds that update directly when it
 asks for nothing new (`newAsks` empty), or opens its review dialog when it asks
 for more. The **Updates** section offers this action on the full list. When
-searching or filtering, the matching cards offer it in place. The switch for
-all projects is available in the plugin's **Management** section.
+searching, the matching rows offer it in place. The switch for all projects
+is on the plugin's page, under its head.
 
 **Update all**, beside **Updates**, adds each update in turn that asks for
 nothing new. One that asks for more stays listed for its own review, and the
@@ -1717,8 +1746,8 @@ release attaches the zip. A version the index rejected or blocked has
 `rejected` and loses `plugin` and `release`. `repositories` holds each
 repository's `stars`, `avatar` and `createdAt`.
 
-- **Sources.** The icon at the foot of Discover's side list, or the
-  market-unavailable notice, opens **Plugin sources**, saved in
+- **Sources.** The page's ⋯ menu, or the market-unavailable notice, opens
+  **Plugin sources**, saved in
   `<data>/plugin-market-sources.json` (`src/daemon/plugin-market-settings.ts`,
   `GET`/`PUT /settings/plugin-market`). The person can read the main index from
   another address, such as a mirror, and add up to five more indexes in the same
@@ -1777,8 +1806,8 @@ repository's `stars`, `avatar` and `createdAt`.
   one plugin's. Nor is the day such a repository was made, so a plugin
   sharing one was first published with its earliest release in the index. The index has no download counts: GitHub counts only
   downloads from GitHub, not the mirror's.
-- **Recommended order.** Featured plugins come first, in the index's order,
-  then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
+- **Recommended order.** The daemon lists the market featured plugins first,
+  in the index's order, then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
   the market's most; how recently it was updated 0.3, full within a month and
   none after a year; and its page 0.3, a quarter each for a verified source, a
   long description, screenshots and a category. A beta keeps 85%. So stars

@@ -143,7 +143,7 @@ it("keeps the background offer in the enabled session plugin's management sectio
   };
   try {
     await render();
-    expect(host.querySelector(".plugin-side .plugin-background-prompt")).not.toBeNull();
+    expect(host.querySelector(".plugin-enable + .plugin-background-prompt")).not.toBeNull();
     for (const overrides of [{ everyProject: false }, { grants: { enabled: false, allowed: ["sessions"] } }, { grants: { enabled: true, allowed: [] } }, { capabilities: [] }] satisfies Partial<StorePlugin>[]) {
       await render(overrides);
       expect(host.querySelector(".plugin-background-prompt")).toBeNull();
@@ -247,7 +247,7 @@ it("says what uninstalling the last version removes and leaves, and can keep its
   const onRemoved = vi.fn();
   const [group] = groupStorePlugins([row("1.0.0")]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={onRemoved} />));
-  await act(async () => document.querySelector<HTMLButtonElement>(".plugin-store-versions button")!.click());
+  await chooseFromMenu("Uninstall");
   const dialog = () => document.querySelector("[role=dialog]")!;
   expect(api.readPluginUninstall).toHaveBeenCalledWith("acme/maker", "1.0.0");
   expect(dialog().textContent).toContain("What you allowed it to do");
@@ -333,7 +333,8 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   expect(document.querySelector("h1")!.textContent).toContain("Beta");
   expect(panel("About").hidden).toBe(false);
   expect(panel("About").textContent).toContain("All about Maker.");
-  expect(panel("About").textContent).toContain("switch it for one project");
+  // What its switch means is said beside it.
+  expect(document.querySelector(".plugin-enable")!.textContent).toContain("switch it for one project");
   expect(panel("Skills").hidden).toBe(true);
 
   await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
@@ -490,7 +491,7 @@ it("says a preinstalled plugin came with the app, where from, and that it can be
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
   expect(document.querySelector("h1")!.textContent).toContain("Included");
   expect(document.querySelector<HTMLAnchorElement>('a[href="https://github.com/example/tools"]')).not.toBeNull();
-  await act(async () => button("Uninstall").click());
+  await chooseFromMenu("Uninstall");
   expect(document.body.textContent).toContain("Version 1.0.0 and its files");
 });
 
@@ -805,3 +806,9 @@ it("offers an in-place Update button on rows with available updates and shows it
   await act(async () => host.querySelector<HTMLButtonElement>(".installed-plugin-open")!.click());
   expect(onOpen).toHaveBeenCalledOnce();
 });
+
+/** Picks an item from the plugin page's ⋯ menu. */
+async function chooseFromMenu(label: string) {
+  await act(async () => document.querySelector<HTMLButtonElement>('.plugin-head-actions button[aria-label^="More actions for"]')!.click());
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === label)!.click());
+}

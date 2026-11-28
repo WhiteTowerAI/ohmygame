@@ -377,6 +377,7 @@ describe("renderer service recovery", () => {
       }
       if (route === "/plugin-store/acme/test/configuration") return Response.json({ endpoint: { type: "text", value: null } });
       if (route === "/plugin-store/updates") return Response.json([]);
+      if (route === "/plugins/setup-sessions") return Response.json([]);
       return Response.json({ status: "ok" });
     }));
     await act(async () => root.render(<PluginsSettings pluginId="acme/test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));

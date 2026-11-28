@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, PLUGIN_CONTRIBUTIONS, releaseJoins, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, releaseJoins, type MarketBlock, type MarketPlugin, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
@@ -11,7 +11,7 @@ import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { CircleHelp, ExternalLink, FileText, FolderOpen, FolderWithFiles, Spinner, Play, RefreshCw, Trash2, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FileText, FolderOpen, FolderWithFiles, MoreHorizontal, Spinner, Play, RefreshCw, Share2, Trash2, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -21,7 +21,8 @@ import { PluginMcpServers } from "./plugin-mcp-servers.js";
 import { PluginSettingsActions } from "./plugin-settings-actions.js";
 import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
-import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs, useContextMenu, type MenuEntry } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, DropdownMenu, Field, IconButton, Input, Skeleton, Switch, Tabs, useContextMenu, type MenuEntry } from "./ui/index.js";
+import { PluginPublishDialog } from "./plugin-publish.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -194,12 +195,6 @@ export function marketBlocks(versions: StorePlugin[], market: PluginMarketListin
   });
 }
 
-/** What a market plugin adds, for the browse page's filter. */
-export function marketContributions({ adds }: MarketPlugin): PluginContribution[] {
-  const counts: Partial<Record<PluginContribution, number | undefined>> = { projectType: adds.projectTypes, skills: adds.skills, mcp: adds.mcpServers };
-  return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
-}
-
 export function StorePluginRow({ group, market, updates, selected, showEveryProject = false, updating = false, updateDisabled = false, menu, onUpdate, onOpen }: {
   group: StorePluginGroup;
   /** Its right-click menu. */
@@ -216,7 +211,8 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
   const { plugin } = group;
   const nameId = useId();
   const metadataId = useId();
-  const publisher = pluginPublisherName(plugin.id);
+  // The seal already says OhMyGame's, and the person's own need no name.
+  const publisher = isOfficialStorePlugin(plugin) || plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`) ? undefined : pluginPublisherName(plugin.id);
   const enabled = storePluginEnabled(plugin);
   const listed = marketUpdate(plugin, market);
   const fromSource = listed ? undefined : sourceUpdate(plugin, market, updates);
@@ -248,8 +244,8 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
           ]} />
         </span>
         <span id={metadataId} className="installed-plugin-meta">
-          <span className="installed-plugin-version" title={plugin.version}>{plugin.version}</span>{" "}
-          <span className="installed-plugin-publisher" title={publisher}>{publisher}</span>
+          <span className="installed-plugin-version" title={plugin.version}>{plugin.version}</span>
+          {publisher ? <>{" "}<span className="installed-plugin-publisher" title={publisher}>{publisher}</span></> : null}
           {showEveryProject ? <>{" "}<span className="installed-plugin-scope" title={t("plugins.scopeEveryProject")}>
             <span aria-hidden="true">{t("plugins.scopeEveryProjectShort")}</span>
             <span className="visually-hidden">{t("plugins.scopeEveryProject")}</span>
@@ -319,8 +315,10 @@ export function useInstalledPluginMenu({ market, updates, everyProject, busy = f
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, everyProject, safeMode = false, installDisabled = false }: {
+export function StorePluginDetail({ group, openOn, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, everyProject, safeMode = false, installDisabled = false }: {
   group: StorePluginGroup;
+  /** Opens on Settings, as for a plugin just added that needs a key. */
+  openOn?: "settings" | undefined;
   safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
@@ -347,8 +345,9 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
   const [exporting, setExporting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const [selectedTab, setTab] = useState<StoreDetailTab>("about");
+  const [selectedTab, setTab] = useState<StoreDetailTab>(openOn ?? "about");
   const enabled = storePluginEnabled(plugin);
   const update = marketUpdate(plugin, market);
   const fromSource = sourceUpdate(plugin, market, updates);
@@ -420,6 +419,16 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       run: () => onUpdateSource(fromSource),
     } : undefined;
 
+  // What its row's right-click menu has that the page doesn't show already: the update, the switch
+  // and Edit with AI are in view. With several versions, each is uninstalled from Information.
+  const removable = versions.filter((version) => !version.bundled);
+  const menu: MenuEntry[] = [
+    { label: t("pluginLog.viewLog"), icon: <FileText size="sm" />, onSelect: () => setLogOpen(true) },
+    ...(window.ohMyGameDesktop && !plugin.bundled ? [{ label: t("plugins.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id)) }] : []),
+    ...(personal ? [{ label: t("pluginStore.export"), icon: <Upload size="sm" />, disabled: !!busy, onSelect: () => setExporting(true) }] : []),
+    ...(removable.length === 1 ? ["separator" as const, { label: t("pluginStore.uninstall"), icon: <Trash2 size="sm" />, danger: true, disabled: !!busy, onSelect: () => setRemoving(removable[0]) }] : []),
+  ];
+
   return <div className="plugin-page">
     <PluginHead tile={<StoreTile plugin={plugin} large />} title={plugin.displayName} description={plugin.description} badges={
       <PluginMarks official={isOfficialStorePlugin(plugin)} marks={[
@@ -428,13 +437,18 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         plugin.origin?.type === "development" && "development",
       ]} />
     }>
-      {/* Its main action at the top, as Get is on a plugin not yet installed: an update when there is one, else trying it. */}
-      {updateAction || (canTry && firstExample) ? <div className="plugin-head-actions" ref={tryIt.anchor}>
+      {/* Its next step at the top, as Get is on a plugin not yet installed: an update, trying it, or for
+          the person's own, publishing it; the rest is in ⋯, the same menu as its row's. */}
+      <div className="plugin-head-actions" ref={tryIt.anchor}>
+        {personal ? <Button icon={<WandSparkles size="sm" />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
         {updateAction ? <Button variant="primary" icon={<RefreshCw size="sm" />} disabled={!!busy || installDisabled} onClick={updateAction.run}>{updateAction.label}</Button> : null}
-        {canTry && firstExample ? <Button variant={updateAction ? "secondary" : "primary"} icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+        {canTry && firstExample ? <Button variant={updateAction || personal ? "secondary" : "primary"} icon={<Play size="sm" />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
           onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button> : null}
+        {personal && !updateAction ? <Button variant="primary" icon={<Share2 size="sm" />} disabled={!!busy} onClick={() => setPublishing(true)}>{t("pluginBuilder.publish.action")}</Button> : null}
+        <DropdownMenu placement="bottom-end" items={menu} trigger={(props) =>
+          <IconButton {...props} label={t("plugins.moreActionsFor", { name: plugin.displayName })}><MoreHorizontal size="md" /></IconButton>} />
         {tryIt.popover}
-      </div> : null}
+      </div>
     </PluginHead>
     {error ? <Alert tone="danger" title={error} /> : null}
     {plugin.developmentError ? <Alert tone="danger" title={t("pluginStore.developmentError")}>{plugin.developmentError}</Alert> : null}
@@ -444,6 +458,16 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
       <Button size="sm" disabled={!!busy} onClick={restart}>{t("pluginLog.turnOnAgain")}</Button>
     </>}>{t("pluginLog.quarantinedHint")}</Alert> : null}
 
+    {/* Its one switch, on a row of its own that says what on and off mean. */}
+    {enabled && !plugin.appOnly ? <div className="plugin-enable">
+      <Switch checked={plugin.everyProject} disabled={!!busy || installDisabled}
+        label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
+      <span className="plugin-enable-text">
+        <strong>{t("plugins.scopeEveryProject")}</strong>
+        <small>{plugin.capabilities.includes("sessions") ? t("pluginStore.sessionScopeHint") : t("pluginStore.scopeHint")}</small>
+      </span>
+    </div> : null}
+    {!safeMode && enabled && plugin.everyProject && plugin.grants?.allowed.includes("sessions") && plugin.capabilities.includes("sessions") ? <SessionBackgroundPrompt /> : null}
     <InstalledScreenshots plugin={plugin} />
     <div className="plugin-layout">
       <div className="plugin-main">
@@ -451,7 +475,6 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
         {/* Every tab stays mounted, so unsaved settings survive switching tabs. */}
         <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.about")} hidden={tab !== "about"}>
           {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
-          {plugin.capabilities.includes("sessions") ? <p className="plugin-long">{t("pluginStore.sessionScopeHint")}</p> : plugin.appOnly ? null : <p className="plugin-long">{t("pluginStore.scopeHint")}</p>}
           {plugin.examples.length ? <section className="plugins-section" aria-label={t("plugins.tryIt")}>
             <h2>{t("plugins.tryIt")}</h2>
             <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}
@@ -479,17 +502,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <PluginMcpServers key={`${plugin.id}:${configurationRevision}`} plugin={plugin} enabled={!safeMode && enabled && !!plugin.runnable} />
         </div> : null}
       </div>
-      <aside className="plugin-side" aria-label={t("plugins.management")}>
-        <h2>{t("plugins.management")}</h2>
-        {enabled ? <dl className="plugin-props">
-          <dt>{t("plugins.everyProject")}</dt>
-          <dd className="plugin-state">
-            <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || installDisabled}
-              label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
-            <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
-          </dd>
-        </dl> : null}
-        {!safeMode && enabled && plugin.everyProject && plugin.grants?.allowed.includes("sessions") && plugin.capabilities.includes("sessions") ? <SessionBackgroundPrompt /> : null}
+      <aside className="plugin-side" aria-label={t("pluginCatalog.information")}>
+        <h2>{t("pluginCatalog.information")}</h2>
         <dl className="plugin-props">
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
@@ -502,7 +516,8 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size="xs" /></a></dd></> : null}
           <dt>{versions.length > 1 ? t("pluginStore.versions") : t("plugins.version")}</dt>
           <dd>
-            <ul className="plugin-store-versions">
+            {/* One version is uninstalled from ⋯; with several, each says which projects need it. */}
+            {versions.length > 1 ? <ul className="plugin-store-versions">
               {versions.map((version) => <li key={version.version}>
                 <span className="plugins-mono">v{version.version}</span>
                 {unused.includes(version) ? <span className="plugins-note">{t("pluginStore.unusedVersion")}</span> : null}
@@ -510,7 +525,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
                   {t("pluginStore.uninstall")}
                 </Button> : null}
               </li>)}
-            </ul>
+            </ul> : <span className="plugins-mono">v{plugin.version}</span>}
           </dd>
         </dl>
         {unused.length ? <div className="plugin-side-actions">
@@ -524,17 +539,10 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
           <p className="plugins-note">{t("pluginStore.localUpdateHint")}</p>
           {onAddAgain ? <Button disabled={!!busy || installDisabled} onClick={onAddAgain}>{t("pluginStore.addAgain")}</Button> : null}
         </div> : null}
-        <div className="plugin-side-actions">
-          <Button disabled={!!busy} onClick={() => setLogOpen(true)}>{t("pluginLog.viewLog")}</Button>
-        </div>
-        {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
-          {personal ? <Button icon={<WandSparkles size="sm" />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id).catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
-          {personal ? <Button icon={<Upload size="sm" />} disabled={!!busy} onClick={() => setExporting(true)}>{t("pluginStore.export")}</Button> : null}
-          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size="sm" />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
-        </div> : null}
       </aside>
     </div>
     {exporting ? <PluginExportDialog plugin={plugin} onClose={() => setExporting(false)} /> : null}
+    {publishing ? <PluginPublishDialog plugin={plugin} onClose={() => setPublishing(false)} /> : null}
     {logOpen ? <PluginLogDialog plugin={plugin.id} displayName={plugin.displayName} onClose={() => setLogOpen(false)} onChanged={() => void onChanged()} /> : null}
     {removing ? <UninstallDialog plugin={plugin} version={removing} onCancel={() => setRemoving(undefined)}
       onUninstall={(keepData) => remove(removing, keepData)} /> : null}

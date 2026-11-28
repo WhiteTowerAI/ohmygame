@@ -37,6 +37,8 @@ interface NavigationLocation {
   hash: string;
   route: AppRoute;
   state: Record<string, unknown>;
+  /** Read by `readLocation`, so the hash is already trimmed and the state complete. */
+  read?: true;
 }
 
 export function historyState(): Record<string, unknown> {
@@ -57,7 +59,7 @@ function returnHash(hash: unknown): string | undefined {
   return hash;
 }
 
-/** A Plugins page link without what it only says once, such as `adds`; its tab stays. */
+/** A Plugins page link without what it only says once, such as `section`; its tab stays. */
 function pluginsPageHash(route: Extract<AppRoute, { page: "plugins" }>): string {
   if (route.pluginId) return pluginHash(route.pluginId, route.tab === "installed" ? route.tab : undefined);
   return route.tab ? pluginsTabHash(route.tab) : pluginHash();
@@ -75,6 +77,10 @@ function entryHash(location: NavigationLocation): string {
 
 function readLocation(previous: NavigationLocation): NavigationLocation {
   let hash = window.location.hash;
+  // A hash change fires popstate and then hashchange. On Plugins the first has
+  // already trimmed what a link says once, such as `section`, so the second keeps
+  // what the first read.
+  if (previous.read && previous.route.page === "plugins" && hash === previous.hash) return { ...previous, state: historyState() };
   const route = parseAppRoute(hash);
   let state = historyState();
   if (
@@ -91,7 +97,7 @@ function readLocation(previous: NavigationLocation): NavigationLocation {
     };
     window.history.replaceState(state, "", window.location.href);
   }
-  return { hash, route, state };
+  return { hash, route, state, read: true };
 }
 
 function returnPageLabel(hash: string): string {
