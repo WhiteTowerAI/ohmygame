@@ -1682,7 +1682,6 @@ const zhCN: typeof en = {
     emptyDescription: "在 Agent 面板中描述你的游戏，就能生成可试玩的版本。",
     allowPopups: "请允许弹出窗口，以便在新窗口中试玩游戏。",
     windowClosed: "游戏窗口已关闭。",
-    views: "工作区视图",
   },
   browser: {
     tabs: "浏览器标签页",
@@ -1887,7 +1886,6 @@ const zhCN: typeof en = {
   },
   canvasSettings: {
     projectFileSuffix: "项目",
-    canvasFormat: "画布格式",
   },
   library: {
     title: "素材库",
@@ -2369,7 +2367,6 @@ const zhCN: typeof en = {
     previous: "上一个问题",
     position: "{{current}} / {{total}}",
     next: "下一个问题",
-    other: "输入其他答案",
     submit: "提交答案",
     multiple: "可选择多项",
     typeAnswer: "输入你的回答",

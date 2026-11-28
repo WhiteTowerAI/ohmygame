@@ -11105,95 +11105,7 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
-.workspace-tabs {
-  --workspace-tab-width: 34px;
-  --workspace-active-tab-width: 74px;
-  position: relative;
-  display: grid;
-  width: fit-content;
-  height: 30px;
-  min-width: 0;
-  grid-template-columns: var(--workspace-tab-columns);
-  padding: 2px;
-  border: 0;
-  border-radius: 7px;
-  background: var(--surface-hover);
-  justify-self: start;
-}
-
-.workspace-tabs::after {
-  position: absolute;
-  z-index: 0;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: var(--workspace-active-tab-width);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 7%);
-  content: "";
-  pointer-events: none;
-  transform: translateX(calc(var(--workspace-active-index) * var(--workspace-tab-width)));
-  transition: transform var(--segmented-control-motion);
-}
-
-.workspace-tab {
-  display: flex;
-  width: 100%;
-  height: 26px;
-  min-width: var(--workspace-tab-width);
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--text-xs);
-  position: relative;
-  z-index: 1;
-  white-space: nowrap;
-  transition: color 140ms ease;
-}
-
-.workspace-tab:hover {
-  color: var(--text);
-}
-
-.workspace-tab > svg {
-  flex: 0 0 auto;
-}
-
-.workspace-tab > span {
-  display: none;
-}
-
-.workspace-tab-active {
-  color: var(--text);
-  font-weight: var(--weight-semibold);
-}
-
-.workspace-tab-active > span {
-  display: block;
-}
-
-@container workspace-header (max-width: 520px) {
-  .workspace-tabs {
-    --workspace-active-tab-width: var(--workspace-tab-width);
-  }
-
-  .workspace-tab-active > span {
-    display: none;
-  }
-
-}
-
 @container workspace-header (max-width: 380px) {
-  .workspace-tabs {
-    --workspace-tab-width: 28px;
-  }
 
   .viewer-publish > button,
   .preview-controls > .icon-button {
@@ -12068,7 +11980,6 @@ summary.work-summary:hover {
   .spin {
     animation: none;
   }
-  .workspace-tabs::after,
   .segmented-control-indicator,
   .segmented-control button {
     transition: none;
