@@ -30,7 +30,6 @@ import { NewGameHost } from "./new-game.js";
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
 const GamesPage = lazy(() => import("./games.js").then((module) => ({ default: module.GamesPage })));
 const GamePlayer = lazy(() => import("./games.js").then((module) => ({ default: module.GamePlayer })));
-const LibraryPage = lazy(() => import("./library.js").then((module) => ({ default: module.LibraryPage })));
 const ProjectsPage = lazy(() => import("./projects.js").then((module) => ({ default: module.ProjectsPage })));
 const ProjectShell = lazy(() => import("./project-shell.js").then((module) => ({ default: module.ProjectShell })));
 const SettingsPage = lazy(() => import("./settings-page.js").then((module) => ({ default: module.SettingsPage })));
@@ -102,7 +101,6 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   if (route.page === "community-profile") return <Suspense fallback={sidebarFallback("community")}><CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} /></Suspense>;
   if (route.page === "game") return <Suspense fallback={sidebarFallback("community")}><GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
   if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page !== "project") return null;
   return (
     <Suspense fallback={<RouteLoading />}><ProjectShell

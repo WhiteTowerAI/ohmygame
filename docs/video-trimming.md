@@ -1,9 +1,8 @@
 # Video trimming
 
-Any video in the Library or on an Asset Canvas can be trimmed. In **Library**,
-open a video's details and click **Trim** (or right-click its tile), which opens
-the trimmer in its own dialog. On an Asset Canvas, double-click a video node;
-its preview is the trimmer. Instead of the browser's own controls, the trimmer
+Any video in a project's Assets or on an Asset Canvas can be trimmed. In
+**Assets**, open a video; its preview is the trimmer. On an Asset Canvas,
+double-click a video node; its preview is the trimmer. Instead of the browser's own controls, the trimmer
 shows:
 
 - the video, which plays and pauses when clicked;
@@ -15,13 +14,11 @@ shows:
 While part of the video is left out, the footer shows the kept range and its
 length, **Reset** keeps the whole video again, and Play shows only the kept
 part. **Save as new video** encodes that part as a new video named after the
-original, such as `opening (trimmed).mp4`. One trimmed on the Library page
-shows in the Library; one trimmed on a canvas stays with that project. Saving shows its
+original, such as `opening (trimmed).mp4`, in the same project. Saving shows its
 progress and can be cancelled. The original stays as it is, and so does
 everything that uses it.
 
-- In the Library, the dialog closes and the details show the new video. They
-  name the video it was trimmed from.
+- In Assets, the new video opens in place of the original.
 - On an Asset Canvas, the new video is added as an asset node beside the node
   it came from, and the preview closes.
 
@@ -31,8 +28,8 @@ The preview and yellow-handle timeline live in the controlled
 `src/renderer/video-trim-editor.tsx` component. It only edits a range and
 previews it; it never encodes, uploads, or writes project files.
 `useVideoTrimSave` in `src/renderer/video-trimmer.tsx` holds the encode and
-save; `VideoTrimmer` pairs it with the editor for the Asset Canvas preview, and
-the Library's trim dialog pairs it with the editor and its own buttons. Other
+save; `VideoTrimmer` pairs it with the editor for the Assets and Asset Canvas
+previews. Other
 editing flows can reuse the same controls and `.video-trimmer-*` styles
 without inheriting the encode/upload action.
 
@@ -54,12 +51,13 @@ is saved or its frames are read.
   20 Mbit/s, so a trimmed file is not much larger per second than the
   original.
 - The result is uploaded through `POST /library/assets/upload` like any
-  other file, with the 200 MB upload limit.
+  other file, with the 200 MB upload limit; from Assets, with `projectId`, so
+  it is copied into that project's media.
 
-## Library record
+## Stored record
 
-A trimmed video's Library record has `derivedFrom`: the original's Library
-asset ID and the kept range in seconds from the start of the original file.
+A trimmed video's record in the media store has `derivedFrom`: the original's
+stored asset ID and the kept range in seconds from the start of the original file.
 
 ```json
 { "derivedFrom": { "assetId": "…", "trim": { "start": 2.2, "end": 5.4 } } }
@@ -67,6 +65,6 @@ asset ID and the kept range in seconds from the start of the original file.
 
 The upload endpoint sets it from the `trimSource`, `trimStart`, and `trimEnd`
 query parameters. All three come together, for a video upload, and the
-source must be an existing Library asset; anything else is rejected with
-`Invalid trim source`. A video trimmed from an Asset Canvas file that is not
-in the Library has no `derivedFrom`. Records without it are read as before.
+source must be an existing stored asset; anything else is rejected with
+`Invalid trim source`. A video trimmed from a file that is not stored has no
+`derivedFrom`. Records without it are read as before.

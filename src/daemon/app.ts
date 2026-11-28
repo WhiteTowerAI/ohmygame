@@ -1118,14 +1118,16 @@ export function createApp(options: AppOptions = {}) {
   const pluginGamesForPlugins = new PluginGameBridge(async (folder) => {
     const project = await projectForHostFolder(folder);
     if (!project) return undefined;
+    const keepRecording = async (assetId: string) => (await projects.materializeLibraryAsset(project.id, assetId)).path;
     const plugin = await pluginGameRuntime(project);
     if (plugin) return {
       runtime: plugin,
       provider: plugin.provider,
       target: async () => ({ runtime: "plugin", provider: plugin.provider, projectPath: project.workspacePath }),
+      keepRecording,
     };
     const web = options.playtestDriver;
-    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal) } : undefined;
+    return web && offersGameUse(project, web) ? { runtime: web, target: (signal) => playtestTarget(project, signal), keepRecording } : undefined;
   });
   pluginServices.native.serveGame(pluginGamesForPlugins);
   pluginServices.hosts.serveBrowser(async (folder, plugin, request, signal) => {
@@ -2971,9 +2973,9 @@ export function createApp(options: AppOptions = {}) {
     if (!found) return reply.code(403).send(NO_PLUGIN_MODELS);
     return { models: await pluginModels.list(found.project.workspacePath) };
   });
-  // A file a page made, into the person's Library under its plugin's name (`library.add`).
-  // It leaves the project as it was, and the person sees each one come. Whether the plugin
-  // may, and isn't adding too much, is checked before its file is read, which may be 200 MB.
+  // A file a page made, into the project's media under its plugin's name (`library.add`).
+  // The person sees each one come. Whether the plugin may, and isn't adding too much, is
+  // checked before its file is read, which may be 200 MB.
   const libraryAdds = new PluginLimits({ concurrent: 2, perMinute: PLUGIN_LIBRARY_ADDS_PER_MINUTE });
   const libraryAdding = new WeakMap<FastifyRequest, (options?: { uncount?: boolean }) => void>();
   app.post<{ Params: PluginFileParams; Querystring: { name: string; prompt?: string }; Body: Buffer }>("/projects/:projectId/plugin-library/:publisher/:name", {
@@ -2983,13 +2985,13 @@ export function createApp(options: AppOptions = {}) {
     } } },
     onRequest: async (request, reply) => {
       const params = request.params as PluginFileParams;
-      // A Plugin Builder draft is tried out in its workspace; the person's Library isn't part of that.
-      if (params.publisher === DRAFT_PLUGIN_PUBLISHER) return reply.code(403).send({ error: "A Plugin Builder preview doesn't add to the Library. Try it once the plugin is installed." });
-      if (!await pagePluginData(params, "library")) return reply.code(403).send({ error: "This plugin can't add to the Library" });
+      // A Plugin Builder draft is tried out in its workspace; the person's projects aren't part of that.
+      if (params.publisher === DRAFT_PLUGIN_PUBLISHER) return reply.code(403).send({ error: "A Plugin Builder preview doesn't add to the project's assets. Try it once the plugin is installed." });
+      if (!await pagePluginData(params, "library")) return reply.code(403).send({ error: "This plugin can't add to the project's assets" });
       const taken = libraryAdds.take(`${params.publisher}/${params.name}`);
       if (!taken.ok) return reply.code(429).send({ error: taken.reached === "concurrent"
-        ? "A plugin adds at most 2 files to the Library at once. Wait for one to finish."
-        : `A plugin adds at most ${PLUGIN_LIBRARY_ADDS_PER_MINUTE} files to the Library a minute. Wait a moment.` });
+        ? "A plugin adds at most 2 files at once. Wait for one to finish."
+        : `A plugin adds at most ${PLUGIN_LIBRARY_ADDS_PER_MINUTE} files a minute. Wait a moment.` });
       libraryAdding.set(request, taken.release);
     },
     // Only what was added counts toward the minute.
@@ -3000,12 +3002,14 @@ export function createApp(options: AppOptions = {}) {
     if (!Buffer.isBuffer(contents) || !contents.length) return reply.code(400).send({ error: "The file is empty" });
     const file = readLibraryFile(request.query.name, contents);
     if (!file.ok) return reply.code(400).send({ error: file.error });
-    // The Library serves what it keeps as the app's own; an SVG can hold a script.
+    // The media store serves what it keeps as the app's own; an SVG can hold a script.
     if (file.contentType === "image/svg+xml") return reply.code(400).send({ error: "Pages add images as PNG, JPEG or WebP, not SVG, which can hold a script" });
     try {
       const prompt = request.query.prompt?.trim();
       const addedBy = `${request.params.publisher}/${request.params.name}`;
-      return reply.code(201).send(await library.add(file.name, contents, { origin: "generated", saved: true, addedBy, ...(prompt ? { prompt } : {}) }));
+      const asset = await library.add(file.name, contents, { origin: "generated", addedBy, ...(prompt ? { prompt } : {}) });
+      const { path: projectPath } = await projects.materializeLibraryAsset(request.params.projectId, asset.id);
+      return reply.code(201).send({ ...asset, projectPath });
     } catch (cause) {
       if (cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
@@ -4012,7 +4016,10 @@ export function createApp(options: AppOptions = {}) {
 
   registerCommunityRoutes(app, publisher, projects);
 
-  registerLibraryRoutes(app, { projects, library, sources: librarySources });
+  registerLibraryRoutes(app, {
+    projects, library, sources: librarySources,
+    addFromSource: (projectId, source, item, signal) => libraryAgentSearch.addFromSource({ projectId, workspacePath: projects.get(projectId)!.workspacePath }, source, item, signal),
+  });
   registerModelThumbnailRoutes(app, path.join(dataDirectory, "cache", "model-thumbnails"), projects, library);
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
@@ -4197,22 +4204,6 @@ export function createApp(options: AppOptions = {}) {
         return { path: await projects.renameAsset(request.params.projectId, request.query.path, request.body.name) };
       } catch (cause) {
         if (cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
-        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
-        throw cause;
-      }
-    },
-  );
-
-  app.post<{ Params: { projectId: string }; Querystring: { path: string } }>(
-    "/projects/:projectId/assets/library",
-    { schema: { querystring: assetPathQuerySchema } },
-    async (request, reply) => {
-      if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
-      try {
-        const assetId = await projects.ensureLibraryAsset(request.params.projectId, request.query.path);
-        return reply.code(201).send(await library.save(assetId));
-      } catch (cause) {
-        if (cause instanceof ProjectAssetError || cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
       }

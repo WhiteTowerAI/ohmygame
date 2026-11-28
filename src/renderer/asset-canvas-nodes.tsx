@@ -576,7 +576,7 @@ export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const style = kind === "audio" ? { "--canvas-media-width": "300px", "--canvas-media-height": "132px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`canvas-node canvas-media-node canvas-library-asset-node canvas-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
-      <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} className={`is-${kind}`} trailing={<>{data.assetWidth && data.assetHeight ? <small title={`${data.assetWidth} x ${data.assetHeight}`}>{data.assetWidth} x {data.assetHeight}</small> : null}<small>{data.assetOrigin === "Project" ? t("assetCanvas.project") : t("assetCanvas.library")}</small></>} />
+      <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} className={`is-${kind}`} trailing={<>{data.assetWidth && data.assetHeight ? <small title={`${data.assetWidth} x ${data.assetHeight}`}>{data.assetWidth} x {data.assetHeight}</small> : null}</>} />
       <div ref={stageRef} data-alignment-frame className="canvas-media-stage">
         {preview.url && kind !== "audio" ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || t("assetCanvas.libraryImage")} onLoad={mediaLayout.onImageLoad} /> : null}

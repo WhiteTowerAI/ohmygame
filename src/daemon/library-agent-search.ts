@@ -8,7 +8,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import type { AssetLibrary } from "./asset-library.js";
-import type { LibrarySources } from "./library-sources.js";
+import type { LibrarySources, SourceItemToAdd } from "./library-sources.js";
 import type { ProjectManager } from "./projects.js";
 
 /** What an agent asks `library_search`. */
@@ -245,10 +245,24 @@ export class LibraryAgentSearch {
     return this.#copy(asset, target);
   }
 
-  async #copy(
+  /**
+   * One of a source's results, added by the person in the project's Assets:
+   * downloaded into the project's media, with its credit in CREDITS.md.
+   */
+  async addFromSource(
+    target: Pick<LibraryAgentUseTarget, "projectId" | "workspacePath">,
+    source: string,
+    item: SourceItemToAdd,
+    signal?: AbortSignal,
+  ): Promise<{ path: string; name: string }> {
+    const asset = await this.sources.add(source, item, signal);
+    return { path: (await this.#place(asset, target)).copied, name: asset.name };
+  }
+
+  async #place(
     asset: LibraryAsset,
-    target: LibraryAgentUseTarget,
-  ): Promise<string> {
+    target: Pick<LibraryAgentUseTarget, "projectId" | "workspacePath">,
+  ): Promise<{ copied: string; credited: boolean }> {
     const { path: copied } = await this.projects.materializeLibraryAsset(
       target.projectId,
       asset.id,
@@ -258,6 +272,15 @@ export class LibraryAgentSearch {
       credit && (credit.author || credit.license)
         ? await this.#credit(target.workspacePath, () => addCredit(target.workspacePath, copied, asset.name, credit))
         : false;
+    return { copied, credited };
+  }
+
+  async #copy(
+    asset: LibraryAsset,
+    target: LibraryAgentUseTarget,
+  ): Promise<string> {
+    const { copied, credited } = await this.#place(asset, target);
+    const credit = asset.sourcedFrom;
     return [
       `${asset.name} is at ${copied}. Like a generated file, it is part of the game once the game's own source uses it.`,
       credit && (credit.author || credit.license)

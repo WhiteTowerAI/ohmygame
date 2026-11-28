@@ -218,6 +218,7 @@ it("uploads a new asset with derivation, leaving the original untouched", async 
     video,
     { start: 2.2, end: 5.4 },
     { name: "opening.mp4", libraryAssetId: "original" },
+    { projectId: "project" },
   );
   expect(uploadLibraryAsset).toHaveBeenCalledExactlyOnceWith(
     expect.objectContaining({
@@ -225,6 +226,6 @@ it("uploads a new asset with derivation, leaving the original untouched", async 
       type: "video/mp4",
     }),
     "video/mp4",
-    { duration: 3.2, derivedFrom: { assetId: "original", trim: { start: 2.2, end: 5.4 } }, saved: false },
+    { duration: 3.2, derivedFrom: { assetId: "original", trim: { start: 2.2, end: 5.4 } }, projectId: "project" },
   );
 });

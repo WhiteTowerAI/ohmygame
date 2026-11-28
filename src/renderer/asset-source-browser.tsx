@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LibrarySource, LibrarySourceItem } from "../shared/contracts.js";
-import { addLibrarySourceItem, searchLibrarySource } from "./api.js";
+import { addSourceItemToProject, searchLibrarySource } from "./api.js";
 import { cachedSourceBrowse, runSourceSearch, sourceMedia, updateSourceBrowse } from "./library-source-searches.js";
 import { isPixelArt } from "./library-assets.js";
 import { mediaTypeLabel } from "./asset-browser.js";
@@ -12,17 +12,20 @@ import { t } from "./i18n.js";
 type Media = LibrarySource["media"][number];
 
 /**
- * A plugin's source in the Library: its search results, a page at a time,
- * and adding one to the Library. Nothing downloads until it is added.
+ * A plugin's source in a project's Assets: its search results, a page at a
+ * time, and adding one to the project. Nothing downloads until it is added.
  */
-export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShowInLocal }: {
+export function AssetSourceBrowser({ source, query, search, projectId, added, onAdded, onShow }: {
   source: LibrarySource;
   query: string;
-  /** The Library's asset for each of this source's items already in it. */
-  inLibrary: ReadonlyMap<string, string>;
-  /** Reloads the Library, so `inLibrary` has what was just added. */
-  onAdded: () => Promise<void>;
-  onShowInLocal: (assetId: string) => void;
+  /** The search box, shown beside Refresh. */
+  search: ReactNode;
+  projectId: string;
+  /** The project file for each of this source's items added while the panel is open. */
+  added: ReadonlyMap<string, string>;
+  onAdded: (itemId: string, path: string) => void;
+  /** Shows an added item's file among the project's own. */
+  onShow: (path: string) => void;
 }) {
   // A source with its own collections is browsed by them, in place of media kinds.
   const collections = source.collections;
@@ -94,7 +97,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
 
   // The page's scroll position goes with a kept browse, for when the tab comes back.
   useEffect(() => {
-    const scroller = panel.current?.closest(".sidebar-page");
+    const scroller = panel.current?.closest(".assets-view");
     const kept = cachedSourceBrowse(current.current);
     if (scroller && kept?.scrollTop) scroller.scrollTop = kept.scrollTop;
     return () => { if (scroller) updateSourceBrowse(current.current, { scrollTop: scroller.scrollTop }); };
@@ -158,8 +161,7 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
     setAdding(item.id);
     setAddError(undefined);
     try {
-      await addLibrarySourceItem(source.id, item);
-      await onAdded();
+      onAdded(item.id, (await addSourceItemToProject(projectId, source.id, item)).path);
     } catch (cause) {
       setAddError(errorMessage(cause));
     } finally {
@@ -167,28 +169,29 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
     }
   }
 
-  const addedId = selected ? inLibrary.get(selected.id) : undefined;
+  const addedPath = selected ? added.get(selected.id) : undefined;
   return <>
     <div className="library-filter-row" ref={panel}>
-      {collections && collection ? <Tabs<string> variant="pills" label={t("library.sourceCollections", { title: source.title })} value={collection} onChange={chooseCollection}
+      {collections && collection ? <Tabs<string> variant="pills" label={t("assetSources.sourceCollections", { title: source.title })} value={collection} onChange={chooseCollection}
         tabs={collections.map((candidate) => ({ value: candidate.id, label: candidate.title }))} />
       : source.media.length > 1 ? <Tabs<Media | "all"> variant="pills" label={t("assets.mediaTypes")} value={media} onChange={chooseMedia} tabs={[
         { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" /> },
         ...source.media.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} /> })),
       ]} /> : null}
       <span className="library-filter-spacer" />
+      {search}
       <Button size="sm" variant="ghost" icon={<RefreshCw size="sm" />} disabled={phase === "loading"} onClick={searchAgain}>{t("common.refresh")}</Button>
     </div>
-    {source.description ? <p className="library-source-description">{source.description} · {t("library.sourceBy", { plugin: source.pluginName })}</p> : null}
-    {phase === "loading" ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 8 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
-      : phase === "error" ? <Empty title={t("library.sourceFailed", { title: source.title })} description={error} action={<Button size="sm" onClick={searchAgain}>{t("common.retry")}</Button>} />
-      : items.length === 0 && !next ? <Empty title={t("library.sourceEmpty")} />
+    {source.description ? <p className="library-source-description">{source.description} · {t("assetSources.sourceBy", { plugin: source.pluginName })}</p> : null}
+    {phase === "loading" ? <div className="library-tiles" aria-busy="true" aria-label={t("assetSources.loading")}>{Array.from({ length: 8 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
+      : phase === "error" ? <Empty title={t("assetSources.sourceFailed", { title: source.title })} description={error} action={<Button size="sm" onClick={searchAgain}>{t("common.retry")}</Button>} />
+      : items.length === 0 && !next ? <Empty title={t("assetSources.sourceEmpty")} />
       : <>
         <div className="library-tiles">{items.map((item) => {
           const tile = <MediaTile key={item.id} category={item.mediaType} name={item.name} meta={itemMeta(item)} selected={selected?.id === item.id}
             onClick={() => { audio.stop(); setAddError(undefined); setSelected(item); }}
             preview={<SourcePreview item={item} />}
-            badge={inLibrary.has(item.id) ? <Check size="xs" aria-label={t("library.added")} /> : undefined} />;
+            badge={added.has(item.id) ? <Check size="xs" aria-label={t("assetSources.added")} /> : undefined} />;
           const preview = item.mediaType === "audio" ? item.preview : undefined;
           return preview ? <AudioTile key={item.id} name={item.name} state={audio.playing?.id === item.id ? audio.playing.state : undefined}
             onToggle={() => audio.toggle(item.id, async () => sourcePreviewAudio(preview))}>{tile}</AudioTile> : tile;
@@ -199,11 +202,11 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
 
     <Sheet open={Boolean(selected)} onClose={() => setSelected(undefined)} title={selected?.name ?? ""}
       footer={selected ? <>
-        {selected.url ? <Button variant="ghost" icon={<ExternalLink size="sm" />} onClick={() => window.open(selected.url, "_blank", "noopener,noreferrer")}>{t("library.openSourcePage")}</Button> : null}
+        {selected.url ? <Button variant="ghost" icon={<ExternalLink size="sm" />} onClick={() => window.open(selected.url, "_blank", "noopener,noreferrer")}>{t("assetSources.openSourcePage")}</Button> : null}
         <span className="library-filter-spacer" />
-        {addedId
-          ? <Button variant="primary" onClick={() => onShowInLocal(addedId)}>{t("library.showInLocal")}</Button>
-          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <Spinner size="sm" /> : <Plus size="sm" />} onClick={() => void add(selected)}>{adding === selected.id ? t("library.adding") : t("library.addToLibrary")}</Button>}
+        {addedPath
+          ? <Button variant="primary" onClick={() => onShow(addedPath)}>{t("assetSources.show")}</Button>
+          : <Button variant="primary" disabled={adding !== undefined} icon={adding === selected.id ? <Spinner size="sm" /> : <Plus size="sm" />} onClick={() => void add(selected)}>{adding === selected.id ? t("assetSources.adding") : t("assetSources.add")}</Button>}
       </> : undefined}>
       {selected ? <>
         <div className={`library-sheet-preview is-${selected.mediaType}${isPixelArt(selected) ? " is-pixel-art" : ""}${selected.embed ? " is-embed" : ""}`}>
@@ -212,10 +215,10 @@ export function LibrarySourceBrowser({ source, query, inLibrary, onAdded, onShow
         {selected.mediaType === "audio" && selected.preview ? <SourceListen key={selected.id} preview={selected.preview} name={selected.name} /> : null}
         <dl className="library-sheet-props">
           <dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(selected.mediaType)}</dd>
-          {selected.width && selected.height ? <><dt>{t("library.dimensions")}</dt><dd>{selected.width} × {selected.height}</dd></> : null}
+          {selected.width && selected.height ? <><dt>{t("assetSources.dimensions")}</dt><dd>{selected.width} × {selected.height}</dd></> : null}
           <dt>{t("assets.source")}</dt><dd>{source.title}</dd>
-          {selected.author ? <><dt>{t("library.author")}</dt><dd>{selected.author}</dd></> : null}
-          {selected.license ? <><dt>{t("library.license")}</dt><dd>{selected.license}</dd></> : null}
+          {selected.author ? <><dt>{t("assetSources.author")}</dt><dd>{selected.author}</dd></> : null}
+          {selected.license ? <><dt>{t("assetSources.license")}</dt><dd>{selected.license}</dd></> : null}
         </dl>
         {addError ? <p className="library-page-dialog-error" role="alert">{addError}</p> : null}
       </> : null}
@@ -236,7 +239,7 @@ function SourceListen({ preview, name }: { preview: string; name: string }) {
     }
     return () => { if (made?.revoke) URL.revokeObjectURL(made.url); };
   }, [preview]);
-  return source ? <audio className="library-source-listen" controls src={source.url} aria-label={t("library.playAudio", { name })} /> : null;
+  return source ? <audio className="library-source-listen" controls src={source.url} aria-label={t("assets.playAudio", { name })} /> : null;
 }
 
 /** A result's picture, whole: a search shows what adding it gets. */
@@ -268,13 +271,13 @@ export function SourceEmbed({ item, embed }: { item: LibrarySourceItem; embed: s
     }
   }
   if (state === "shown")
-    return <iframe className="library-source-embed" src={embed} title={t("library.embedTitle", { name: item.name })}
+    return <iframe className="library-source-embed" src={embed} title={t("assetSources.embedTitle", { name: item.name })}
       sandbox="allow-scripts allow-same-origin allow-popups" allow="" referrerPolicy="no-referrer" />;
   return <div className="library-source-embed-offer">
     <SourcePreview item={item} />
     <div className="library-source-embed-action">
-      <Button size="sm" icon={state === "loading" ? <Spinner size="sm" /> : <Box size="sm" />} disabled={state === "loading"} onClick={() => void load()}>{t("library.loadEmbed")}</Button>
-      <span>{t("library.embedFrom", { host })}</span>
+      <Button size="sm" icon={state === "loading" ? <Spinner size="sm" /> : <Box size="sm" />} disabled={state === "loading"} onClick={() => void load()}>{t("assetSources.loadEmbed")}</Button>
+      <span>{t("assetSources.embedFrom", { host })}</span>
       {error ? <Alert tone="danger" title={error} /> : null}
     </div>
   </div>;

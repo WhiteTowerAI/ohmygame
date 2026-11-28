@@ -71,9 +71,9 @@ describe("project return navigation", () => {
     const previousLanguage = i18next.language;
     try {
       await i18next.changeLanguage("zh-CN");
-      await mount("#/library");
+      await mount("#/community/games");
       await navigate(projectHash("project"));
-      expect(container.textContent).toBe("返回素材库");
+      expect(container.textContent).toBe("返回社区");
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }
@@ -81,7 +81,6 @@ describe("project return navigation", () => {
 
   it.each([
     ["#/", "Home"],
-    ["#/library", "Library"],
     ["#/community/games", "Community"],
     ["#/plugins", "Plugins"],
     ["#/plugins/plugin", "Plugins"],
@@ -123,23 +122,23 @@ describe("project return navigation", () => {
   });
 
   it("captures plain hash links and inherits the entry when opening another project from the canvas", async () => {
-    await mount("#/library");
+    await mount("#/community/games");
     await followHash(projectHash("canvas"));
     expect(navigation.route).toEqual({ page: "project", projectId: "canvas" });
     await navigate(conversationHash("canvas", "chat"), true);
     await followHash(projectHash("game"));
     expect(navigation.route).toEqual({ page: "project", projectId: "game" });
-    expect(navigation.projectReturnTo).toBe("#/library");
+    expect(navigation.projectReturnTo).toBe("#/community/games");
   });
 
   it("restores each project's own entry through browser back and forward", async () => {
-    await mount("#/library");
+    await mount("#/community/games");
     await navigate(projectHash("first"));
     await navigate("#/plugins");
     await navigate(projectHash("second"));
     await traverseHistory(-2);
     expect(navigation.route).toEqual({ page: "project", projectId: "first" });
-    expect(navigation.projectReturnTo).toBe("#/library");
+    expect(navigation.projectReturnTo).toBe("#/community/games");
     await traverseHistory(2);
     expect(navigation.route).toEqual({ page: "project", projectId: "second" });
     expect(navigation.projectReturnTo).toBe("#/plugins");

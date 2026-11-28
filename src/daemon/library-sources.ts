@@ -36,7 +36,7 @@ const SearchResults = Type.Object({
   next: Optional(2000),
 });
 
-/** What a source's `fetch` returns: a file it saved in its data folder, which the Library takes. */
+/** What a source's `fetch` returns: a file it saved in its data folder, which the media store takes. */
 const FetchResult = Type.Object({
   file: Type.String({ minLength: 1, maxLength: 1000 }),
   name: Optional(200),
@@ -46,9 +46,9 @@ const FetchResult = Type.Object({
 });
 
 /**
- * The Library's sources from plugins: their searches, checked before the
- * page shows them, and what the person adds, taken from the plugin's data
- * folder into the Library.
+ * Plugins' asset sources: their searches, checked before a project's Assets
+ * shows them, and what the person or an agent adds, taken from the plugin's
+ * data folder into the media store and from there into the project.
  */
 export class LibrarySources {
   /** Each plugin's adds, one at a time: a source may save every fetch under the same name. */
@@ -73,7 +73,7 @@ export class LibrarySources {
       ...(request.cursor ? { cursor: request.cursor } : {}),
       ...(request.collection ? { collection: request.collection } : {}),
     }, signal);
-    if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results the Library can't read`, 502);
+    if (!Check(SearchResults, value)) throw new AssetLibraryError(`${source.title} returned results OhMyGame can't read`, 502);
     const results = value as Static<typeof SearchResults>;
     return {
       items: results.items.filter((item) => source.media.includes(item.mediaType)).map((item) => pickItem(item, source.embedHosts ?? [])),
@@ -81,10 +81,10 @@ export class LibrarySources {
     };
   }
 
-  /** Fetches one result and puts it in the Library; adding it again finds the same asset. */
   /**
-   * Downloads a result into the Library. Its credit is what the source's
-   * `fetch` gives, and otherwise what the result showed when searched.
+   * Downloads a result into the media store; adding it again finds the same
+   * asset. Its credit is what the source's `fetch` gives, and otherwise what
+   * the result showed when searched.
    */
   async add(sourceId: string, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
     const source = await this.#source(sourceId);
@@ -99,11 +99,11 @@ export class LibrarySources {
   async #add(source: LibrarySource, item: SourceItemToAdd, signal?: AbortSignal): Promise<LibraryAsset> {
     if (!source.media.includes(item.mediaType)) throw new AssetLibraryError(`${source.title} has no ${item.mediaType}`, 400);
     const sourceKey = `library-source:${source.id}:${item.id}`;
-    // Added before, and maybe removed from the Library since: its file is still stored, so it comes back without a download.
+    // Added before, to this project or another: its file is stored, so it comes without a download.
     const stored = this.library.bySource(sourceKey);
-    if (stored) return stored.saved ? stored : await this.library.save(stored.id);
+    if (stored) return stored;
     const value = await this.#run(source.id, "fetch", { id: item.id, mediaType: item.mediaType }, signal);
-    if (!Check(FetchResult, value)) throw new AssetLibraryError(`${source.title} returned a file the Library can't read`, 502);
+    if (!Check(FetchResult, value)) throw new AssetLibraryError(`${source.title} returned a file OhMyGame can't read`, 502);
     const fetched = value as Static<typeof FetchResult>;
     const file = await this.#fileInDataFolder(source, fetched.file);
     try {
@@ -117,7 +117,6 @@ export class LibrarySources {
       if (!isLibraryMediaOfType(head, media.contentType as LibraryUploadMediaType)) throw new AssetLibraryError(`${source.title} returned ${name}, whose data isn't ${media.contentType}`, 502);
       const asset = await this.library.addFile(name, file, {
         origin: "uploaded",
-        saved: true,
         sourceKey,
         sourcedFrom: {
           source: source.id,

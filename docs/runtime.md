@@ -480,7 +480,7 @@ by the Electron process; browser-only daemon development does not register the
 tool.
 
 `game_use` can also [record a session](preview-runtime.md#recording-a-game) to
-the Library when the person asks for a video of the game.
+the project's media when the person asks for a video of the game.
 
 This is deliberately a game-use runtime, not unrestricted Browser Use or
 desktop Computer Use. It provides the smallest stable surface needed for
@@ -591,7 +591,7 @@ OhMyGame's own files in the workspace are in `.ohmygame/`:
 ├── assets.json       prompts, previews, Library links and origins of assets
 ├── asset-previews/   preview images of generated assets
 ├── media/            media OhMyGame generated (generated/) or copied in from
-│                     the Library (imported/) for the game to use
+│                     elsewhere (imported/) for the game to use
 ├── cover.webp        uploaded cover, retained while automatic mode is enabled
 ├── cover-frozen.webp frozen automatic cover
 ├── cover-state.json  explicit cover mode, including when no cover exists
@@ -757,53 +757,52 @@ preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects,
-Community, Plugins, **Quick access**, and the account. Library is listed only
-while it is open; projects' assets and the command menu lead to it.
+Community, Plugins, **Quick access**, and the account. A link to the Library
+page, which was removed, opens Home.
 
-### Library
+### Assets and their sources
 
-The Library page holds the media the person put there, to reuse across
-projects:
+A project's **Assets** panel lists its media: what it generated, what was
+uploaded or recorded, and what was added from elsewhere. Each
+[asset source](plugins.md#asset-sources) a turned-on plugin offers gets a tab
+beside **This project** (`src/renderer/asset-source-browser.tsx`), searched
+with the panel's search box. Nothing from a source is downloaded until the
+person adds it; then it is copied into the project's
+`.ohmygame/media/imported/`, with a line for its author, license and link in
+the workspace's `CREDITS.md`, made when missing. Adding it again finds the
+same file, and another project gets its copy without a new download.
+Browsing a source by kind, without search words, is kept while the app runs
+(the twenty used last, with the pages loaded and where the panel was
+scrolled), for the `cacheSeconds` its manifest gives or ten minutes, so coming
+back to its tab doesn't ask the plugin again. A search with words always asks;
+**Refresh** asks anew, and a source whose plugin goes off is forgotten. A
+picture of at most 128 × 128 pixels shows whole with each pixel kept square,
+as pixel art is meant to look.
 
-- files uploaded on the page, with **Upload** or by dropping them on it;
-- project files saved with **Save to Library** in the project's file tree;
-- game recordings, and videos trimmed on the Library page;
-- items added from a plugin's source.
+A video in the panel opens with a [trimmer](video-trimming.md); the kept part
+is saved as a new video beside it. A game recording goes to the media of the
+project it was recorded in. The canvas's **From assets** and the other media
+pickers list the project's media; their project filter reaches other
+projects', and picking one copies it in.
 
-These are its **Local** tab. Each [Library source](plugins.md#library-sources)
-a plugin offers gets a tab beside it, searched with the page's search box;
-nothing from a source is stored until the person adds it, and then it shows
-in Local with its author, license and link. Browsing a source by kind,
-without search words, is kept while the app runs (the twenty used last, with
-the pages loaded and where the page was scrolled), for the `cacheSeconds` its
-manifest gives or ten minutes, so coming back to its tab or the Library
-doesn't ask the plugin again. A search with words always asks; **Refresh**
-asks anew, and a source whose plugin goes off is forgotten. A picture of at
-most 128 × 128 pixels, in Local or a source, shows whole with each pixel kept
-square, as pixel art is meant to look.
-
-Agents read it with `library_search` (`src/daemon/library-agent-search.ts`),
+Agents read sources with `library_search` (`src/daemon/library-agent-search.ts`),
 in OhMyGame's conversations, planning included, and through
-[external MCP](external-agents.md). Without `source` it searches the saved
-assets, as this page lists them, by name, prompt and author, and lists the
-turned-on sources with their collections; with `source` it runs that source's
-`search`. A source's results reach the agent without carried pictures or
-sounds, marked as third-party text to treat as data, with a reminder to check
-licenses and credit authors. An answer is reused for the source's
-`cacheSeconds` or ten minutes, and one conversation may ask a source ten times
-a minute, so an agent can't spend a site's request limit.
+[external MCP](external-agents.md). Without `source` it searches the assets
+saved to the Library page before it was removed, and lists the turned-on
+sources with their collections; with `source` it runs that source's `search`.
+A source's results reach the agent without carried pictures or sounds, marked
+as third-party text to treat as data, with a reminder to check licenses and
+credit authors. An answer is reused for the source's `cacheSeconds` or ten
+minutes, and one conversation may ask a source ten times a minute, so an agent
+can't spend a site's request limit.
 
-`library_use` copies one into the project's `.ohmygame/media/imported/`, as the canvas does: one of the person's saved assets at once, and a source's result,
-one library_search showed in the same conversation, only after the person
-allows it there; it is then added to the Library as from its tab. An agent outside OhMyGame has
-no conversation to ask in, so it takes only saved assets. A copy whose asset
-carries an author or license gets a line in the workspace's `CREDITS.md`, made
-when missing. Game agents' instructions ask them to look here before
-generating media, and to generate what neither the Library nor a source has.
-
-Media a project generates or uploads, on the canvas or in chat, stays with
-that project and doesn't show in the Library until someone saves it. The
-project's own asset panel and its Library pickers are unchanged.
+`library_use` copies one into the project's `.ohmygame/media/imported/`, as
+the panel does: a saved asset at once, and a source's result, one
+library_search showed in the same conversation, only after the person allows
+it there. An agent outside OhMyGame has no conversation to ask in, so it takes
+only saved assets. A copy whose asset carries an author or license gets its
+line in `CREDITS.md`. Game agents' instructions ask them to look here before
+generating media, and to generate what no source has.
 
 An image sent in a conversation, pasted or attached, is a reference, not part
 of the game: it is kept on this computer in `.ohmygame/local/references/`,
@@ -814,22 +813,16 @@ game's own files when asked to use it; `library_use` and the canvas take a
 copy of their own in the project's media. Images sent before this stay where
 they were copied.
 
-Behind the page, `<data>/library/` stores every media file projects share by
-ID: `files/<id><ext>` and `assets.json`. A record's `saved` says whether the
-Library page shows it. A file stored for a project is cloned into the project
-where the disk can (APFS), so it takes space once.
-
-**Remove from Library** never touches a project: a file a project uses stays
-stored for it and only leaves the page, and a file nothing uses is deleted.
-When a project's usage can't be read, the file is kept.
+Behind the panels, `<data>/library/` stores every media file projects share by
+ID: `files/<id><ext>` and `assets.json`. A file stored for a project is cloned
+into the project where the disk can (APFS), so it takes space once. A record's
+`saved` says whether the Library page, since removed, listed it.
 
 `assets.json` version 1 put everything generated or uploaded in the Library.
-At startup it is upgraded to version 2 once. The Library keeps what the person
-chose: project files they saved, uploaded videos and audio (game recordings
-and trims, which version 1 can't tell from other uploads) and built-in media.
-Everything else leaves the page but stays stored, so projects and
-conversations still find it. A store from a newer version is never
-rewritten; it is reported as unreadable.
+At startup it is upgraded to version 2 once, keeping as saved only what the
+person chose: project files they saved, uploaded videos and audio and built-in
+media. Everything stays stored, so projects and conversations still find it.
+A store from a newer version is never rewritten; it is reported as unreadable.
 
 Quick access and the rail show the same list (`src/renderer/sidebar-projects.ts`,
 saved in browser storage). Its order is the person's: editing a project doesn't
@@ -1088,7 +1081,7 @@ are not repeated under the response; open a finished turn's work to see them.
 The files remain in the project's media (`.ohmygame/media/generated/`), and
 the conversation keeps their references.
 
-In chat, project assets and the local Library, a model tile shows a small cube
+In chat and project assets, a model tile shows a small cube
 until its rendered frame is ready. You can open the model at any time. On
 first view, up to two tiles at a time load their models and capture a frame.
 Later visits use the saved image. The app keeps up to 256 frames of up to

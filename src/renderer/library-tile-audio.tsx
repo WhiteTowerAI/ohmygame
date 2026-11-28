@@ -103,8 +103,8 @@ export function AudioTile({
           className="library-audio-play"
           aria-label={
             state === "playing"
-              ? t("library.pauseAudio", { name })
-              : t("library.playAudio", { name })
+              ? t("assets.pauseAudio", { name })
+              : t("assets.playAudio", { name })
           }
           onClick={onToggle}
         >

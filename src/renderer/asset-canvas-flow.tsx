@@ -101,7 +101,6 @@ export type AssetCanvasFlowData = AudioSettings & Record<string, unknown> & {
   /** Bytes, from the Library or the project's assets. */
   assetSize?: number;
   name?: string;
-  assetOrigin?: "Project" | "Library";
   assetError?: string;
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;

@@ -87,11 +87,6 @@ export function GameRecordStatus({ recording }: { recording: GameRecording }) {
   return starting ? <IconButton size="sm" className="preview-record-button" label={t("gameRecording.start")} disabled><Spinner size="sm" /></IconButton> : null;
 }
 
-/** Calls back each time a recording reaches the Library. */
-export function onGameRecordingSaved(listener: () => void): () => void {
-  return recordingBridge()?.onSaved(listener) ?? (() => {});
-}
-
 /** Says how a recording came out, from whichever page the person has moved on to. */
 export function GameRecordingNotices() {
   const toast = useToast();
@@ -100,7 +95,6 @@ export function GameRecordingNotices() {
       toast({
         title: t("gameRecording.saved"),
         description: state.saved.name,
-        action: { label: t("gameRecording.open"), onClick: () => { window.location.hash = "#/library"; } },
       });
     } else if (state.error) {
       toast({ title: t("gameRecording.failed"), description: state.error, tone: "danger" });

@@ -5008,15 +5008,6 @@ button {
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
 }
-/* With its tabs, it keeps one height whichever is shown. */
-.canvas-video-picker.has-scopes {
-  height: min(640px, calc(100dvh - 48px));
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-}
-.library-picker-scopes {
-  margin: var(--space-2) var(--dialog-inset) 0;
-}
-.library-picker-scopes + .library-picker-toolbar { margin-top: 10px; }
 .library-picker-toolbar {
   display: flex;
   min-width: 0;

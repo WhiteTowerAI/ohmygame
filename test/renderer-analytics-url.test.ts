@@ -15,7 +15,6 @@ function pageview(hash: string, properties: Record<string, unknown> = {}): Analy
 describe("analytics paths", () => {
   it("replaces ids in routes with placeholders", () => {
     expect(analyticsPath(parseAppRoute("#/"))).toBe("/");
-    expect(analyticsPath(parseAppRoute("#/library"))).toBe("/library");
     expect(analyticsPath(parseAppRoute("#/projects?type=godot-game"))).toBe("/projects");
     expect(analyticsPath(parseAppRoute("#/projects/p1/conversations/c1/design"))).toBe("/projects/:id/conversations/:id/design");
     expect(analyticsPath(parseAppRoute("#/community/games/g1"))).toBe("/community/games/:id");
@@ -45,13 +44,13 @@ describe("AnalyticsUrlScrubber", () => {
     const encoded = "/Applications/OhMyGame%202.app/Contents/Resources/app.asar/dist/renderer/index.html";
     const event: AnalyticsEvent = {
       event: "$autocapture",
-      properties: { $pathname: decodeURI(encoded), $session_entry_pathname: encoded, $session_entry_url: `file://${encoded}#/library` },
+      properties: { $pathname: decodeURI(encoded), $session_entry_pathname: encoded, $session_entry_url: `file://${encoded}#/plugins` },
     };
     new AnalyticsUrlScrubber(encoded).scrub(event, `file://${encoded}#/projects`);
     expect(event.properties).toEqual({
       $pathname: "/projects",
-      $session_entry_pathname: "/library",
-      $session_entry_url: "app://ohmygame/library",
+      $session_entry_pathname: "/plugins",
+      $session_entry_url: "app://ohmygame/plugins",
     });
   });
 

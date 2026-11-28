@@ -77,13 +77,12 @@ export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNod
   return undefined;
 }
 
-export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onSaveToLibrary, onShowInCode, trimmer, trimmedFrom }: {
+export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onShowInCode, trimmer, trimmedFrom }: {
   asset: BrowsableAsset;
   onClose: () => void;
   onOpenProject?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
-  onSaveToLibrary?: () => void;
   onShowInCode?: () => void;
   /** Shows a video with handles to trim it, saving the kept part as a new video. */
   trimmer?: { loadSource: () => Promise<Blob>; onSave: (video: Blob, trim: VideoTrim) => Promise<void> };
@@ -109,10 +108,9 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     onClose={onClose}
     onEscape={() => { if (menuOpen) setMenuOpen(false); else onClose(); }}
     headerActionsRef={actions}
-    headerActions={onRename || onDelete || onSaveToLibrary ? <>
+    headerActions={onRename || onDelete ? <>
       <button type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size="md" /></button>
       {menuOpen ? <div className="library-dialog-actions-menu" role="menu">
-        {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>{t("workspace.saveToLibrary")}</button> : null}
         {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>{t("common.rename")}</button> : null}
         {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>{t("common.delete")}</button> : null}
       </div> : null}

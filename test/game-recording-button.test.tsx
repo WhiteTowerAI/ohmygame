@@ -27,7 +27,6 @@ const bridge = {
     listeners.push(listener);
     return () => { listeners = listeners.filter((entry) => entry !== listener); };
   }),
-  onSaved: vi.fn(() => () => {}),
 } satisfies GameRecordingBridge;
 const roots: ReturnType<typeof createRoot>[] = [];
 async function render(node: React.ReactNode): Promise<HTMLElement> {
@@ -104,16 +103,14 @@ describe("game recording", () => {
 });
 
 describe("game recording notices", () => {
-  it("announces each outcome, and offers the Library for a saved one", async () => {
+  it("announces each outcome", async () => {
     await render(<GameRecordingNotices />);
     await announce({ projectId: "p", status: "recording", startedAt: 1 });
     await announce({ projectId: "p", status: "saving" });
     expect(toast).not.toHaveBeenCalled();
     await announce({ projectId: "p", status: "idle", saved: { assetId: "a", name: "game.mp4", duration: 3, bytes: 9 } });
     expect(toast).toHaveBeenCalledOnce();
-    expect(toast.mock.calls[0]![0]).toMatchObject({ description: "game.mp4" });
-    toast.mock.calls[0]![0].action.onClick();
-    expect(window.location.hash).toBe("#/library");
+    expect(toast.mock.calls[0]![0]).toMatchObject({ title: "Recording saved to the project's assets", description: "game.mp4" });
     await announce({ projectId: "p", status: "idle", error: "Disk full" });
     expect(toast).toHaveBeenLastCalledWith(expect.objectContaining({ description: "Disk full", tone: "danger" }));
   });

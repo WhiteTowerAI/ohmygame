@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.spyOn(api, "getWorkspaceAsset").mockResolvedValue(
     new Blob(["image"], { type: "image/png" }),
   );
+  vi.spyOn(api, "listLibrarySources").mockResolvedValue([]);
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:workspace-image");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   container = document.createElement("div");
@@ -151,6 +152,34 @@ describe("workspace Markdown preview", () => {
     expect(files).toHaveBeenCalledTimes(2);
     expect(api.getWorkspaceAsset).toHaveBeenCalledTimes(2);
     expect(container.querySelector('img[alt="Logo"]')).toBe(image);
+  });
+
+  it("searches a plugin's source in Assets and adds a result to the project", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const source = { id: "acme/shapes:shapes", plugin: "acme/shapes", pluginName: "Shapes", title: "Shapes", media: ["image" as const], embedHosts: [] };
+    vi.spyOn(api, "listLibrarySources").mockResolvedValue([source]);
+    const search = vi.spyOn(api, "searchLibrarySource").mockResolvedValue({ items: [{ id: "circle", name: "circle.png", mediaType: "image", author: "Acme", license: "CC0" }] });
+    const add = vi.spyOn(api, "addSourceItemToProject").mockResolvedValue({ path: ".ohmygame/media/imported/circle.png", name: "circle.png" });
+    const logo = { path: "logo.png", mediaType: "image" as const, size: 4 };
+    const added = { path: ".ohmygame/media/imported/circle.png", mediaType: "image" as const, size: 4 };
+    const draw = (files: typeof logo[]) => act(async () => root.render(
+      <AssetsView projectId="project" files={files} revision={0} loading={false} onShowInCode={() => {}} />,
+    ));
+    await draw([logo]);
+    const tab = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((button) => button.textContent === name)!;
+    expect(tab("This project").getAttribute("aria-selected")).toBe("true");
+    await act(async () => tab("Shapes").click());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    expect(search).toHaveBeenCalledWith({ source: source.id, query: "", media: "image" });
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="circle.png"], .library-tiles button')!.click());
+    const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent === label);
+    await act(async () => button("Add to project")!.click());
+    expect(add).toHaveBeenCalledWith("project", source.id, expect.objectContaining({ id: "circle", author: "Acme", license: "CC0" }));
+    // Once added, it opens among the project's own media.
+    await draw([logo, added]);
+    await act(async () => button("Show in project")!.click());
+    expect(tab("This project").getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("circle.png");
   });
 
   it("refreshes Assets thumbnails by their own file metadata", async () => {

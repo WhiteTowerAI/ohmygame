@@ -2096,7 +2096,6 @@ export function CanvasBoardEditor({ project, hidden = false, storage, documents,
           ...node.data,
           name: asset?.name ?? local?.name ?? t("assetCanvas.missingAsset"),
           assetError: local?.error,
-          assetOrigin: local ? "Project" as const : "Library" as const,
           contentType: asset?.contentType,
           assetDuration: asset?.duration,
           assetWidth: asset?.width,
@@ -3110,7 +3109,7 @@ function AssetCanvasAddControl({
       <button type="button" data-tooltip={t("assetCanvas.presets.open")} aria-label={t("assetCanvas.presets.open")} onPointerEnter={preloadPixelWorkflowCovers} onFocus={preloadPixelWorkflowCovers} onClick={() => setPresetsOpen(true)}>
         <Library size="md" />
       </button>
-      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} libraryTab projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
+      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={project.id} project={project} assets={pickerAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);

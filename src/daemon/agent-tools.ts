@@ -928,7 +928,10 @@ export function createAgentTools(
       };
     },
   })] : []), ...(playtest?.driver.available && offersGameUse(project, playtest.driver)
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { maxFrame: playtest.maxFrame })]
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, {
+      maxFrame: playtest.maxFrame,
+      keepRecording: async (assetId) => (await projects.materializeLibraryAsset(project.id, assetId)).path,
+    })]
     : [])]);
 }
 

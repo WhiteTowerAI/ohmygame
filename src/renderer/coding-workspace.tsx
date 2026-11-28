@@ -45,7 +45,10 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffec
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
-import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { LibrarySource, PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import { AssetSourceBrowser } from "./asset-source-browser.js";
+import { saveTrimmedVideo } from "./video-trimmer.js";
+import { forgetSourceSearches } from "./library-source-searches.js";
 import type { GameRename } from "../shared/publish-v1.js";
 import type { ProjectInputMap, ProjectPreviewDevice, ProjectPreviewFilter } from "../shared/plugins.js";
 import { colorMatrixValues, type PreviewColorFilter } from "../shared/preview-filter.js";
@@ -55,7 +58,7 @@ import { buildsWebPreview, projectEngaged, supportsWebPreview } from "../shared/
 import { isProjectDataPath, isProjectMediaPath } from "../shared/project-layout.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
 import { GameTuningPanel } from "./game-tuning-panel.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewInputMap, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, setProjectCover, listLibrarySources, getWorkspaceAsset } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, assetSortDetail, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { sortAssets, type AssetSort } from "./asset-sort.js";
@@ -89,7 +92,7 @@ const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module)
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
 type WorkspaceFileChange = { from?: string; to?: string };
-type WorkspaceEntryAction = "new-file" | "new-folder" | "rename" | "delete" | "copy-path" | "save-library";
+type WorkspaceEntryAction = "new-file" | "new-folder" | "rename" | "delete" | "copy-path";
 
 export function workspacePathAfterChange(selectedPath: string | undefined, change: WorkspaceFileChange): string | undefined {
   if (!change.from) return change.to ?? selectedPath;
@@ -502,6 +505,7 @@ export function CodingWorkspace({
         error={filesError}
         revision={workspaceRevision + filesRevision}
         onShowInCode={openCode}
+        onFilesChanged={() => setFilesRevision((value) => value + 1)}
       />,
     },
   };
@@ -1172,10 +1176,6 @@ export function WorkspaceFileBrowser({
       void navigator.clipboard.writeText(entry.path).catch((cause) => setActionError(errorMessage(cause)));
       return;
     }
-    if (action === "save-library") {
-      void mutate(async () => { await saveProjectAssetToLibrary(projectId, entry.path); return {}; });
-      return;
-    }
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
@@ -1310,7 +1310,7 @@ export function WorkspaceFileBrowser({
         ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size="md" />} label={t("workspace.selectFile")} />}
       </div>
     </div>
-    {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
+    {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
     {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? t("workspace.renameEntry", { name: fileName(entryDialog.path) }) : entryDialog.kind === "file" ? t("workspace.newFile") : t("workspace.newFolder")} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
       const entry = entryDialog;
       setEntryDialog(undefined);
@@ -1473,9 +1473,8 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
   );
 }
 
-function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
+function WorkspaceTreeContextMenu({ menu, onClose, onOpen, onAction }: {
   menu: WorkspaceContextMenu;
-  file?: WorkspaceFile;
   onClose: () => void;
   onOpen?: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
   onAction: (action: WorkspaceEntryAction) => void;
@@ -1539,7 +1538,6 @@ function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
         <hr />
         <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size="sm" /><span>{t("common.rename")}</span></button>
         <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size="sm" /><span>{t("workspace.copyPath")}</span></button>
-        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size="sm" /><span>{t("workspace.saveToLibrary")}</span></button> : null}
       </> : null}
       {options.length ? <hr /> : null}
       {options.map(({ mode, label, icon: Icon }) => (
@@ -1750,13 +1748,73 @@ function useElementHeight(element: HTMLElement | null): number {
   return height;
 }
 
-export function AssetsView({
+/** The project's own media; each plugin source's tab is its id, as `publisher/name:source`, which never reads this. */
+const PROJECT_ASSETS = "project";
+
+/**
+ * The project's media and, when plugins offer them, tabs for their sources:
+ * searching one and adding a result puts it in the project.
+ */
+export function AssetsView(props: {
+  projectId?: string;
+  files: WorkspaceFile[];
+  loading: boolean;
+  error?: string;
+  revision: number;
+  onShowInCode: (path: string) => void;
+  /** Lists the project's files again, as after an add or a trim. */
+  onFilesChanged?: () => void;
+}) {
+  const generation = useReadyRuntimeGeneration();
+  const [sources, setSources] = useState<LibrarySource[]>([]);
+  const [tab, setTab] = useState(PROJECT_ASSETS);
+  const [query, setQuery] = useState("");
+  // Each source's results added here, by item, for as long as the panel is open.
+  const [added, setAdded] = useState<ReadonlyMap<string, ReadonlyMap<string, string>>>(new Map());
+  const [shown, setShown] = useState<{ path: string }>();
+  // A source that fails to list is left out; the project's own tab still works.
+  useEffect(() => {
+    let current = true;
+    listLibrarySources().then((next) => {
+      if (!current) return;
+      setSources(next);
+      // A source whose plugin went off, or away, searches afresh when it comes back.
+      forgetSourceSearches((id) => next.some((candidate) => candidate.id === id));
+    }, () => { if (current) setSources([]); });
+    return () => { current = false; };
+  }, [generation]);
+  // A source whose plugin is turned off or removed takes the panel back to the project.
+  const source = props.projectId ? sources.find((candidate) => candidate.id === tab) : undefined;
+  const tabs = sources.length && props.projectId ? <Tabs label={t("assetSources.tabs")} value={source ? source.id : PROJECT_ASSETS} onChange={setTab} tabs={[
+    { value: PROJECT_ASSETS, label: t("assetSources.thisProject") },
+    ...sources.map((candidate) => ({ value: candidate.id, label: candidate.title })),
+  ]} /> : null;
+  if (!source) return <ProjectAssets {...props} tabs={tabs} shown={shown} />;
+  return (
+    <div className="assets-view">
+      <div className="library-filter-row assets-filter-row">{tabs}</div>
+      <AssetSourceBrowser key={source.id} source={source} query={query} projectId={props.projectId!}
+        search={<div className="assets-search"><SearchInput size="sm" value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>}
+        added={added.get(source.id) ?? new Map()}
+        onAdded={(item, path) => {
+          setAdded((current) => new Map(current).set(source.id, new Map(current.get(source.id)).set(item, path)));
+          props.onFilesChanged?.();
+        }}
+        onShow={(path) => { setTab(PROJECT_ASSETS); setShown({ path }); }} />
+    </div>
+  );
+}
+
+function ProjectAssets({
   projectId,
   files,
   loading,
   error,
   revision,
   onShowInCode,
+  tabs,
+  shown,
+  onFilesChanged,
 }: {
   projectId?: string;
   files: WorkspaceFile[];
@@ -1764,6 +1822,10 @@ export function AssetsView({
   error?: string;
   revision: number;
   onShowInCode: (path: string) => void;
+  tabs: ReactNode;
+  /** An asset to open, as one just added from a source; a new object opens it again. */
+  shown?: { path: string };
+  onFilesChanged?: () => void;
 }) {
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
@@ -1779,10 +1841,19 @@ export function AssetsView({
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
   const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all" || (filters.period ?? "all") !== "all";
   const resetFilters = () => { setQuery(""); setFilters({}); };
+  // One just added from a source opens once its file is listed, past any filter.
+  useEffect(() => {
+    if (!shown) return;
+    setMediaFilter("all");
+    resetFilters();
+    setSelectedPath(shown.path);
+  }, [shown]);
 
-  if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
-  if (error) return <WorkspaceState error={error} />;
-  if (!projectId || assets.length === 0) return <WorkspaceState art={<GameIcon name="palette" tone="neutral" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />;
+  const empty = loading && files.length === 0 ? <WorkspaceState loading label={t("workspace.loadingAssets")} />
+    : error ? <WorkspaceState error={error} />
+    : !projectId || assets.length === 0 ? <WorkspaceState art={<GameIcon name="palette" tone="neutral" size={40} />} label={t("workspace.noMedia")} description={t("workspace.noMediaHint")} />
+    : undefined;
+  if (empty) return tabs ? <div className="assets-view"><div className="library-filter-row assets-filter-row">{tabs}</div>{empty}</div> : empty;
   // Only the kinds the project has get a tab, and one kind needs none; a
   // tile names its kind and source only where those differ between assets.
   const kinds = ASSET_KINDS.filter((kind) => kind === mediaFilter || assets.some((asset) => asset.mediaType === kind));
@@ -1790,6 +1861,7 @@ export function AssetsView({
   const showOrigin = new Set(assets.map((asset) => asset.origin ?? "workspace")).size > 1;
   return (
     <div className="assets-view">
+      {tabs ? <div className="library-filter-row assets-filter-row">{tabs}</div> : null}
       <div className="library-filter-row assets-filter-row">
         {kinds.length > 1 || mediaFilter !== "all" ? <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
           { value: "all", label: t("assets.filter.all"), icon: <Layers3 size="sm" />, count: narrowed.length },
@@ -1803,11 +1875,20 @@ export function AssetsView({
       </div>
       {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
         <ProjectAssetTile key={asset.path} asset={asset} sort={sort} showKind={showKind} showOrigin={showOrigin} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
-      ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
+      ))}</div> : <Empty title={t("assets.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
         onShowInCode={() => { setSelectedPath(undefined); onShowInCode(selectedAsset.path); }}
+        // A recording, or any video, is cut down here; the kept part is a new video beside it.
+        trimmer={selectedAsset.mediaType === "video" && projectId ? {
+          loadSource: () => getWorkspaceAsset(projectId, selectedAsset.path),
+          onSave: async (video, trim) => {
+            const saved = await saveTrimmedVideo(video, trim, { name: fileName(selectedAsset.path), ...(selectedAsset.libraryAssetId ? { libraryAssetId: selectedAsset.libraryAssetId } : {}) }, { projectId });
+            onFilesChanged?.();
+            if (saved.projectPath) setSelectedPath(saved.projectPath);
+          },
+        } : undefined}
       /> : null}
     </div>
   );

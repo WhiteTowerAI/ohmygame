@@ -218,8 +218,8 @@ bound project does not have returns an error that says why.
 | `web_fetch` | Reads HTTP(S) HTML or text without browser cookies or JavaScript |
 | `project_guide` | Read-only authoring contracts: `topic: "plugins"`; available in every project |
 | `fork_plugin` | Copies an installed plugin into the project's `.ohmygame/plugins/`, where the client edits it; recorded as a plugin change the app can undo |
-| `library_search` | Read-only: the person's saved Library assets, or with `source` a turned-on plugin's Library source; see [runtime](runtime.md#library) |
-| `library_use` | Copies one of the person's saved Library assets into the project and records its credit; a source's result is added from the Library page instead |
+| `library_search` | Read-only: the assets saved to the Library page before it was removed, or with `source` a turned-on plugin's asset source; see [runtime](runtime.md#assets-and-their-sources) |
+| `library_use` | Copies one of those saved assets into the project and records its credit; a source's result is added from the project's Assets instead |
 
 OhMyGame and external agents can call `inspect_media_models` when they need
 the current model or its capabilities. It and generation choose the model the

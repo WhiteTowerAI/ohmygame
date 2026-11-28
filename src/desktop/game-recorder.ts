@@ -22,8 +22,8 @@ export interface GameRecordingFile extends GameRecorderStarted {
 export interface GameRecorderOptions {
   hostUrl: string;
   preloadPath: string;
-  /** Keeps the finished file. It is deleted afterwards, unless this fails. */
-  save: (file: GameRecordingFile) => Promise<GameRecordingSaved>;
+  /** Keeps the finished file, recorded under `id`. It is deleted afterwards, unless this fails. */
+  save: (file: GameRecordingFile, id: string) => Promise<GameRecordingSaved>;
   /** A recording stopped asking for more and is being saved. */
   onSaving?: (id: string) => void;
 }
@@ -164,10 +164,10 @@ export class GameRecorder {
     try {
       // The hidden window stays until this is done. Were it the last window,
       // closing it could quit the app, and stop the service, during the upload.
-      saved = await this.options.save({ ...recording.started!, path: recording.file, title: recording.title, duration, bytes: recording.bytes });
+      saved = await this.options.save({ ...recording.started!, path: recording.file, title: recording.title, duration, bytes: recording.bytes }, recording.id);
     } catch (cause) {
       this.#forget(recording);
-      // Five minutes of play are worth keeping when the Library can't take them.
+      // Five minutes of play are worth keeping when the project can't take them.
       throw new Error(`${cause instanceof Error ? cause.message : String(cause)} The recording is still at ${recording.file}.`, { cause });
     }
     await rm(recording.directory, { recursive: true, force: true }).catch(() => undefined);

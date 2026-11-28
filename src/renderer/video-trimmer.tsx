@@ -186,15 +186,15 @@ export function TrimProgress({ progress }: { progress: number }) {
 
 /**
  * Uploads a trimmed video under the original's name with a trimmed suffix,
- * recording where it was cut from when the original is a Library asset.
- * `saved` puts it on the Library page, as for a cut made there.
+ * recording where it was cut from when the original is stored. `projectId`
+ * puts it in that project's media, as for a cut made in its Assets.
  */
 export async function saveTrimmedVideo(
   video: Blob,
   trim: VideoTrim,
   original: { name: string; libraryAssetId?: string },
-  { saved = false }: { saved?: boolean } = {},
-): Promise<LibraryAsset> {
+  { projectId }: { projectId?: string } = {},
+): Promise<LibraryAsset & { projectPath?: string }> {
   const type = trimmedVideoType(video.type);
   const stem = original.name.replace(/\.[^./]+$/, "") || "video";
   const name = `${t("videoTrim.fileName", { name: stem }).slice(0, 190)}.${type.extension}`;
@@ -208,7 +208,7 @@ export async function saveTrimmedVideo(
     {
       duration: roundMilliseconds(kept.end - kept.start),
       ...(original.libraryAssetId ? { derivedFrom: { assetId: original.libraryAssetId, trim: kept } } : {}),
-      saved,
+      ...(projectId ? { projectId } : {}),
     },
   );
 }
