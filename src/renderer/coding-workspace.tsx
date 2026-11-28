@@ -1753,6 +1753,28 @@ function useElementHeight(element: HTMLElement | null): number {
 /** The project's own media; each plugin source's tab is its id, as `publisher/name:source`, which never reads this. */
 const PROJECT_ASSETS = "project";
 
+/** Assets beside an asset canvas, which has no game workspace to list its files: listed again each time it shows. */
+export function AssetsPanel({ projectId, shown, revision, onShowInCode }: { projectId: string; shown: boolean; revision: number; onShowInCode: (path: string) => void }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+  const [changed, setChanged] = useState(0);
+  useEffect(() => {
+    if (!shown) return;
+    let disposed = false;
+    setLoading(true);
+    setError(undefined);
+    void listWorkspaceFiles(projectId)
+      .then((result) => { if (!disposed) setFiles(result); }, (cause: unknown) => { if (!disposed) setError(errorMessage(cause)); })
+      .finally(() => { if (!disposed) setLoading(false); });
+    return () => { disposed = true; };
+  }, [projectId, shown, revision, changed]);
+  return <section className="viewer-pane coding-workspace" data-active-tab="assets" aria-label={t("workspace.label")}>
+    <AssetsView projectId={projectId} files={files.filter((file) => file.mediaType && !file.directory)} loading={loading} error={error}
+      revision={revision + changed} onShowInCode={onShowInCode} onFilesChanged={() => setChanged((value) => value + 1)} />
+  </section>;
+}
+
 /**
  * The project's media and, when plugins offer them, tabs for their sources:
  * searching one and adding a result puts it in the project.

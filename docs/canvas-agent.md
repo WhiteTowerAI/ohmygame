@@ -282,8 +282,11 @@ also requires a version choice and preserves the local recovery draft.
 Invalid external edits leave the last valid canvas
 visible with diagnostics. External node changes enter the canvas undo history.
 
-Asset Canvas has **Canvas** and **Code** navigation. Code shows the workspace
-files and stays accessible when canvas loading or saving fails. Switching
+Asset Canvas has **Canvas**, **Code** and **Assets** panels. Code shows the workspace
+files and stays accessible when canvas loading or saving fails. Assets lists the
+project's media and, as in a game, the asset sources of turned-on plugins; a
+result added there goes in the project's media, ready for **From assets** on
+the canvas. Switching
 views keeps the canvas session, document generation state and local drafts.
 
 Missing media files do not prevent the workspace from opening or the board

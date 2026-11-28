@@ -29,12 +29,13 @@ export type Preset = "default" | "art" | "code";
 /**
  * The panels each built-in type offers. A Godot plugin will name its own.
  * Design is the game design document; Canvas is the asset canvas beside it.
+ * An asset canvas has Assets too, for its media and the asset sources.
  */
 const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   "web-game": ["chat", "game", "design", "canvas", "code", "assets"],
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
-  "asset-canvas": ["chat", "canvas", "code"],
+  "asset-canvas": ["chat", "canvas", "code", "assets"],
   // A plugin workspace: its Overview, then its files.
   plugin: ["chat", "plugin", "code"],
 };
