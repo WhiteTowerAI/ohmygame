@@ -500,12 +500,12 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
  * The active panel's toolbar shortens its titles first; when it still does not
  * fit, its tools fold into a menu one at a time (see panel-tools.tsx), and come
  * back each once its toolbar has the room it lacked. A single tab reads as the
- * area's title, without a selected fill or close button.
+ * area's title, without a selected fill.
  */
 function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { single: boolean; resetKey: string; titlebar: boolean; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
-  // Whether the tabs scroll, and past which edges, for ▾ and the fades.
-  const [scroll, setScroll] = useState({ crowded: false, start: false, end: false });
+  // Whether the tabs scroll, and past which edges, as classes for ▾ and the fades.
+  const [scroll, setScroll] = useState("");
   // The active panel's tools, and their version, so folding one checks again.
   const [tools, setTools] = useState<ToolScope>();
   const [toolsVersion, setToolsVersion] = useState(0);
@@ -513,9 +513,8 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
     const list = strip.current?.querySelector<HTMLElement>(".dock-tab-list");
     if (!list) return;
     const measure = () => {
-      const crowded = list.scrollWidth > list.clientWidth + 1;
-      const next = { crowded, start: crowded && list.scrollLeft > 1, end: crowded && list.scrollLeft + list.clientWidth < list.scrollWidth - 1 };
-      setScroll((current) => current.crowded === next.crowded && current.start === next.start && current.end === next.end ? current : next);
+      const { scrollLeft, scrollWidth, clientWidth } = list;
+      setScroll(`${scrollWidth > clientWidth + 1 ? " is-crowded" : ""}${scrollLeft > 1 ? " is-scrolled-start" : ""}${scrollLeft + clientWidth < scrollWidth - 1 ? " is-scrolled-end" : ""}`);
     };
     measure();
     list.addEventListener("scroll", measure, { passive: true });
@@ -591,7 +590,7 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
       unsubscribe?.();
     };
   }, [resetKey, toolsVersion]);
-  return <div ref={strip} className={`dock-tabs${scroll.crowded ? " is-crowded" : ""}${scroll.start ? " is-scrolled-start" : ""}${scroll.end ? " is-scrolled-end" : ""}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
+  return <div ref={strip} className={`dock-tabs${scroll}${single ? " is-single" : ""}${titlebar ? " is-titlebar" : ""}`} {...props}>
     <StripTools.Provider value={{ scope: tools, version: toolsVersion }}>{children}</StripTools.Provider>
   </div>;
 }
