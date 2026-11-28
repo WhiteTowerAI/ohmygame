@@ -19,21 +19,16 @@ default. An old `tab=mine` link opens Installed. Tabs show no counts;
 **Installed** has a dot when an installed plugin has an update. The header has
 one search for whichever tab is open, **New plugin**, which opens the
 [Plugin Builder](#making-a-plugin), and a ⋯ menu with **Add plugin**, **Add
-MCP service** and **Plugin sources**. `src/renderer/plugin-catalog.tsx` holds what Discover and
-Installed share for category navigation, plus the market sorting, cards,
-overview and plugin dialog.
+MCP service** and **Plugin sources**. `src/renderer/plugin-discover.tsx` is
+Discover's overview; `src/renderer/plugin-catalog.tsx` holds what Discover and
+Installed share: cards, search text, the market's plugin page and the add
+dialog.
 
-Plugins are sorted into the [categories](#more-manifest-fields) they declare.
-A plugin is listed in each category it names, and one with none is under
-**Other**. Search reads a plugin's name, description, id and
+Search reads a plugin's name, description, id and
 [keywords](#more-manifest-fields), and the titles of its model providers and
 agents, so "Gemini" finds the plugin that adds Gemini CLI. Installed search
 also reads skill names and shows the plugins that provide them. A plugin's page
-lists its keywords. Picking a keyword searches across every category. Under
-**Model providers**,
-Discover adds a row of what the providers make (language, image, video), and
-each provider's card shows those as small tags; they come from the manifest,
-so a plugin can't claim a kind it doesn't implement. An
+lists its keywords; picking one searches for it. An
 installed plugin without an icon shows its first letter on a colour its id
 picks (`PluginMonogram`), and `ohmygame-plugin check` warns about it.
 
@@ -69,27 +64,33 @@ person's own.
   Update a plugin directly from the list, or choose **Update all** beside
   **Updates** when it has more than one and nothing is searched. Updates that
   ask for new permissions need individual review.
-- **Discover** lists the [plugin market](#the-plugin-market)'s plugins, browsed
-  from a side list as in an app store (`MarketRail`): **Overview**, **All
-  plugins**, each category with how many plugins it has, and two filters,
-  **Official** and **Source verified**. The counts follow the search and
-  filters, and a category nothing is in is left out. On a narrow window the
-  side list becomes a row above the cards.
-  - **Overview** with more than twelve plugins is the same few rows however
-    many there are (`marketFront`): **Featured** (picked by the index),
-    **Recommended** (the market's order, below, taking the best of each
-    category first, so the row shows what kinds there are rather than a run
-    of one kind), **New** (first published in the last 90 days) and
-    **Recently updated**. Each plugin shows once, in the first row that takes
-    it, and each row has **View all**. A search or filter shows one list
-    instead.
-  - Any other view is one list with its count, a **Contains** filter and an
-    order: **Recommended**, **Newest**, **Recently updated** or **Name**. It shows 48 cards at a time and mounts the next 48 as the list's end scrolls into view.
+- **Discover** lists the [plugin market](#the-plugin-market)'s plugins in
+  sections by what someone wants to make, in the order a game is made
+  (`SECTIONS` in `plugin-discover.tsx`): **Engines & platforms**, **Agents &
+  models**, **Images & pixel art**, **Sound**, **3D**, **Video**, **Levels &
+  gameplay**, **Testing & publishing** and **Connections**. A plugin is in a
+  section when it declares one of the section's
+  [categories](#more-manifest-fields) or makes one of its provider kinds, so a
+  provider that makes images and sound is in both; the kinds come from the
+  manifest, so a plugin can't claim one it doesn't implement. What no section
+  takes is under **Other**. **Featured** (picked by the index, in its order)
+  comes first and is left out when the index picks none. Within a section,
+  featured plugins come first, then by name. A section shows twelve cards until
+  **All N** opens the rest. There is no sort or filter: forty-odd plugins fit
+  in sections, and a search does the rest.
+  - A side list jumps to each section, with how many plugins it has, and
+    follows the scroll. On a narrow window it becomes a row above the cards.
+  - A search keeps the sections, without **Featured**, and shows all each one
+    finds. Empty sections stay in the side list, greyed. Search also
+    reads each section's words in both languages, so "配音" or "voice" finds
+    every plugin under **Sound** even when it says "speech".
   - A card is one button. It shows the plugin's icon, or its first letter,
     then its name, **Installed** when it is, and its description. **Official**
     and **Beta** are on the plugin's page: nearly every plugin listed is both,
-    so on cards they said nothing. Its last line has the publisher at the
-    left, cut short if long, and the version at the right.
+    so on cards they said nothing. A last line tells cards apart when there is
+    something to tell (`marketFact`): **Community** and the publisher for one
+    not OhMyGame's, and what a provider makes when that's more than one kind
+    (**Image · Video**).
   - A card opens the plugin's page, the same page whether it's installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;
@@ -759,7 +760,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 | A native type's game for `game_use` | `src/daemon/plugin-game-runtime.ts`, `src/daemon/project-types.ts` | `test/plugin-game-runtime.test.ts`, `test/extension-hosts.test.ts`, `test/playtest-tools.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
-| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugins page | `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-discover.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx`, `src/renderer/plugin-builder-overview.tsx`, `src/renderer/plugin-summary.tsx`, `src/renderer/project-shell.tsx` | `test/plugin-builder.test.ts`, `test/plugin-builder-ui.test.tsx`, `test/plugin-mcp-host.test.ts`, `test/agent-tools.test.ts`, `test/pi-agent.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Preview devices, filters, gamepad maps | `src/daemon/plugin-services.ts`, `src/shared/preview-filter.ts`, `src/shared/preview-input.ts`, `src/daemon/preview-proxy.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx`, `src/renderer/web-game-host.ts`, `src/desktop/web-game-player.ts` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts`, `test/web-game-player.test.ts`, `test/plugin-manifest.test.ts`, `test/game-tuning-bridge.test.ts`, `test/preview-proxy.test.ts` |
@@ -767,7 +768,7 @@ edges. Presets are no longer listed in the add menu, which keeps to nodes.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
-| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-catalog.tsx`, `src/renderer/plugin-discover.tsx`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Canvas nodes | `src/shared/canvas-plugin-nodes.ts`, `src/daemon/canvas-plugin-runner.ts`, `src/daemon/canvas-workspace.ts`, `src/renderer/canvas-plugin-node.tsx` | `test/plugin-canvas.test.ts`, `test/canvas-node-references.test.ts` |
 
 ## Routes
@@ -1724,8 +1725,8 @@ release attaches the zip. A version the index rejected or blocked has
 `rejected` and loses `plugin` and `release`. `repositories` holds each
 repository's `stars`, `avatar` and `createdAt`.
 
-- **Sources.** The icon at the foot of Discover's side list, or the
-  market-unavailable notice, opens **Plugin sources**, saved in
+- **Sources.** The page's ⋯ menu, or the market-unavailable notice, opens
+  **Plugin sources**, saved in
   `<data>/plugin-market-sources.json` (`src/daemon/plugin-market-settings.ts`,
   `GET`/`PUT /settings/plugin-market`). The person can read the main index from
   another address, such as a mirror, and add up to five more indexes in the same
@@ -1784,8 +1785,8 @@ repository's `stars`, `avatar` and `createdAt`.
   one plugin's. Nor is the day such a repository was made, so a plugin
   sharing one was first published with its earliest release in the index. The index has no download counts: GitHub counts only
   downloads from GitHub, not the mirror's.
-- **Recommended order.** Featured plugins come first, in the index's order,
-  then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
+- **Recommended order.** The daemon lists the market featured plugins first,
+  in the index's order, then by `marketScore`, from 0 to 1: GitHub stars 0.4, on a log scale against
   the market's most; how recently it was updated 0.3, full within a month and
   none after a year; and its page 0.3, a quarter each for a verified source, a
   long description, screenshots and a category. A beta keeps 85%. So stars

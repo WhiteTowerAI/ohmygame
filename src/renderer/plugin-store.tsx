@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { parsePluginJson, PLUGIN_JSON_MAX_BYTES } from "../shared/plugin-json.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, PLUGIN_CONTRIBUTIONS, releaseJoins, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, isOfficialRepository, OHMYGAME_GITHUB_OWNER, releaseJoins, type MarketBlock, type MarketPlugin, type PluginMarketListing, type PluginSourceUpdate, type PluginUninstallPreview, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
@@ -193,12 +193,6 @@ export function marketBlocks(versions: StorePlugin[], market: PluginMarketListin
     const block = market?.blocked.find((item) => item.version === version && (item.id ? item.id === id : releaseJoins(origin, item.repository)));
     return block ? [block] : [];
   });
-}
-
-/** What a market plugin adds, for the browse page's filter. */
-export function marketContributions({ adds }: MarketPlugin): PluginContribution[] {
-  const counts: Partial<Record<PluginContribution, number | undefined>> = { projectType: adds.projectTypes, skills: adds.skills, mcp: adds.mcpServers };
-  return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
 }
 
 export function StorePluginRow({ group, market, updates, selected, showEveryProject = false, updating = false, updateDisabled = false, menu, onUpdate, onOpen }: {

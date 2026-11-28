@@ -4,18 +4,18 @@ import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
-import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
-import { categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
+import { groupStorePlugins, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
+import { MarketPluginPage } from "./plugin-catalog.js";
+import { DiscoverView, type DiscoverSection } from "./plugin-discover.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
-import { useListPage } from "./use-list-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { marketPluginSource, PluginAddDialog } from "./plugin-add-dialog.js";
-import { Alert, Button, DropdownMenu, Empty, IconButton, SearchInput, Select, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
+import { Alert, Button, DropdownMenu, Empty, IconButton, SearchInput, Spinner, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
 /**
@@ -27,7 +27,7 @@ const isMine = (plugin: StorePlugin) => plugin.id.startsWith(`${PERSONAL_PUBLISH
 
 export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, onPluginChange, onTabChange, onTryPlugin }: {
   pluginId?: string;
-  /** Opens the marketplace filtered to plugins that add this, as 更多类型… in the new-project dialog does. */
+  /** Opens Discover at the plugins that add this, as 更多类型… in the new-project dialog does. */
   adds?: PluginContribution;
   /** The tab the route names; a plugin's page and back keep the one last shown. */
   tab?: PluginsTab;
@@ -50,11 +50,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Discover comes first, as in a store: what's installed is mostly switched on and off from projects.
   const [tab, showTab] = useState<PluginsTab>(routeTab ?? "discover");
   const [query, setQuery] = useState("");
-  const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
-  const [marketSection, setMarketSection] = useState<MarketSection>("home");
-  // Under Model providers: what the providers make.
-  const [providerKind, setProviderKind] = useState<ProviderKindFilter>("all");
-  const [only, setOnly] = useState<MarketOnly[]>([]);
+  // A section of Discover to scroll to, once: where a link into it points.
+  const [jumpTo, setJumpTo] = useState<DiscoverSection | undefined>(initialAdds === "projectType" ? "engine" : undefined);
   const pageRef = useRef<HTMLElement>(null);
   const inventoryRef = useRef<HTMLElement>(null);
   const detailBack = useRef<HTMLButtonElement>(null);
@@ -76,13 +73,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     observer.observe(page);
     return () => observer.disconnect();
   }, []);
-  const [sort, setSort] = useState<MarketSort>("recommended");
   useEffect(() => { if (routeTab) showTab(routeTab); }, [routeTab]);
   useEffect(() => {
     if (!initialAdds) return;
     showTab("discover");
-    setAdds(initialAdds);
-    setMarketSection("all");
+    if (initialAdds === "projectType") setJumpTo("engine");
   }, [initialAdds]);
   function setTab(next: PluginsTab): void {
     showTab(next);
@@ -234,65 +229,15 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       setOperation(undefined);
     }
   }
-  // Discover: the market, to get plugins from, browsed from a side list as in an app store.
-  // A card opens the plugin's page, the same page an installed one has; back returns to where the list was.
+  // Discover: the market in sections. A card opens the plugin's page, the same page an installed one has.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
-  const offeredContributions = new Set(marketPlugins.flatMap(marketContributions));
-  const searched = marketPlugins.filter(plugin => marketSearchText(plugin).includes(normalizedQuery)
-    && (adds === "all" || marketContributions(plugin).includes(adds)) && marketOnly(plugin, only));
-  const marketCategory: CatalogFilter = marketSection === "home" ? "all" : marketSection;
-  const inCategory = searched.filter(plugin => inCatalogCategory(plugin.categories, marketCategory));
-  const makes: ProviderKindFilter = marketSection === "provider" ? providerKind : "all";
-  const listed = sortMarket(inCategory.filter(plugin => inProviderKind(plugin, makes)), sort);
-  const marketCard = (plugin: MarketPlugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installedIds.has(plugin.id)}
-    onOpen={() => openPlugin(plugin.id)} />;
-  // The overview reads like a store's front page, the same few rows however many plugins there are.
-  // Searching or filtering shows one list instead, a page at a time.
-  const narrowed = Boolean(normalizedQuery) || adds !== "all" || only.length > 0;
-  const front = marketSection === "home" && !narrowed && marketPlugins.length > SECTIONS_FROM ? marketFront(marketPlugins) : undefined;
-  const showAll = (order: MarketSort) => { setMarketSection("all"); setSort(order); };
-  const row = (title: string, plugins: MarketPlugin[], order?: MarketSort) => plugins.length
-    ? <section key={title} className="plugins-section" aria-label={title}>
-      <div className="plugins-section-head">
-        <h2>{title}</h2>
-        {order ? <Button variant="ghost" size="sm" onClick={() => showAll(order)}>{t("plugins.viewAll", { count: listed.length })}</Button> : null}
-      </div>
-      <div className="plugins-grid">{plugins.map(marketCard)}</div>
-    </section> : null;
-  const listTitle = marketSection === "home" || marketSection === "all" ? t("pluginCatalog.allPlugins") : categoryLabel(marketSection);
   const discoverTab = <>
     {/* The main index may be one the person set, so where it's set is right here. */}
     {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
       action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
-    {marketPlugins.length ? <div className="plugins-browse">
-      <MarketRail plugins={searched} section={marketSection} onSection={setMarketSection} only={only} onOnly={setOnly} settingsDisabled={installing} onSettings={() => setMarketSettings(true)} />
-      <div className="plugins-browse-main">
-        {front ? <>
-          {row(t("plugins.marketFeatured"), front.featured)}
-          {row(t("pluginCatalog.sort.recommended"), front.recommended, "recommended")}
-          {row(t("pluginCatalog.newPlugins"), front.new, "new")}
-          {row(t("pluginCatalog.sort.updated"), front.updated, "updated")}
-          <div className="plugins-all">
-            <Button onClick={() => showAll("recommended")}>{t("pluginCatalog.viewAllPlugins", { count: listed.length })}</Button>
-          </div>
-        </> : <section className="plugins-section" aria-label={listTitle}>
-          <div className="plugins-section-head">
-            <h2>{listTitle}<span className="plugins-count">{listed.length}</span></h2>
-            <div className="plugins-filters-end">
-              <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={adds} onChange={setAdds} options={[
-                { value: "all", label: t("plugins.allContributions") },
-                ...PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || offeredContributions.has(kind)).map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
-              ]} />
-              <MarketSortSelect value={sort} onChange={setSort} />
-            </div>
-          </div>
-          {marketSection === "provider" ? <ProviderKindChips plugins={inCategory} value={makes} onChange={setProviderKind} /> : null}
-          {listed.length ? <PagedGrid key={`${normalizedQuery}\n${adds}\n${marketSection}\n${makes}\n${only.join()}\n${sort}`} cards={listed.map(marketCard)} />
-            : <Empty title={t("plugins.noMatch")} />}
-        </section>}
-      </div>
-    </div> : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+    {marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onOpen={openPlugin} />
+     : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
       {/* With no rail to hold it, where the market is listed from is here too. */}
@@ -433,7 +378,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         ? editor(detail, false)
         : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
           // A keyword searches the whole market, not just the section it was opened from.
-          onSearch={(keyword) => { setQuery(keyword); setMarketSection("all"); listScroll.current = 0; showDiscover(); }} />
+          onSearch={(keyword) => { setQuery(keyword); listScroll.current = 0; showDiscover(); }} />
         : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
     </> : <>
@@ -485,19 +430,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   }
 }
 
-/** Below this many, rows of one or two cards say less than a single list does. */
-const SECTIONS_FROM = 12;
 /** How often an open page picks up what the daemon's market has read. */
 const MARKET_READ_MS = 2 * 60_000;
-
-/** A long list of cards, the next page mounting as its end scrolls into view. */
-function PagedGrid({ cards }: { cards: ReactNode[] }): ReactNode {
-  const page = useListPage(cards.length);
-  return <>
-    <div className="plugins-grid">{cards.slice(0, page.limit)}</div>
-    {page.next ? <div className="plugins-all">{page.next}</div> : null}
-  </>;
-}
 
 function PluginState({ children }: { children: ReactNode }): ReactNode {
   return <div className="plugins-state"><Spinner size={14} label={typeof children === "string" ? children : undefined} />{children}</div>;

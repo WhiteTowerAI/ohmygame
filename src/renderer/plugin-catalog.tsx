@@ -1,12 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { OHMYGAME_PUBLISHER, PLUGIN_CATEGORIES, type PluginCategory } from "../shared/plugin-manifest.js";
-import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
+import type { MarketPlugin } from "../shared/plugins.js";
 import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
-import type { ProviderCapability } from "../shared/contracts.js";
 import { readPluginMarketAvatar, readPluginMarketImage } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Check, CircleHelp, ExternalLink, SlidersHorizontal } from "./icons.js";
+import { ExternalLink } from "./icons.js";
 import { PluginMonogram } from "./plugin-icons.js";
 import { formatBytes } from "./format-bytes.js";
 import { PluginMarks } from "./plugin-marks.js";
@@ -14,11 +13,10 @@ import { PluginCapabilityList } from "./plugin-consent-dialog.js";
 import { PluginAddsList, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { projectTypeLabel } from "./project-types.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Button, Chip, Dialog, FilterChips, IconButton, Select, Tooltip } from "./ui/index.js";
+import { Button, Chip, Dialog } from "./ui/index.js";
 
-// What the Plugins page browses by: the categories plugins name, how the
-// market is sorted, and the market's cards and pages. A plugin may name up to
-// three categories and shows under each when one is picked.
+// What the Plugins page shows of the market: the categories plugins name, and
+// the market's cards and pages. Discover's sections are in plugin-discover.tsx.
 
 /** A plugin's categories that this app knows, and `other` for one that names none of them. */
 export type CatalogCategory = PluginCategory | "other";
@@ -49,93 +47,6 @@ export function PluginKeywords({ keywords, onSearch }: { keywords: readonly stri
         onClick={() => onSearch(keyword)}><span className="ui-chip-label">{keyword}</span></button>
       : <Chip key={keyword} outline>{keyword}</Chip>)}
   </span>;
-}
-
-export type ProviderKindFilter = ProviderCapability | "all";
-
-export const inProviderKind = (plugin: MarketPlugin, kind: ProviderKindFilter) => kind === "all" || Boolean(plugin.providerKinds?.includes(kind));
-
-/** Under Model providers: what the providers here make, to narrow them by; none when there's nothing to pick between. */
-export function ProviderKindChips({ plugins, value, onChange }: {
-  plugins: readonly MarketPlugin[];
-  value: ProviderKindFilter;
-  onChange: (value: ProviderKindFilter) => void;
-}): ReactNode {
-  const kinds = PROVIDER_KINDS.filter((kind) => kind === value || plugins.some((plugin) => plugin.providerKinds?.includes(kind)));
-  if (!kinds.length || kinds.length === 1 && value === "all" && plugins.every((plugin) => plugin.providerKinds?.includes(kinds[0]!))) return null;
-  return <FilterChips<ProviderKindFilter> label={t("pluginCatalog.providerKindsLabel")}
-    options={[{ value: "all", label: t("pluginCatalog.all") }, ...kinds.map((kind) => ({ value: kind as ProviderKindFilter, label: t(`capability.${kind}`) }))]}
-    value={[value]}
-    onChange={(next) => onChange(next.find((item) => item !== value) ?? "all")} />;
-}
-
-export type MarketSort = "recommended" | "new" | "updated" | "name";
-const MARKET_SORTS: readonly MarketSort[] = ["recommended", "new", "updated", "name"];
-
-/** The market in an order; `recommended` keeps the daemon's: featured first, then by its score (`marketScore`). */
-export function sortMarket(plugins: readonly MarketPlugin[], sort: MarketSort): MarketPlugin[] {
-  const sorted = [...plugins];
-  if (sort === "new") sorted.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-  if (sort === "updated") sorted.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
-  if (sort === "name") sorted.sort((a, b) => a.displayName.localeCompare(b.displayName, language));
-  return sorted;
-}
-
-/** Cards in a row of the front page: two lines of the grid, three for Recommended. */
-const FRONT_ROW = 4;
-const FRONT_RECOMMENDED = 6;
-/** How long a plugin counts as new. */
-const NEW_DAYS = 90;
-
-export interface MarketFront {
-  featured: MarketPlugin[];
-  recommended: MarketPlugin[];
-  new: MarketPlugin[];
-  updated: MarketPlugin[];
-}
-
-/**
- * The market's front page, the same few rows however many plugins there are:
- * what OhMyGame features, the best by the market's score, what's new, and
- * what was updated last. Each plugin shows once, in the first row that takes
- * it. Categories are in the side list, not here.
- */
-export function marketFront(plugins: readonly MarketPlugin[], now = Date.now()): MarketFront {
-  const shown = new Set<string>();
-  const take = (list: readonly MarketPlugin[], count: number) => {
-    const picked = list.filter((plugin) => !shown.has(plugin.id)).slice(0, count);
-    for (const plugin of picked) shown.add(plugin.id);
-    return picked;
-  };
-  const since = new Date(now - NEW_DAYS * 24 * 60 * 60_000).toISOString();
-  return {
-    featured: take(plugins.filter((plugin) => plugin.featured), FRONT_ROW),
-    // By the market's score: featured ones that didn't fit above are still featured, not recommended.
-    recommended: take(widest(plugins.filter((plugin) => !plugin.featured)), FRONT_RECOMMENDED),
-    new: take(sortMarket(plugins.filter((plugin) => plugin.createdAt && plugin.createdAt >= since), "new"), FRONT_ROW),
-    updated: take(sortMarket(plugins.filter((plugin) => plugin.publishedAt), "updated"), FRONT_ROW),
-  };
-}
-
-/**
- * The market's order, the best of each category first, then the rest: when
- * scores are close, as they are when an index lists few stars, Recommended
- * shows what kinds of plugins there are rather than a run of one kind.
- */
-function widest(plugins: readonly MarketPlugin[]): MarketPlugin[] {
-  const seen = new Set<string>();
-  const firsts = plugins.filter((plugin) => {
-    const category = plugin.categories?.[0] ?? "other";
-    if (seen.has(category)) return false;
-    seen.add(category);
-    return true;
-  });
-  return [...firsts, ...plugins.filter((plugin) => !firsts.includes(plugin))];
-}
-
-export function MarketSortSelect({ value, onChange }: { value: MarketSort; onChange: (value: MarketSort) => void }): ReactNode {
-  return <Select<MarketSort> size="sm" label={t("pluginCatalog.sortLabel")} value={value} onChange={onChange}
-    options={MARKET_SORTS.map((sort) => ({ value: sort, label: t(`pluginCatalog.sort.${sort}`) }))} />;
 }
 
 /** Published by OhMyGame: the market takes the publisher only from its own GitHub releases. */
@@ -242,13 +153,14 @@ function MarketBadges({ plugin, installed = false, card = false }: { plugin: Mar
 }
 
 /**
- * A plugin on the market, as a whole card that opens it in a dialog, where it
- * is added. Its last line has the publisher at the left, cut short when the
- * name is long, and the version at the right.
+ * A plugin on the market, as a whole card that opens its page: its icon, name,
+ * Installed when it is, two lines of what it does, and a line of what tells it
+ * apart, when there is something.
  */
-export function MarketPluginCard({ plugin, installed = false, onOpen }: {
+export function MarketPluginCard({ plugin, installed = false, fact, onOpen }: {
   plugin: MarketPlugin;
   installed?: boolean;
+  fact?: string | undefined;
   onOpen: () => void;
 }): ReactNode {
   return <article className="plugin-card">
@@ -260,70 +172,10 @@ export function MarketPluginCard({ plugin, installed = false, onOpen }: {
           <MarketBadges plugin={plugin} installed={installed} card />
         </strong>
         <small>{plugin.description}</small>
-        {plugin.providerKinds?.length ? <span className="plugin-card-kinds" aria-label={t("pluginCatalog.providerKindsLabel")}>
-          {plugin.providerKinds.map((kind) => <span key={kind} className="plugin-card-kind">{t(`capability.${kind}`)}</span>)}
-        </span> : null}
-        <span className="plugins-meta plugin-card-foot">
-          <span className="plugin-card-author">{pluginPublisherName(plugin.id)}</span>
-          <span className="plugin-card-numbers">
-            <span className="plugin-card-version">v{plugin.version}</span>
-          </span>
-        </span>
+        {fact ? <span className="plugin-card-fact">{fact}</span> : null}
       </span>
     </button>
   </article>;
-}
-
-/**
- * Discover's side list: the front page, everything, each category with how
- * many plugins it has, and two filters. A long market is browsed from here,
- * as in an app store; on a narrow window it becomes a row that scrolls.
- */
-export type MarketSection = "home" | CatalogFilter;
-export type MarketOnly = "official" | "verified";
-export const marketOnly = (plugin: MarketPlugin, only: readonly MarketOnly[]) =>
-  (!only.includes("official") || isOfficialPlugin(plugin.id)) && (!only.includes("verified") || plugin.sourceVerified);
-
-export function MarketRail({ plugins, section, onSection, only, onOnly, settingsDisabled, onSettings }: {
-  /** What the search and filters leave, to count. */
-  plugins: readonly MarketPlugin[];
-  section: MarketSection;
-  onSection: (section: MarketSection) => void;
-  only: readonly MarketOnly[];
-  onOnly: (only: MarketOnly[]) => void;
-  settingsDisabled?: boolean;
-  /** Opens where the market is listed from, from the foot of the list. */
-  onSettings: () => void;
-}): ReactNode {
-  const counts = new Map(CATALOG_CATEGORIES.map((category) => [category, plugins.filter((plugin) => inCatalogCategory(plugin.categories, category)).length]));
-  const item = (value: MarketSection, label: string, count?: number) =>
-    <button key={value} type="button" className="plugins-rail-item" aria-current={section === value ? "true" : undefined} onClick={() => onSection(value)}>
-      <span>{label}</span>{count !== undefined ? <span className="plugins-rail-count">{count}</span> : null}
-    </button>;
-  const filter = (value: MarketOnly, label: string) => {
-    const on = only.includes(value);
-    return <button key={value} type="button" className="plugins-rail-item" aria-pressed={on}
-      onClick={() => onOnly(on ? only.filter((item) => item !== value) : [...only, value])}>
-      <span className="plugins-rail-check" aria-hidden="true">{on ? <Check size="xs" /> : null}</span>
-      <span>{label}</span>
-    </button>;
-  };
-  return <nav className="plugins-rail" aria-label={t("pluginCatalog.categoriesLabel")}>
-    {item("home", t("pluginCatalog.home"))}
-    {item("all", t("pluginCatalog.allPlugins"), plugins.length)}
-    <h3>{t("pluginCatalog.categoriesLabel")}</h3>
-    {/* Only categories something is in, so none leads to an empty list. */}
-    {CATALOG_CATEGORIES.filter((category) => category === section || counts.get(category)).map((category) => item(category, categoryLabel(category), counts.get(category)))}
-    <h3>{t("pluginCatalog.showOnly")}</h3>
-    {filter("official", t("plugins.official"))}
-    {filter("verified", t("plugins.sourceVerified"))}
-    <div className="plugins-rail-foot">
-      <IconButton size="sm" label={t("pluginMarketSettings.open")} disabled={settingsDisabled} onClick={onSettings}><SlidersHorizontal size="sm" /></IconButton>
-      <Tooltip content={t("pluginMarketSettings.updates")} placement="top-start">
-        <button type="button" className="plugins-rail-help" aria-label={t("pluginMarketSettings.updates")}><CircleHelp size="sm" /></button>
-      </Tooltip>
-    </div>
-  </nav>;
 }
 
 /** Screenshots in a row that scrolls; one opens larger. */
