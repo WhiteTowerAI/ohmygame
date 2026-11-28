@@ -304,7 +304,7 @@
   object-fit: cover;
 }
 
-/* Discover: a side list of sections beside them, which follows the scroll */
+/* Discover: a side list of All and the sections, beside what's picked */
 .plugins-browse {
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr);
@@ -323,11 +323,6 @@
 /* as many cards a row as have room for their text, each row as tall as its tallest */
 .plugins-browse-main .plugins-grid {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-}
-
-/* a jump from the side list leaves the section's heading a little room */
-.plugins-browse-main > .plugins-section {
-  scroll-margin-top: 16px;
 }
 
 .plugins-rail {

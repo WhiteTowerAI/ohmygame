@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { PluginCategory } from "../shared/plugin-manifest.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
@@ -10,7 +10,8 @@ import { Button, Empty } from "./ui/index.js";
 
 // Discover: every plugin on the market, in sections by what someone wants to
 // do with it rather than by the categories authors pick. A plugin can be in
-// several sections, as a provider that makes images and sound is in both.
+// several sections, as a provider that makes images and sound is in both; All
+// shows it once.
 
 export type DiscoverSection = PluginsSection;
 
@@ -36,9 +37,6 @@ const SECTIONS = [
  * neither adds the section nor moves a plugin up. Turning it on brings both back.
  */
 const SHOW_FEATURED = false;
-
-/** Past this many, a section shows this many until All N opens the rest. */
-const SECTION_LIMIT = 12;
 
 const inSection = (plugin: MarketPlugin, section: (typeof SECTIONS)[number]) =>
   section.categories.some((category) => plugin.categories?.includes(category))
@@ -85,88 +83,89 @@ export function marketFact(plugin: MarketPlugin): string | undefined {
   ].join(" · ") || undefined;
 }
 
-const sectionLabel = (id: DiscoverSection) => t(`pluginCatalog.sections.${id}`);
-const anchorId = (id: DiscoverSection) => `plugins-section-${id}`;
+/** What Discover shows: one section, or All. */
+export type DiscoverShelf = DiscoverSection | "all";
+
+/** All shows this many of each section, and a way into the rest. */
+const SHELF = 4;
+
+const shelfLabel = (id: DiscoverShelf) => t(`pluginCatalog.sections.${id}`);
+
+/** Each plugin once, in the first section it's in, so one that makes images and sound isn't listed twice. */
+function onceEach(sections: readonly { id: DiscoverSection; plugins: MarketPlugin[] }[]): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
+  const seen = new Set<string>();
+  return sections.map((section) => ({ ...section, plugins: section.plugins.filter((plugin) => {
+    if (seen.has(plugin.id)) return false;
+    seen.add(plugin.id);
+    return true;
+  }) })).filter((section) => section.plugins.length);
+}
+
+/** All's few of each section: ones not shown above first, then ones that were, so no section is left out. */
+function shelves(sections: readonly { id: DiscoverSection; plugins: MarketPlugin[] }[]): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
+  const seen = new Set<string>();
+  return sections.filter((section) => section.plugins.length).map((section) => {
+    const fresh = section.plugins.filter((plugin) => !seen.has(plugin.id)).slice(0, SHELF);
+    const again = section.plugins.filter((plugin) => seen.has(plugin.id)).slice(0, SHELF - fresh.length);
+    const picked = new Set([...fresh, ...again]);
+    for (const plugin of fresh) seen.add(plugin.id);
+    return { ...section, plugins: section.plugins.filter((plugin) => picked.has(plugin)) };
+  });
+}
 
 /**
- * Discover's overview: a side list that jumps to each section and follows the
- * scroll, and the sections of cards. A search keeps the sections and greys out
- * the empty ones in the side list.
+ * Discover's cards: a side list of All and the sections, and what's picked.
+ * All shows a few of each section with a way into the rest; a section shows all
+ * of it. A search narrows either and greys out the sections it left empty.
  */
-export function DiscoverView({ plugins, installed, query, jumpTo, onJumped, expanded, onExpand, onOpen }: {
+export function DiscoverView({ plugins, installed, query, shelf, onShelf, onOpen }: {
   plugins: readonly MarketPlugin[];
   installed: ReadonlySet<string>;
   /** The page's search, lowercase. */
   query: string;
-  /** A section to scroll to once, as a link into Discover asks. */
-  jumpTo?: DiscoverSection | undefined;
-  onJumped: () => void;
-  /** Sections showing all their cards; the page keeps them while a plugin is open. */
-  expanded: ReadonlySet<DiscoverSection>;
-  onExpand: (id: DiscoverSection) => void;
+  shelf: DiscoverShelf;
+  onShelf: (shelf: DiscoverShelf) => void;
   onOpen: (id: string) => void;
 }): ReactNode {
-  const sections = discoverSections(plugins, query);
-  const shown = sections.filter((section) => section.plugins.length);
-  const [current, setCurrent] = useState<DiscoverSection | undefined>(shown[0]?.id);
   const main = useRef<HTMLDivElement>(null);
-  const shownKey = shown.map((section) => section.id).join();
-
-  // The side list follows the scroll: the last section whose top has reached the top of the page.
-  useEffect(() => {
-    const scroller = main.current?.closest<HTMLElement>(".sidebar-page");
-    if (!scroller) return;
-    let frame = 0;
-    const follow = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const top = scroller.getBoundingClientRect().top + SCROLL_MARGIN + 1;
-        const heads = [...(main.current?.querySelectorAll<HTMLElement>("[data-section]") ?? [])];
-        const reached = heads.filter((head) => head.getBoundingClientRect().top <= top).at(-1) ?? heads[0];
-        setCurrent(reached?.dataset.section as DiscoverSection | undefined);
-      });
-    };
-    follow();
-    scroller.addEventListener("scroll", follow, { passive: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      scroller.removeEventListener("scroll", follow);
-    };
-  }, [shownKey]);
-
-  useLayoutEffect(() => {
-    if (!jumpTo) return;
-    document.getElementById(anchorId(jumpTo))?.scrollIntoView({ block: "start" });
-    onJumped();
-  }, [jumpTo]);
-
-  if (!shown.length) return <Empty title={t("plugins.noMatch")} />;
+  const sections = discoverSections(plugins, query);
+  // A search lists every match once; otherwise a few of each section, and the section has the rest.
+  const overview = query ? onceEach(sections) : shelves(sections);
+  if (!overview.length) return <Empty title={t("plugins.noMatch")} />;
+  const picked = shelf === "all" ? undefined : sections.find((section) => section.id === shelf);
+  const pick = (next: DiscoverShelf) => {
+    onShelf(next);
+    // A section starts at its top, wherever All was scrolled to.
+    main.current?.closest<HTMLElement>(".sidebar-page")?.scrollTo({ top: 0 });
+  };
+  const cards = (list: readonly MarketPlugin[]) => <div className="plugins-grid">
+    {list.map((plugin) => <MarketPluginCard key={plugin.id} plugin={plugin} installed={installed.has(plugin.id)} fact={marketFact(plugin)} onOpen={() => onOpen(plugin.id)} />)}
+  </div>;
+  const count = (id: DiscoverShelf) => id === "all" ? new Set(sections.flatMap((section) => section.plugins.map((plugin) => plugin.id))).size
+    : sections.find((section) => section.id === id)?.plugins.length ?? 0;
+  const items: DiscoverShelf[] = ["all", ...sections.filter((section) => section.plugins.length || (section.id !== "featured" && section.id !== "other")).map((section) => section.id)];
   return <div className="plugins-browse">
     <nav className="plugins-rail" aria-label={t("pluginCatalog.categoriesLabel")}>
-      {sections.filter((section) => section.id !== "featured" || section.plugins.length).filter((section) => section.id !== "other" || section.plugins.length)
-        .map((section) => <button key={section.id} type="button" className="plugins-rail-item" disabled={!section.plugins.length}
-          aria-current={section.id === current ? "true" : undefined}
-          onClick={() => document.getElementById(anchorId(section.id))?.scrollIntoView({ block: "start", behavior: "smooth" })}>
-          <span>{sectionLabel(section.id)}</span>
-          {section.id === "featured" ? null : <span className="plugins-rail-count">{section.plugins.length}</span>}
-        </button>)}
+      {items.map((id) => <button key={id} type="button" className="plugins-rail-item" disabled={!count(id)}
+        aria-current={id === shelf ? "true" : undefined} onClick={() => pick(id)}>
+        <span>{shelfLabel(id)}</span>
+        {id === "featured" ? null : <span className="plugins-rail-count">{count(id)}</span>}
+      </button>)}
     </nav>
     <div ref={main} className="plugins-browse-main">
-      {shown.map((section) => {
-        const all = Boolean(query) || expanded.has(section.id) || section.plugins.length <= SECTION_LIMIT;
-        return <section key={section.id} id={anchorId(section.id)} data-section={section.id} className="plugins-section" aria-label={sectionLabel(section.id)}>
+      {picked ? <section className="plugins-section" aria-label={shelfLabel(picked.id)}>
+        <div className="plugins-section-head"><h2>{shelfLabel(picked.id)}</h2></div>
+        {picked.plugins.length ? cards(picked.plugins) : <Empty title={t("plugins.noMatch")} />}
+      </section>
+      : overview.map((section) => {
+        const shown = section.plugins;
+        const total = count(section.id);
+        return <section key={section.id} className="plugins-section" aria-label={shelfLabel(section.id)}>
           <div className="plugins-section-head">
-            <h2>{sectionLabel(section.id)}</h2>
+            <h2>{shelfLabel(section.id)}</h2>
+            {total > shown.length ? <Button variant="ghost" size="sm" onClick={() => pick(section.id)}>{t("pluginCatalog.showAllInSection", { count: total })}</Button> : null}
           </div>
-          <div className="plugins-grid">
-            {(all ? section.plugins : section.plugins.slice(0, SECTION_LIMIT)).map((plugin) => <MarketPluginCard key={plugin.id} plugin={plugin}
-              installed={installed.has(plugin.id)} fact={marketFact(plugin)} onOpen={() => onOpen(plugin.id)} />)}
-          </div>
-          {all ? null : <div className="plugins-all">
-            <Button variant="ghost" size="sm" onClick={() => onExpand(section.id)}>
-              {t("pluginCatalog.showAllInSection", { count: section.plugins.length })}
-            </Button>
-          </div>}
+          {cards(shown)}
         </section>;
       })}
     </div>
@@ -175,27 +174,31 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onJumped, expa
 
 /**
  * Discover with a plugin open: the cards fold into one column beside its page,
- * still in sections, so the next one to compare is a click away. Installed's
- * list looks the same.
+ * from the section they were in, so the next one to compare is a click away.
+ * Installed's list looks the same.
  */
-export function DiscoverList({ plugins, installed, query, selected, hidden = false, onOpen }: {
+export function DiscoverList({ plugins, installed, query, shelf, selected, hidden = false, onOpen }: {
   plugins: readonly MarketPlugin[];
   installed: ReadonlySet<string>;
   query: string;
+  shelf: DiscoverShelf;
   selected: string;
   /** A narrow window shows only the plugin's page. */
   hidden?: boolean;
   onOpen: (id: string) => void;
 }): ReactNode {
   const list = useRef<HTMLElement>(null);
-  const shown = discoverSections(plugins, query).filter((section) => section.plugins.length);
-  // The open plugin stays in view, first where it's listed.
+  const sections = discoverSections(plugins, query);
+  const picked = sections.filter((section) => section.id === shelf && section.plugins.length);
+  // A plugin opened from elsewhere, not in the section, has All beside it.
+  const shown = picked.some((section) => section.plugins.some((plugin) => plugin.id === selected)) ? picked : onceEach(sections);
+  // The open plugin stays in view.
   useLayoutEffect(() => {
     list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   return <aside ref={list} className="installed-plugin-inventory" aria-label={t("plugins.discoverTab")} hidden={hidden}>
-    {shown.length ? shown.map((section) => <section key={section.id} className="installed-plugin-group" aria-label={sectionLabel(section.id)}>
-      <div className="installed-plugin-group-head"><h2>{sectionLabel(section.id)}</h2></div>
+    {shown.length ? shown.map((section) => <section key={section.id} className="installed-plugin-group" aria-label={shelfLabel(section.id)}>
+      <div className="installed-plugin-group-head"><h2>{shelfLabel(section.id)}</h2></div>
       <ul className="installed-plugin-list">
         {section.plugins.map((plugin) => <li key={plugin.id} className="installed-plugin-row">
           <button type="button" className="installed-plugin-open" aria-current={plugin.id === selected ? "true" : undefined} onClick={() => onOpen(plugin.id)}>
@@ -213,6 +216,3 @@ export function DiscoverList({ plugins, installed, query, selected, hidden = fal
     </section>) : <Empty title={t("plugins.noMatch")} />}
   </aside>;
 }
-
-/** Room above a section that a jump leaves, matching `scroll-margin-top` in plugins.css. */
-const SCROLL_MARGIN = 16;

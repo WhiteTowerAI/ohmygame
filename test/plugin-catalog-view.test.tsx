@@ -102,9 +102,9 @@ afterEach(async () => {
 });
 
 /** The page as the app routes it: opening a plugin or a tab changes what it's given. */
-function Routed({ pluginId, tab }: { pluginId?: string; tab?: "installed" | "discover" }) {
+function Routed({ pluginId, tab, section }: { pluginId?: string; tab?: "installed" | "discover"; section?: "image" }) {
   const [route, setRoute] = useState<{ pluginId?: string; tab?: "installed" | "discover" }>({ pluginId, tab });
-  return <PluginsSettings {...(route.pluginId ? { pluginId: route.pluginId } : {})} {...(route.tab ? { tab: route.tab } : {})}
+  return <PluginsSettings {...(route.pluginId ? { pluginId: route.pluginId } : {})} {...(route.tab ? { tab: route.tab } : {})} {...(section ? { section } : {})}
     onPluginChange={(id, next) => setRoute({ ...(id ? { pluginId: id } : {}), ...(next ? { tab: next } : {}) })}
     onTabChange={(next) => setRoute({ tab: next })} onTryPlugin={async () => {}} />;
 }
@@ -260,7 +260,10 @@ describe("plugin catalog browsing", () => {
       // Featured waits for the market's picks: the index marking one neither shows the section nor moves it up.
       expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
       expect([...container.querySelectorAll(".plugins-rail-item")].map((item) => item.textContent)).not.toContain("Featured");
-      // A plugin no section takes is in Other, by name.
+      // A plugin no section takes is in Other, by name. All shows a few of it; Other has them all.
+      expect(cards(section("Other"))).toEqual(["Market avatar", "Market official", "Market owned", "Market picked"]);
+      await click("All 5");
+      expect(container.querySelector('.plugins-rail-item[aria-current="true"]')?.firstElementChild?.textContent).toBe("Other");
       expect(cards(section("Other"))).toEqual(["Market avatar", "Market official", "Market owned", "Market picked", "Market popular"]);
       const card = (name: string) => [...section("Other").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       // A card is one button: it is added from its page.
@@ -325,21 +328,27 @@ describe("plugin catalog browsing", () => {
       expect(cards()).toEqual(["Market other", "Market voices"]);
     });
 
-    it("jumps to the section a link names once, not again on coming back to Discover", async () => {
+    it("opens the section a link names and keeps it, while a new search looks through all of Discover", async () => {
       market = { status: "ready", blocked: [], plugins: [listed("pixels", { categories: ["art"] }), listed("voices", { categories: ["audio"] })] };
-      const jumps: string[] = [];
-      const scrollIntoView = vi.fn(function (this: Element) { jumps.push(this.id); });
-      const original = Element.prototype.scrollIntoView;
-      Element.prototype.scrollIntoView = scrollIntoView;
-      try {
-        await act(async () => root.render(<PluginsSettings section="image" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
-        await vi.waitFor(() => expect(jumps).toEqual(["plugins-section-image"]));
-        await click("Installed");
-        await click("Discover");
-        expect(jumps).toEqual(["plugins-section-image"]);
-      } finally {
-        Element.prototype.scrollIntoView = original;
-      }
+      const current = () => container.querySelector('.plugins-rail-item[aria-current="true"]')?.firstElementChild?.textContent;
+      await act(async () => root.render(<Routed tab="discover" section="image" />));
+      expect(current()).toBe("Images & pixel art");
+      expect(cards()).toEqual(["Market pixels"]);
+      // Kept across tabs, and beside a plugin opened from it.
+      await click("Installed");
+      await click("Discover");
+      expect(cards()).toEqual(["Market pixels"]);
+      await act(async () => container.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      expect([...container.querySelectorAll('aside[aria-label="Discover"] h2')].map((item) => item.textContent)).toEqual(["Images & pixel art"]);
+      await click("Close");
+      expect(current()).toBe("Images & pixel art");
+      await click("All");
+      expect(cards()).toEqual(["Market pixels", "Market voices"]);
+      await click("Sound");
+      expect(cards()).toEqual(["Market voices"]);
+      await search("pixels");
+      expect(current()).toBe("All");
+      expect(cards()).toEqual(["Market pixels"]);
     });
 
     it("opens a plugin got from Discover on Settings when it needs a key", async () => {
@@ -399,7 +408,7 @@ describe("plugin catalog browsing", () => {
       // The side list counts each section and leaves out the empty ones.
       const rail = () => [...container.querySelectorAll<HTMLButtonElement>(".plugins-rail-item")];
       expect(rail().map((item) => item.textContent)).toEqual([
-        "Engines & platforms0", "Agents & models2", "Images & pixel art2", "Sound1", "3D0", "Video1", "Levels & gameplay0", "Testing & publishing0", "Connections0", "Other1",
+        "All5", "Engines & platforms0", "Agents & models2", "Images & pixel art2", "Sound1", "3D0", "Video1", "Levels & gameplay0", "Testing & publishing0", "Connections0", "Other1",
       ]);
       expect(rail().filter((item) => item.disabled).map((item) => item.firstElementChild?.textContent)).toEqual(["Engines & platforms", "3D", "Levels & gameplay", "Testing & publishing", "Connections"]);
       // A section's name finds what's in it, even when no plugin says that word.
@@ -432,14 +441,14 @@ describe("plugin catalog browsing", () => {
       expect(dialog()?.querySelector(".ui-dialog-title")?.textContent).toMatch(/^Add /);
     });
 
-    it("shows the first plugins of a long section until it's opened", async () => {
+    it("shows a few of each section in All, and all of one when it's picked", async () => {
       market = { status: "ready", blocked: [], plugins: Array.from({ length: 15 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
       await act(async () => root.render(<Routed tab="discover" />));
-      expect(cards(section("Images & pixel art"))).toHaveLength(12);
+      expect(cards(section("Images & pixel art"))).toHaveLength(4);
       await click("All 15");
       expect(cards(section("Images & pixel art"))).toHaveLength(15);
       expect(container.textContent).not.toContain("All 15");
-      // Opened, a plugin and closed again, the section is still open, so the list comes back as it was.
+      // Opened, a plugin and closed again, the section is still picked, so the list comes back as it was.
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].at(-1)!.click());
       await click("Close");
       expect(cards(section("Images & pixel art"))).toHaveLength(15);

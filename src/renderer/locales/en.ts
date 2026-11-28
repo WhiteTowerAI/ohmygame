@@ -3058,6 +3058,7 @@ const en = {
     showAllInSection_one: "All {{count}}",
     showAllInSection_other: "All {{count}}",
     sections: {
+      all: "All",
       featured: "Featured",
       engine: "Engines & platforms",
       agent: "Agents & models",

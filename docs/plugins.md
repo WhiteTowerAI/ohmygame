@@ -19,7 +19,7 @@ default. An old `tab=mine` link opens Installed. `#/plugins?section=<id>`
 (`pluginsSectionHash`) opens Discover at one of its sections, as **Browse
 plugins** does from **More coding agents** (Agents & models) and from
 Providers settings (the section for the kind picked there); the address then
-drops it, so going back to the page doesn't jump again. An old
+drops it, and the page keeps the section across tabs. An old
 `adds=projectType` link opens **Engines & platforms**. Tabs show no counts;
 **Installed** has a dot when an installed plugin has an update. The header has
 one search for whichever tab is open and an **Add** menu: **Create with AI**,
@@ -81,14 +81,19 @@ person's own.
   provider that makes images and sound is in both; the kinds come from the
   manifest, so a plugin can't claim one it doesn't implement. What no section
   takes is under **Other**. Within a section plugins go by name. **Featured**
-  (the index's picks, first in the list and first in each section) is
-  reserved but not shown until the market's picks are made: `SHOW_FEATURED`
-  in `plugin-discover.tsx` turns it on. A section shows twelve cards until
-  **All N** opens the rest. There is no sort or filter: forty-odd plugins fit
-  in sections, and a search does the rest.
-  - A side list jumps to each section, with how many plugins it has, and
-    follows the scroll. On a narrow window it becomes a row above the cards.
-  - A search keeps the sections and shows all each one finds. Empty sections stay in the side list, greyed. Search also
+  (the index's picks: first in All, an entry of its own in the side list,
+  and first in each section) is reserved but not shown until the market's
+  picks are made: `SHOW_FEATURED` in `plugin-discover.tsx` turns it on. There
+  is no sort or filter: forty-odd plugins fit in sections, and a search does
+  the rest.
+  - A side list picks what's shown: **All**, first and by default, or one
+    section, each with how many plugins it has. All shows four of each
+    section, ones not shown above it first so a provider in several sections
+    isn't repeated unless a section would be left short, and **All N** picks
+    the section for the rest. A picked section shows all of it, from the top.
+    On a narrow window the side list becomes a row above the cards.
+  - A search narrows what's shown and lists each match once; a new search
+    starts from All. Sections it left empty stay in the side list, greyed. Search also
     reads each section's words in both languages, so "配音" or "voice" finds
     every plugin under **Sound** even when it says "speech".
   - A card is one button. It shows the plugin's icon, or its first letter,
@@ -99,14 +104,13 @@ person's own.
     not OhMyGame's, and what a provider makes when that's more than one kind
     (**Image · Video**).
   - A card opens the plugin's page without leaving Discover: the cards fold
-    into one list at the side, still in sections and marking the open one
-    (`DiscoverList`), so the next plugin to compare is a click away; Installed's
+    into one list at the side, of the picked section or All, marking the open
+    one (`DiscoverList`), so the next plugin to compare is a click away; Installed's
     list looks the same. The close button or Esc returns to the cards where
     they were scrolled to. Esc leaves a field, a menu or a dialog to close
     first. A window too narrow for both hides the list, and the close button
     goes back; the page stays the same one, so a resize keeps what's typed in
-    it. Sections opened with **All N** stay open, and a link's section is
-    jumped to once.
+    it.
   - The page is the same whether the plugin is installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;

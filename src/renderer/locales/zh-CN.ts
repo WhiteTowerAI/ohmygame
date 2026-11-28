@@ -3011,6 +3011,7 @@ const zhCN: typeof en = {
     showAllInSection_one: "全部 {{count}} 个",
     showAllInSection_other: "全部 {{count}} 个",
     sections: {
+      all: "全部",
       featured: "精选",
       engine: "引擎和平台",
       agent: "Agent 和模型",

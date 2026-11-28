@@ -10,7 +10,7 @@ import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
 import { MarketPluginPage } from "./plugin-catalog.js";
-import { DiscoverList, DiscoverView, type DiscoverSection } from "./plugin-discover.js";
+import { DiscoverList, DiscoverView, type DiscoverSection, type DiscoverShelf } from "./plugin-discover.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -51,10 +51,8 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   // Discover comes first, as in a store: what's installed is mostly switched on and off from projects.
   const [tab, showTab] = useState<PluginsTab>(routeTab ?? "discover");
   const [query, setQuery] = useState("");
-  // A section of Discover to scroll to, once: where a link into it points.
-  const [jumpTo, setJumpTo] = useState<DiscoverSection | undefined>(section);
-  // Sections opened past their first cards, kept while a plugin is open beside the list.
-  const [expanded, setExpanded] = useState<ReadonlySet<DiscoverSection>>(() => new Set());
+  // Discover's section, or All; a link into one opens it. Kept while a plugin is open and across tabs.
+  const [shelf, setShelf] = useState<DiscoverShelf>(section ?? "all");
   const pageRef = useRef<HTMLElement>(null);
   const inventoryRef = useRef<HTMLElement>(null);
   const detailBack = useRef<HTMLButtonElement>(null);
@@ -82,7 +80,7 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   useEffect(() => {
     if (!section) return;
     showTab("discover");
-    setJumpTo(section);
+    setShelf(section);
   }, [section]);
   function setTab(next: PluginsTab): void {
     showTab(next);
@@ -155,6 +153,12 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   function draftDeleted(id: string): void {
     workspaces.removed(id);
     if (activeRoute.current === draftPlugin(id)) showCatalog();
+  }
+
+  /** A new search in Discover looks through all of it, whatever section was open. */
+  function search(next: string): void {
+    if (tab === "discover" && next && !query) setShelf("all");
+    setQuery(next);
   }
 
   function createWithAi(): void {
@@ -335,15 +339,15 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
     {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
       action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
     {split && pluginId ? <div className="installed-plugins" data-compact={compact || undefined}>
-      <DiscoverList plugins={marketPlugins} installed={installedIds} query={normalizedQuery} selected={pluginId} hidden={compact} onOpen={openPlugin} />
+      <DiscoverList plugins={marketPlugins} installed={installedIds} query={normalizedQuery} shelf={shelf} selected={pluginId} hidden={compact} onOpen={openPlugin} />
       <section className="installed-plugin-editor discover-open" aria-label={t("plugins.detailPane")}>
         {/* Esc closes it too: back to the cards, where they were. */}
         <IconButton className="discover-close" size="sm" label={t("common.close")} onClick={showCatalog}><X size="sm" /></IconButton>
         <div className="installed-plugin-document">{pluginPage()}</div>
       </section>
     </div>
-    : marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onJumped={() => setJumpTo(undefined)}
-      expanded={expanded} onExpand={(id) => setExpanded((current) => new Set([...current, id]))} onOpen={openPlugin} />
+    : marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery}
+      shelf={shelf} onShelf={setShelf} onOpen={openPlugin} />
      : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
@@ -423,7 +427,7 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         {/* One search for whichever tab is open. */}
-        <SearchInput value={query} onChange={setQuery} placeholder={t(tab === "installed" ? "plugins.searchInstalled" : "plugins.search")} label={t("plugins.searchLabel")} />
+        <SearchInput value={query} onChange={search} placeholder={t(tab === "installed" ? "plugins.searchInstalled" : "plugins.search")} label={t("plugins.searchLabel")} />
         <DropdownMenu placement="bottom-end" items={addItems} trigger={(props) => (
           <Button {...props} variant="primary" icon={<CirclePlus size="sm" />}>{t("plugins.add")}</Button>
         )} />
@@ -459,7 +463,7 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
       ? editor(detail, false)
       : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
         // A keyword searches the whole market, not just the section it was opened from.
-        onSearch={(keyword) => { setQuery(keyword); listScroll.current = 0; showDiscover(); }} />
+        onSearch={(keyword) => { search(keyword); listScroll.current = 0; showDiscover(); }} />
       : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
         : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />;
   }
