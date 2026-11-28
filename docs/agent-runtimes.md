@@ -531,7 +531,10 @@ OpenCode supports 2.1.0 or newer in the 2.x API generation. Startup uses the
 JSON address announcement and the same v2 server checks as model discovery;
 configuration transforms may finish after the server begins listening, so the
 check for its `build` and `plan` agents waits briefly before declaring
-incompatibility. Each turn applies the session rules its mode needs before the
+incompatibility. Its `/model` catalog also loads after it listens, at first
+without providers such as `opencode-go`, so discovery re-reads `/provider` and
+`/model` until every model's provider is listed and the catalog has stopped
+changing (at least 1.5 s, at most 5 s). Each turn applies the session rules its mode needs before the
 prompt, replacing the ask-everything rule sessions made before carry. Saved
 OpenCode permissions are the person's own and apply. User plugins are trusted
 CLI code.
