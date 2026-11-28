@@ -235,10 +235,6 @@
   max-width: 60%;
 }
 
-.settings-row-chevron {
-  color: var(--color-text-tertiary);
-}
-
 /* A one-line setting with a picker, such as a default model. */
 .settings-row.is-compact {
   min-height: 44px;
@@ -358,23 +354,6 @@
 
 .settings-actions.is-start {
   justify-content: flex-start;
-}
-
-.settings-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.settings-toolbar > .ui-input {
-  flex: 1;
-  min-width: 180px;
-  max-width: 320px;
-}
-
-.settings-spacer {
-  flex: 1;
 }
 
 .settings-muted {

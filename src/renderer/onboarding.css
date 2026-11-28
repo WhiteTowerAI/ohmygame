@@ -90,10 +90,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   height: 100%;
   object-fit: contain;
 }
-.onboarding .settings-toggle input:focus-visible + span {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 3px;
-}
 .onboarding-ready,
 .onboarding-status {
   display: flex;

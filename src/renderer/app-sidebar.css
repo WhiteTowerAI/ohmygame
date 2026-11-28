@@ -656,50 +656,6 @@
   overflow: auto;
 }
 
-/* the settings sections, in the sheet's side column */
-.settings-page-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.settings-page-nav-title {
-  padding: 0 var(--space-2) var(--space-2);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-
-.settings-page-nav-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
-}
-
-.settings-page-nav-item:hover {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-.settings-page-nav-item:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-}
-
-.settings-page-nav-item.is-active {
-  background: var(--color-selected);
-  color: var(--color-text);
-  font-weight: var(--weight-medium);
-}
-
 /* Installing: nothing to click while the app closes to put the update in place. */
 .sidebar-update.is-busy {
   cursor: default;
