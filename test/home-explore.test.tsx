@@ -21,7 +21,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listProjects: async () => projects,
   listProjectTypes: () => listTypes(),
   listPluginStarters: async () => ({ plugins: [], commands: [] }),
-  listProjectTemplates: async () => [],
   readProjectTypeCover: async () => new Blob(["png"], { type: "image/png" }),
   readPluginIconImage: async () => { throw new Error("no icon"); },
   listExamples: async () => examples,

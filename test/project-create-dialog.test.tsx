@@ -27,15 +27,12 @@ const listProjectTypes = vi.fn(async () => [
   { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
 ]);
 const tilesAsking = [{ id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" }, asks: ["processes:tiled"] }];
-let templates: import("../src/shared/examples.js").ProjectTemplateSummary[] = [];
-const listProjectTemplates = vi.fn(async () => templates);
 const setProjectPlugin = vi.fn(async () => {});
 const getProjectLocation = vi.fn(async (): Promise<{ location?: string; storage?: string }> => ({ storage: "/data/projects" }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getHomeComposerCapabilities,
   listProjectTypes,
-  listProjectTemplates,
   waitForRuntime: async () => undefined,
   setProjectPlugin,
   createProject,
@@ -64,7 +61,6 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   capabilities = { plugins: [], skills: [] };
-  templates = [];
   createProject.mockClear();
   createConversation.mockClear();
   setProjectPlugin.mockClear();
@@ -382,30 +378,6 @@ describe("new project dialog", () => {
     await render();
     expect(location()?.textContent).toBe("/Users/me/Games");
     expect(hint()).toContain("A new folder named after the project is made here.");
-  });
-
-  it("lets the type row start from a plugin's template instead, which sets the type and name", async () => {
-    templates = [
-      { id: "acme/studio:studio", type: "general", name: "Game studio", description: "Agents and docs.", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
-      { id: "acme/studio:jam", type: "web-game", name: "Game jam", plugin: { id: "acme/studio", displayName: "Studio", version: "1.0.0" } },
-    ];
-    await act(async () => root.render(<ProjectCreateDialog onClose={() => {}} onCreated={() => {}} />));
-    const choice = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="radio"]')].find((item) => item.textContent === text)!;
-    const templateSelect = () => document.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Template"]');
-    // Type first, as without templates.
-    expect(choice("Type").getAttribute("aria-checked")).toBe("true");
-    expect(templateSelect()).toBeNull();
-    await act(async () => choice("Template").click());
-    // Only that row changes: the first template takes the type's place.
-    expect(typeSelect()).toBeNull();
-    expect(templateSelect()?.textContent).toContain("Game studio");
-    expect(document.querySelectorAll('[role="dialog"] input')).toHaveLength(1);
-    await act(async () => templateSelect()!.click());
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes("Game jam"))!;
-    await act(async () => option.click());
-    expect(document.querySelector<HTMLInputElement>('[role="dialog"] input')?.placeholder).toBe("Game jam");
-    await act(async () => button("Create").click());
-    expect(createProject).toHaveBeenCalledWith({ name: "Game jam", type: "web-game", template: "acme/studio:jam" });
   });
 
   it("opens a blank project without a conversation", async () => {

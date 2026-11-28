@@ -170,8 +170,6 @@ export async function restoreTemplateGitignores(root: string): Promise<void> {
   if (!checked.ok) return;
   for (const projectType of checked.entry.manifest.contributes?.projectTypes ?? [])
     if (projectType.template) await renameGitignores(path.join(root, projectType.template));
-  for (const template of checked.entry.manifest.contributes?.templates ?? [])
-    await renameGitignores(path.join(root, template.folder));
 }
 
 async function renameGitignores(directory: string): Promise<void> {

@@ -1118,8 +1118,6 @@ const en = {
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
     newProject: "New project",
-    startFrom: "Start from",
-    template: "Template",
     opening: "Opening…",
     chooseAnother: "Choose another",
     type: "Type",
@@ -1321,7 +1319,6 @@ const en = {
     asksFor: "Asks for",
     adds: "Adds",
     addsType: "Project type",
-    addsTemplate: "Project template",
     addsPanel: "Panel",
     addsCommand: "Command",
     addsMcpServer: "MCP service",

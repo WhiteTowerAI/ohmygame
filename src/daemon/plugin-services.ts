@@ -461,9 +461,9 @@ export class PluginServices {
         const read = await readProjectPlugins(folder);
         // What joins the app itself comes only from installed plugins.
         for (const entry of read.entries) {
-          const { providers, agents, templates } = entry.manifest.contributes ?? {};
-          if (providers?.length || agents?.length || templates?.length || entry.manifest.capabilities?.sessions)
-            this.logs.add(entry.id, { level: "warn", source: "host", text: `The copy in ${folder} adds model providers, agents, templates or app sessions, which only an installed plugin can; they are left out.` });
+          const { providers, agents } = entry.manifest.contributes ?? {};
+          if (providers?.length || agents?.length || entry.manifest.capabilities?.sessions)
+            this.logs.add(entry.id, { level: "warn", source: "host", text: `The copy in ${folder} adds model providers, agents or app sessions, which only an installed plugin can; they are left out.` });
         }
         return read;
       }),
