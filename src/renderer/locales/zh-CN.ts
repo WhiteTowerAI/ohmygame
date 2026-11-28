@@ -1095,6 +1095,8 @@ const zhCN: typeof en = {
   },
   examples: {
     loadingName: "正在加载 {{name}}",
+    downloadFailed: "无法下载此示例。",
+    preparingRemix: "正在准备改编…",
     play: "试玩",
     playName: "试玩 {{name}}",
     example: "示例",

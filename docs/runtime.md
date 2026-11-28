@@ -56,7 +56,7 @@ explicitly; desktop development and packaged apps run the daemon with
 Electron's embedded Node.js. Desktop packages retain the checksum-pinned
 Node.js 22.19.0/npm distribution for workspace commands and MCP servers.
 New workspaces still default to npm, and existing package-manager choices remain
-authoritative. Prepared examples retain their npm lockfiles.
+authoritative. Remixed examples retain their npm lockfiles.
 
 Build and test commands select Bun explicitly. `bunfig.toml` disables automatic
 dotenv loading, automatic peer installation, and global Node-to-Bun substitution,
@@ -894,7 +894,15 @@ help mark says plugins can add more types, without leaving Home, and
 **+** (or **⌘N**) skips the choice.
 With no projects yet, Home opens on a heading over the type cards instead,
 which holds those two actions.
-Explore follows with playable examples. Asset presets are available in the canvas.
+Explore follows with playable examples. The app ships their catalog and covers.
+Play downloads a static build when the example has one. Remix downloads the
+editable project. An example that plays from its own files shares a download
+between the two actions. The daemon verifies and caches each download by
+example revision under its data directory, so downloaded examples can be played
+or remixed offline. When the bundled catalog switches revisions, the daemon
+removes older revision caches in the background at startup. Remixed projects
+keep their own workspace copies.
+Asset presets are available in the canvas.
 
 ![New project dialog showing Web Game and the available project types](assets/new-project-dialog.webp)
 

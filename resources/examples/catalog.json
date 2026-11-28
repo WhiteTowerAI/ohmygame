@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "source": {
+    "repository": "WhiteTowerAI/ohmygame-examples",
+    "commit": "9ca81fbb7da947df8e25bcbdd51567e385b30105"
+  },
+  "examples": [
+    {
+      "id": "circuit-craftsman",
+      "type": "web-game",
+      "name": "Circuit Craftsman",
+      "description": "Rotate circuit tiles to light every bulb across 40 handcrafted puzzles. Phaser, TypeScript and Vite, with English and Chinese interfaces.",
+      "directory": "circuit-craftsman/files",
+      "cover": "circuit-craftsman/cover.webp",
+      "play": "circuit-craftsman/play"
+    },
+    {
+      "id": "tidal-workshop",
+      "type": "web-game",
+      "name": "Tidal Workshop",
+      "description": "Build a cozy floating harbor: salvage scrap, craft parts, ship cargo and automate production. Explore islands and earn permanent voyage rewards. Phaser, TypeScript and Vite.",
+      "directory": "tidal-workshop/files",
+      "cover": "tidal-workshop/cover.webp",
+      "play": "tidal-workshop/play"
+    },
+    {
+      "id": "ember-route",
+      "type": "web-game",
+      "name": "Ember Route",
+      "description": "Forge a deck and manage Heat and Vent through a twelve-floor roguelike journey with branching routes, events, shops and a boss. Phaser, TypeScript and Vite.",
+      "directory": "ember-route/files",
+      "cover": "ember-route/cover.webp",
+      "play": "ember-route/play"
+    },
+    {
+      "id": "wetland-birdwatching",
+      "type": "web-game",
+      "name": "Wetland Birdwatching",
+      "description": "Photograph birds in a procedurally generated wetland to fill your field journal. Three.js, Vite and TypeScript.",
+      "directory": "wetland-birdwatching/files",
+      "cover": "wetland-birdwatching/cover.webp",
+      "play": "wetland-birdwatching/play"
+    },
+    {
+      "id": "last-bus",
+      "type": "web-game",
+      "name": "Last Bus",
+      "description": "A rainy-night interactive film in Chinese: wait for the last bus, choose who to trust, and find its endings. Comes with the design canvas, storyboard and generation history it was made from.",
+      "directory": "last-bus/files",
+      "cover": "last-bus/cover.webp"
+    }
+  ]
+}

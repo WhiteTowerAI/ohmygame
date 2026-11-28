@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractFile } from "@electron/asar";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
+import { isPreparedExampleCatalog } from "../dist/shared/examples.js";
 import { isolateDesktopArchive } from "./isolated-desktop-archive.mjs";
 
 // Run against the assembled app, before creating installers or publishing it.
@@ -23,6 +24,14 @@ export default async function checkPackagedDesktop(context) {
     const expected = await readFile(path.join(appDirectory, entry));
     assert(extractFile(archive, entry).equals(expected), `Packaged Pi patch differs from the installed dependency: ${file}`);
   }
+  const examplesDirectory = path.join(resources, "examples");
+  const examples = JSON.parse(await readFile(path.join(examplesDirectory, "catalog.json"), "utf8"));
+  assert(isPreparedExampleCatalog(examples) && examples.version === 2 && examples.examples.length, "Packaged example catalog is missing");
+  const expectedFiles = ["catalog.json", ...examples.examples.map((example) => path.normalize(example.cover))].sort();
+  const packagedFiles = (await readdir(examplesDirectory, { recursive: true, withFileTypes: true }))
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => path.relative(examplesDirectory, path.join(entry.parentPath, entry.name))).sort();
+  assert.deepEqual(packagedFiles, expectedFiles, "Package only the Explore catalog and covers");
 
   if (electronPlatformName !== process.platform) {
     console.log("Packaged Pi patch verified; daemon startup requires the target platform.");
@@ -61,7 +70,7 @@ export default async function checkPackagedDesktop(context) {
       environment,
       runtimeBin: path.join(resources, "runtime", "node", ...(electronPlatformName === "win32" ? [] : ["bin"])),
       preinstalledPluginsDirectory: path.join(resources, "preinstalled-plugins"),
-      examplesDirectory: path.join(resources, "examples"),
+      examplesDirectory,
       healthTimeoutMs: 30_000,
     });
     const unauthorized = await fetch(`${daemon.runtime.url}/projects`, { signal: AbortSignal.timeout(5_000) });

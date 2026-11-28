@@ -2132,9 +2132,9 @@ select.settings-search-input {
   opacity: 1;
 }
 
-.home-explore-remix:disabled {
+.home-explore-remix[aria-busy="true"] {
   cursor: progress;
-  opacity: 0.6;
+  opacity: 1;
 }
 
 @media (hover: none) {
@@ -2181,11 +2181,17 @@ select.settings-search-input {
 .example-player-status {
   display: flex;
   height: 100%;
+  flex-wrap: wrap;
+  align-content: center;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: #c9ccd1;
   font-size: var(--text-md);
+}
+
+.example-player-status .ui-button {
+  color: var(--color-text);
 }
 
 .example-player-toolbar {

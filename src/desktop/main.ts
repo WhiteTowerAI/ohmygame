@@ -993,7 +993,7 @@ try {
       : path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     examplesDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "examples")
-      : path.join(repositoryRoot, ".runtime", "examples"),
+      : path.join(repositoryRoot, "resources", "examples"),
     ...(externalMcpLauncher ? { externalMcpLauncher } : {}),
     externalSkillDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "integrations", "skills", "ohmygame-studio")

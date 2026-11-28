@@ -1,46 +1,28 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { isExampleSummary, isPreparedExampleCatalog, type PreparedExample, type PreparedExampleCatalog } from "../src/shared/examples.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
-// Downloads the pinned commit of the examples repository and packages the
-// examples its catalog lists into .runtime/examples for the daemon and the
-// desktop build: each example's source (copied into new projects), its cover,
-// and for web games with a build script a static build played straight from
-// Home; one without, such as an interactive story, plays from its own files.
-// Pass --require to fail when the repository is unreachable;
-// otherwise a missing download only disables examples.
-
-interface LockFile {
-  version: 1;
-  repository: string;
-  commit: string;
-  release?: string;
-}
+// Prepare the complete examples for publication or a developer preview.
+// Ordinary desktop builds and dev startup only use the checked-in covers.
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
-const lock = JSON.parse(await readFile(path.join(repositoryRoot, "config", "examples.json"), "utf8")) as LockFile;
-if (lock.version !== 1 || !/^[\w.-]+\/[\w.-]+$/.test(lock.repository) || !/^[0-9a-f]{40}$/.test(lock.commit)) {
+const bundled: unknown = JSON.parse(await readFile(path.join(repositoryRoot, "resources", "examples", "catalog.json"), "utf8"));
+if (!isPreparedExampleCatalog(bundled) || bundled.version !== 2) {
   throw new Error("Invalid examples lock file");
 }
-const required = process.argv.includes("--require");
+const lock = bundled.source;
 const output = path.join(repositoryRoot, ".runtime", "examples");
-const lockSha256 = createHash("sha256").update(JSON.stringify(lock)).digest("hex");
 
-if (await isCurrentOutput(output, lockSha256)) {
+if (await isCurrentOutput(output)) {
   console.log("Reusing prepared examples");
 } else {
-  try {
-    await prepareExamples(output, lockSha256);
-  } catch (error) {
-    if (required) throw error;
-    console.warn(`Examples are unavailable: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  await prepareExamples(output);
 }
 
-async function prepareExamples(destination: string, expectedLockSha256: string): Promise<void> {
+async function prepareExamples(destination: string): Promise<void> {
   const runtimeDirectory = path.dirname(destination);
   await mkdir(runtimeDirectory, { recursive: true });
   const temporary = await mkdtemp(path.join(runtimeDirectory, "examples-build-"));
@@ -87,12 +69,11 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
     }
     const catalog: PreparedExampleCatalog = {
       version: 1,
-      source: { repository: lock.repository, commit: lock.commit, ...(lock.release ? { release: lock.release } : {}) },
+      source: lock,
       examples,
     };
     if (!isPreparedExampleCatalog(catalog)) throw new Error("Generated example catalog is invalid");
     await writeFile(path.join(prepared, "catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`);
-    await writeFile(path.join(prepared, "lock.sha256"), `${expectedLockSha256}\n`);
     await replaceDirectory(prepared, destination);
     console.log(`Prepared ${examples.length} example${examples.length === 1 ? "" : "s"} from ${lock.repository}@${lock.release ?? lock.commit}`);
   } finally {
@@ -123,11 +104,10 @@ function resolveInside(root: string, relativePath: string): string {
   return resolved;
 }
 
-async function isCurrentOutput(directory: string, expectedLockSha256: string): Promise<boolean> {
+async function isCurrentOutput(directory: string): Promise<boolean> {
   try {
-    if ((await readFile(path.join(directory, "lock.sha256"), "utf8")).trim() !== expectedLockSha256) return false;
     const catalog: unknown = JSON.parse(await readFile(path.join(directory, "catalog.json"), "utf8"));
-    if (!isPreparedExampleCatalog(catalog)) return false;
+    if (!isPreparedExampleCatalog(catalog) || catalog.version !== 1 || !isDeepStrictEqual(catalog.source, lock)) return false;
     for (const example of catalog.examples) {
       await stat(path.join(directory, example.directory, example.play ? "package.json" : "index.html"));
       await stat(path.join(directory, example.cover));

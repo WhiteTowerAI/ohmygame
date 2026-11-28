@@ -139,13 +139,17 @@ describe("desktop runtime packaging", () => {
             "integrations/skills/ohmygame-studio/SKILL.md",
           ".runtime/preinstalled-plugins/skill.txt":
             "preinstalled-plugins/skill.txt",
-          ".runtime/examples/catalog.json": "examples/catalog.json",
+          "resources/examples/catalog.json": "examples/catalog.json",
+          "resources/examples/pond/cover.webp": "examples/pond/cover.webp",
           ".runtime/desktop-config.json": "desktop-config.json",
         };
         const sourceFiles = [
           ...runtimeFiles.map((file) => `.runtime/node/${file}`),
           ...Object.keys(sharedFiles),
           ".runtime/node-archive.zip",
+          ".runtime/examples/pond/files/index.html",
+          "resources/examples/pond/files/index.html",
+          "resources/examples/pond/play/index.html",
           "plugins/obsolete.txt",
           ".runtime/preinstalled-plugin-sources/godot/native/godot.mjs",
           ".runtime/typebox/index.mjs",
@@ -155,7 +159,7 @@ describe("desktop runtime packaging", () => {
           await mkdir(path.dirname(target), { recursive: true });
           await writeFile(target, file);
         }
-        const resources = path.join(directory, "resources");
+        const resources = path.join(directory, "assembled", "resources");
         await copyFiles(
           getFileMatchers(config, "extraResources", resources, {
             defaultSrc: directory,
@@ -176,6 +180,7 @@ describe("desktop runtime packaging", () => {
         }
         expect(await readdir(resources)).not.toContain("plugins");
         expect(await readdir(resources)).not.toContain("preinstalled-plugin-sources");
+        expect(await readdir(path.join(resources, "examples", "pond"))).toEqual(["cover.webp"]);
         expect(await readdir(path.join(resources, "runtime"))).toEqual([
           "node",
         ]);

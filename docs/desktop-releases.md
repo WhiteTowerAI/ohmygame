@@ -51,6 +51,22 @@ token, including local builds and fork PRs, generate no source maps.
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
 
+### Explore examples
+
+The installer includes only `resources/examples/catalog.json` and its covers.
+When changing the pin, update `source` in that catalog, run
+`bun run prepare:examples`, and sync the example records and covers
+from `.runtime/examples/` into `resources/examples/`. Keep the bundled catalog
+at version 2. `bun run build:example-downloads` checks that the catalog and
+covers agree with the prepared examples and builds the separate ZIP downloads.
+
+The release workflow uploads the ZIPs under `desktop/examples-v1/<commit>/`
+on the official update feed before publishing the installers. Each ZIP is
+named by its SHA-256. The workflow publishes the manifest last, after checking
+that the ZIPs are available. Keep older pins online for installed versions.
+Run **Release desktop** with **Publish the pinned example downloads only** to
+make a new pin available to development checkouts before tagging a release.
+
 ### Mirror for mainland China
 
 Downloads from R2 are slow in mainland China, so the workflow also uploads the
