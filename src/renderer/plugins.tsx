@@ -52,6 +52,8 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   const [query, setQuery] = useState("");
   // A section of Discover to scroll to, once: where a link into it points.
   const [jumpTo, setJumpTo] = useState<DiscoverSection | undefined>(section);
+  // Sections opened past their first cards, kept while a plugin is open beside the list.
+  const [expanded, setExpanded] = useState<ReadonlySet<DiscoverSection>>(() => new Set());
   const pageRef = useRef<HTMLElement>(null);
   const inventoryRef = useRef<HTMLElement>(null);
   const detailBack = useRef<HTMLButtonElement>(null);
@@ -241,8 +243,9 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   const page = pluginId;
 
   const inInstalled = tab === "installed" && (!pluginId || Boolean(detail));
-  // Opened from Discover, a plugin's page sits beside the list; a narrow window gives it the whole page.
-  const split = Boolean(page) && !inInstalled && tab === "discover" && !compact;
+  // Opened from Discover, a plugin's page sits beside the list.
+  // A narrow window hides the list rather than leaving it, so the page keeps what's typed in it across a resize.
+  const split = Boolean(page) && !inInstalled && tab === "discover";
   useEffect(() => {
     if (!split) return;
     const close = (event: KeyboardEvent) => {
@@ -321,15 +324,16 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
     {/* The main index may be one the person set, so where it's set is right here. */}
     {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
       action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
-    {split && pluginId ? <div className="installed-plugins">
-      <DiscoverList plugins={marketPlugins} installed={installedIds} query={normalizedQuery} selected={pluginId} onOpen={openPlugin} />
+    {split && pluginId ? <div className="installed-plugins" data-compact={compact || undefined}>
+      <DiscoverList plugins={marketPlugins} installed={installedIds} query={normalizedQuery} selected={pluginId} hidden={compact} onOpen={openPlugin} />
       <section className="installed-plugin-editor discover-open" aria-label={t("plugins.detailPane")}>
         {/* Esc closes it too: back to the cards, where they were. */}
         <IconButton className="discover-close" size="sm" label={t("common.close")} onClick={showCatalog}><X size="sm" /></IconButton>
         <div className="installed-plugin-document">{pluginPage()}</div>
       </section>
     </div>
-    : marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onOpen={openPlugin} />
+    : marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onJumped={() => setJumpTo(undefined)}
+      expanded={expanded} onExpand={(id) => setExpanded((current) => new Set([...current, id]))} onOpen={openPlugin} />
      : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>

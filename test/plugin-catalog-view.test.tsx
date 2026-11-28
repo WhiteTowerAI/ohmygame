@@ -326,6 +326,23 @@ describe("plugin catalog browsing", () => {
       expect(cards()).toEqual(["Market other", "Market voices"]);
     });
 
+    it("jumps to the section a link names once, not again on coming back to Discover", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("pixels", { categories: ["art"] }), listed("voices", { categories: ["audio"] })] };
+      const jumps: string[] = [];
+      const scrollIntoView = vi.fn(function (this: Element) { jumps.push(this.id); });
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        await act(async () => root.render(<PluginsSettings section="image" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+        await vi.waitFor(() => expect(jumps).toEqual(["plugins-section-image"]));
+        await click("Installed");
+        await click("Discover");
+        expect(jumps).toEqual(["plugins-section-image"]);
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
     it("opens a plugin got from Discover on Settings when it needs a key", async () => {
       freshSettings = [{ name: "apiKey", type: "secret", title: "API key" }];
       market = { status: "ready", blocked: [], plugins: [listed("fresh", { categories: ["audio"] })] };
@@ -418,11 +435,15 @@ describe("plugin catalog browsing", () => {
 
     it("shows the first plugins of a long section until it's opened", async () => {
       market = { status: "ready", blocked: [], plugins: Array.from({ length: 15 }, (_, index) => listed(`p${String(index).padStart(2, "0")}`, { categories: ["art"] })) };
-      await renderCatalog(undefined, "discover");
+      await act(async () => root.render(<Routed tab="discover" />));
       expect(cards(section("Images & pixel art"))).toHaveLength(12);
       await click("All 15");
       expect(cards(section("Images & pixel art"))).toHaveLength(15);
       expect(container.textContent).not.toContain("All 15");
+      // Opened, a plugin and closed again, the section is still open, so the list comes back as it was.
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].at(-1)!.click());
+      await click("Close");
+      expect(cards(section("Images & pixel art"))).toHaveLength(15);
       // A search shows all it finds.
       await search("market p1");
       expect(cards()).toHaveLength(5);

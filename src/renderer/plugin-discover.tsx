@@ -93,19 +93,22 @@ const anchorId = (id: DiscoverSection) => `plugins-section-${id}`;
  * scroll, and the sections of cards. A search keeps the sections and greys out
  * the empty ones in the side list.
  */
-export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
+export function DiscoverView({ plugins, installed, query, jumpTo, onJumped, expanded, onExpand, onOpen }: {
   plugins: readonly MarketPlugin[];
   installed: ReadonlySet<string>;
   /** The page's search, lowercase. */
   query: string;
   /** A section to scroll to once, as a link into Discover asks. */
-  jumpTo?: DiscoverSection;
+  jumpTo?: DiscoverSection | undefined;
+  onJumped: () => void;
+  /** Sections showing all their cards; the page keeps them while a plugin is open. */
+  expanded: ReadonlySet<DiscoverSection>;
+  onExpand: (id: DiscoverSection) => void;
   onOpen: (id: string) => void;
 }): ReactNode {
   const sections = discoverSections(plugins, query);
   const shown = sections.filter((section) => section.plugins.length);
   const [current, setCurrent] = useState<DiscoverSection | undefined>(shown[0]?.id);
-  const [opened, setOpened] = useState<ReadonlySet<DiscoverSection>>(() => new Set());
   const main = useRef<HTMLDivElement>(null);
   const shownKey = shown.map((section) => section.id).join();
 
@@ -132,7 +135,9 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
   }, [shownKey]);
 
   useLayoutEffect(() => {
-    if (jumpTo) document.getElementById(anchorId(jumpTo))?.scrollIntoView({ block: "start" });
+    if (!jumpTo) return;
+    document.getElementById(anchorId(jumpTo))?.scrollIntoView({ block: "start" });
+    onJumped();
   }, [jumpTo]);
 
   if (!shown.length) return <Empty title={t("plugins.noMatch")} />;
@@ -148,7 +153,7 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
     </nav>
     <div ref={main} className="plugins-browse-main">
       {shown.map((section) => {
-        const all = Boolean(query) || opened.has(section.id) || section.plugins.length <= SECTION_LIMIT;
+        const all = Boolean(query) || expanded.has(section.id) || section.plugins.length <= SECTION_LIMIT;
         return <section key={section.id} id={anchorId(section.id)} data-section={section.id} className="plugins-section" aria-label={sectionLabel(section.id)}>
           <div className="plugins-section-head">
             <h2>{sectionLabel(section.id)}</h2>
@@ -158,7 +163,7 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
               installed={installed.has(plugin.id)} fact={marketFact(plugin)} onOpen={() => onOpen(plugin.id)} />)}
           </div>
           {all ? null : <div className="plugins-all">
-            <Button variant="ghost" size="sm" onClick={() => setOpened((current) => new Set([...current, section.id]))}>
+            <Button variant="ghost" size="sm" onClick={() => onExpand(section.id)}>
               {t("pluginCatalog.showAllInSection", { count: section.plugins.length })}
             </Button>
           </div>}
@@ -173,11 +178,13 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
  * still in sections, so the next one to compare is a click away. Installed's
  * list looks the same.
  */
-export function DiscoverList({ plugins, installed, query, selected, onOpen }: {
+export function DiscoverList({ plugins, installed, query, selected, hidden = false, onOpen }: {
   plugins: readonly MarketPlugin[];
   installed: ReadonlySet<string>;
   query: string;
   selected: string;
+  /** A narrow window shows only the plugin's page. */
+  hidden?: boolean;
   onOpen: (id: string) => void;
 }): ReactNode {
   const list = useRef<HTMLElement>(null);
@@ -186,7 +193,7 @@ export function DiscoverList({ plugins, installed, query, selected, onOpen }: {
   useLayoutEffect(() => {
     list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
-  return <aside ref={list} className="installed-plugin-inventory" aria-label={t("plugins.discoverTab")}>
+  return <aside ref={list} className="installed-plugin-inventory" aria-label={t("plugins.discoverTab")} hidden={hidden}>
     {shown.length ? shown.map((section) => <section key={section.id} className="installed-plugin-group" aria-label={sectionLabel(section.id)}>
       <div className="installed-plugin-group-head"><h2>{sectionLabel(section.id)}</h2></div>
       <ul className="installed-plugin-list">

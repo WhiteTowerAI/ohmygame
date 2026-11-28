@@ -101,8 +101,10 @@ person's own.
     (`DiscoverList`), so the next plugin to compare is a click away; Installed's
     list looks the same. The close button or Esc returns to the cards where
     they were scrolled to. Esc leaves a field, a menu or a dialog to close
-    first. A window too narrow for both gives the page the whole width, with
-    **Plugins** to go back.
+    first. A window too narrow for both hides the list, and the close button
+    goes back; the page stays the same one, so a resize keeps what's typed in
+    it. Sections opened with **All N** stay open, and a link's section is
+    jumped to once.
   - The page is the same whether the plugin is installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;
