@@ -19,6 +19,7 @@ import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
 import type { CodingSession, CodingSessionEvent, DeliverQuestionnaireAnswers, NativeRetryDetails, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { invokedSkills } from "./skills.js";
+import type { ProjectSkill } from "./project-skills.js";
 import { NATIVE_API } from "./replay.js";
 import { PROPOSED_PLAN_TOOL } from "./driver-context.js";
 
@@ -71,6 +72,8 @@ export interface NativeTurnInput {
   readOnly: boolean;
   /** The Skills the person named with `$name`; each agent loads them its own way. */
   skills?: string[];
+  /** Named Skills from the project's own folders, which the agent loaded itself. */
+  projectSkills?: ProjectSkill[];
 }
 
 /** A tool result in the shape OhMyGame's own tools return, so artifacts and images show the same way. */
@@ -198,6 +201,8 @@ export interface NativeSessionOptions {
   toolNames: readonly string[];
   setActiveTools?(names: readonly string[]): void;
   skills?: () => SkillCatalogItem[];
+  /** The project's own Skills in `skills`, which the agent loads itself. */
+  projectSkills?: readonly ProjectSkill[];
   /** The account's quota windows, whenever the CLI reports them. */
   onLimits?(limits: AgentUsageLimit[]): void;
   /** The account's quota windows as last reported by any conversation, or a check of the CLI. */
@@ -590,7 +595,11 @@ export class NativeCodingSession implements CodingSession {
       if (summary) wire = `${summary}\n\n${wire}`;
       this.#handoff = false;
     }
-    const skills = invokedSkills(this.#pendingUserMessageId ? wire : text, this.getSkills().map((skill) => skill.name));
+    const project = new Map(this.options.projectSkills?.map((skill) => [skill.name, skill]));
+    const named = invokedSkills(this.#pendingUserMessageId ? wire : text, this.getSkills().map((skill) => skill.name));
+    const skills = named.filter((name) => !project.has(name));
+    const projectSkills = named.flatMap((name) => project.get(name) ?? []);
+    const asked = { ...(skills.length ? { skills } : {}), ...(projectSkills.length ? { projectSkills } : {}) };
     // A crash or interrupted write must never leave an earlier ready marker
     // claiming that this native context still matches the branch.
     this.#storeNativeState("active");
@@ -599,7 +608,7 @@ export class NativeCodingSession implements CodingSession {
     try {
       try {
         outcome = await this.#driver.runTurn(
-          { text: wire, images: wireImages, readOnly: this.#readOnly, ...(skills.length ? { skills } : {}) },
+          { text: wire, images: wireImages, readOnly: this.#readOnly, ...asked },
           turn.sink(),
           signal,
         );
@@ -613,7 +622,7 @@ export class NativeCodingSession implements CodingSession {
             text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
             images: wireImages,
             readOnly: this.#readOnly,
-            ...(skills.length ? { skills } : {}),
+            ...asked,
           },
           turn.sink(),
           signal,

@@ -955,12 +955,12 @@ function interruptTurn(server: CodexAppServer, threadId: string, turnId: string)
     .then(() => {}, () => {});
 }
 
-/** Named Skills go as Codex's own Skill items; one that was not staged is asked for in words. */
+/** Named Skills go as Codex's own Skill items, the project's with their own files; one that was not staged is asked for in words. */
 function codexInput(input: NativeTurnInput, skillsRoot?: string): Array<Record<string, unknown>> {
-  const skills = (input.skills ?? []).map((name) => {
+  const skills: Array<{ name: string; path?: string }> = [...(input.skills ?? []).map((name) => {
     const file = skillsRoot ? path.join(skillsRoot, name, "SKILL.md") : undefined;
     return { name, ...(file && existsSync(file) ? { path: file } : {}) };
-  });
+  }), ...(input.projectSkills ?? []).map((skill) => ({ name: skill.name, path: skill.file }))];
   const unstaged = skills.filter((skill) => !skill.path).map((skill) => skill.name);
   return [
     { type: "text", text: unstaged.length ? `${skillInstruction(unstaged)}\n\n${input.text}` : input.text, text_elements: [] },

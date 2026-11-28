@@ -272,11 +272,15 @@ describe("project shell layout", () => {
       return undefined;
     });
     const profiles = () => daemon.requests.filter((request) => request.route === "/agent-runtimes/codex-cli/profiles");
+    const capabilities = () => daemon.requests.filter((request) => request.route.includes("/capabilities"));
     expect(profiles()).toHaveLength(0);
+    expect(capabilities()).toHaveLength(1);
     await typePrompt("Make a game", container);
     await click("Send prompt");
-    // Its Codex account controls load once the conversation's own model is known.
+    // Its Codex account controls load once the conversation's own model is known,
+    // and its Skills again, as each coding agent reads the project's own from its own folders.
     await vi.waitFor(() => expect(profiles()).toHaveLength(1));
+    await vi.waitFor(() => expect(capabilities()).toHaveLength(2));
   });
 
   it("does not reformat historical responses while the current response streams, and keeps branching available", async () => {

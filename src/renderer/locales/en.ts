@@ -2543,6 +2543,7 @@ const en = {
   contextMenu: {
     section: {
       Commands: "Commands",
+      Project: "This project",
       Plugins: "Plugins",
       Skills: "Skills",
     },

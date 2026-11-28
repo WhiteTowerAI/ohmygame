@@ -21,6 +21,7 @@ import {
   recoverAgentDirectories,
 } from "../src/daemon/agent-runtimes/process-recovery.js";
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
+import { loadProjectSkills } from "../src/daemon/agent-runtimes/project-skills.js";
 import {
   signalProcessTree,
   terminateProjectProcess,
@@ -427,4 +428,38 @@ it("copies regular Skill files without following links to external credentials",
     "SKILL.md",
     "guide.md",
   ]);
+});
+
+it("lists the project's own Skills from the folders each agent reads", async () => {
+  const root = await folder();
+  const skill = async (folder: string, frontmatter: string) => {
+    await mkdir(path.join(root, folder), { recursive: true });
+    await writeFile(path.join(root, folder, "SKILL.md"), `---\n${frontmatter}\n---\n\nSteps`);
+  };
+  await skill(".claude/skills/start", "name: start\ndescription: Begin here\ndisable-model-invocation: true");
+  await skill(".claude/skills/helper", "name: helper\ndescription: Only for the agent\nuser-invocable: false");
+  await skill(".claude/skills/broken", "name: [unclosed");
+  await skill(".agents/skills/shared", "name: shared\ndescription: Shared");
+  await skill(".codex/skills/codex-only", "name: codex-only\ndescription: Codex");
+  await skill(".opencode/skills/start", "name: start\ndescription: OpenCode's own start");
+  await skill(".pi/skills/pi-only", "name: pi-only\ndescription: Pi");
+  await mkdir(path.join(root, ".claude/commands"), { recursive: true });
+  await writeFile(path.join(root, ".claude/commands/review.md"), "Review the last change.\n");
+  const names = async (runtime: Parameters<typeof loadProjectSkills>[0]) =>
+    (await loadProjectSkills(runtime, root)).map(({ name, description, userOnly }) => ({ name, description, userOnly }));
+  expect(await names("claude-code-cli")).toEqual([
+    { name: "start", description: "Begin here", userOnly: true },
+    { name: "review", description: "Review the last change.", userOnly: false },
+  ]);
+  expect(await names("codex-cli")).toEqual([
+    { name: "shared", description: "Shared", userOnly: false },
+    { name: "codex-only", description: "Codex", userOnly: false },
+  ]);
+  // OpenCode's own folder comes first, so its start is the one listed.
+  expect(await names("opencode-cli")).toEqual([
+    { name: "start", description: "OpenCode's own start", userOnly: false },
+    { name: "shared", description: "Shared", userOnly: false },
+  ]);
+  expect((await loadProjectSkills("claude-code-cli", root))[0]!.file).toBe(path.join(root, ".claude/skills/start/SKILL.md"));
+  expect(await loadProjectSkills("agent.example.studio.helper", root)).toEqual([]);
 });

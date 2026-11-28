@@ -448,9 +448,21 @@ describe("Claude Code adapter", () => {
     cleanup.push(() => driver.dispose());
     for (const skills of [[name, "project-skill"], undefined])
       await driver.runTurn({ text: "work", images: [], readOnly: false, ...(skills ? { skills } : {}) }, recordingSink().sink, new AbortController().signal);
+    const start = { name: "start", description: "", file: "/game/.claude/skills/start/SKILL.md", userOnly: true };
+    const brainstorm = { name: "brainstorm", description: "", file: "/game/.claude/skills/brainstorm/SKILL.md", userOnly: true };
+    const image = { type: "image" as const, mimeType: "image/png", data: "aGVsbG8=" };
+    await driver.runTurn({ text: "Use $brainstorm, then $start a tower game", images: [image], readOnly: false, skills: [name], projectSkills: [brainstorm, start] }, recordingSink().sink, new AbortController().signal);
+    await driver.runTurn({ text: "$start", images: [], readOnly: false, projectSkills: [start] }, recordingSink().sink, new AbortController().signal);
     expect(sent).toEqual([
       [{ type: "text", text: `Load and follow these Skills before you answer: ohmygame:${name}, project-skill.\n\nwork` }],
       [{ type: "text", text: "work" }],
+      // Claude Code starts a project's Skill from a `/name` opening the last block, and only one.
+      [
+        { type: "text", text: `Load and follow these Skills before you answer: ohmygame:${name}.\nRead and follow these Skill files: /game/.claude/skills/brainstorm/SKILL.md.\n\nUse $brainstorm, then` },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+        { type: "text", text: "/start a tower game" },
+      ],
+      [{ type: "text", text: "/start" }],
     ]);
   });
 
@@ -1469,10 +1481,12 @@ describe("Codex adapter", () => {
     const driver = new CodexDriver(ctx);
     cleanup.push(() => driver.dispose());
     const name = path.basename(skill);
-    await driver.runTurn({ text: "work", images: [], readOnly: false, skills: [name, "elsewhere"] }, recordingSink().sink, new AbortController().signal);
+    const own = { name: "start", description: "", file: "/game/.agents/skills/start/SKILL.md", userOnly: false };
+    await driver.runTurn({ text: "work", images: [], readOnly: false, skills: [name, "elsewhere"], projectSkills: [own] }, recordingSink().sink, new AbortController().signal);
     expect(input).toEqual([
       { type: "text", text: "Load and follow these Skills before you answer: elsewhere.\n\nwork", text_elements: [] },
       { type: "skill", name, path: path.join(stagedSkillsRoot("codex-cli", ctx.privateDirectory), name, "SKILL.md") },
+      { type: "skill", name: "start", path: "/game/.agents/skills/start/SKILL.md" },
     ]);
   });
 
@@ -2776,6 +2790,7 @@ describe("OpenCode adapter", () => {
         images: [{ type: "image", mimeType: "image/png", data: "aGVsbG8=" }],
         readOnly: true,
         skills: ["review", "map-design"],
+        projectSkills: [{ name: "start", description: "", file: "/game/.opencode/skills/start/SKILL.md", userOnly: false }],
       },
       recorded.sink,
       new AbortController().signal,
@@ -2824,7 +2839,7 @@ describe("OpenCode adapter", () => {
       method: "POST",
       route: "/api/session/ses_1/prompt",
       body: {
-        text: "Load and follow these Skills before you answer: review, map-design.\n\ngo",
+        text: "Load and follow these Skills before you answer: review, map-design, start.\n\ngo",
         files: [{ name: "image-1", uri: "data:image/png;base64,aGVsbG8=" }],
       },
     });

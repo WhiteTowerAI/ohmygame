@@ -30,6 +30,7 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { skillInstruction, stageSkills, stagedSkillsRoot } from "./skills.js";
+import { skillMentionRanges } from "../../shared/skill-mentions.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import { canonicalPath, inside } from "./paths.js";
 import { cliProbeError, runtimeStartupError } from "./compatibility.js";
@@ -857,15 +858,31 @@ function refusedTool(tool: string, input: Record<string, unknown> | undefined, r
   return typeof target !== "string" || inside(canonicalPath(path.resolve(workspace, target)), canonicalPath(workspace)) ? PLANNING_DENIAL : undefined;
 }
 
-/** A staged Skill is asked for by its name in the session's plugin, any other Skill by its own name. */
+/**
+ * A staged Skill is asked for by its name in the session's plugin, any other
+ * Skill by its own name. Claude Code starts a project Skill itself, as the
+ * person would type it, only from a `/name` that opens the message's last
+ * block, and only one; so the last one named goes there with the text after
+ * it, and any other is asked for by its file, which works for one only the
+ * person may start too.
+ */
 function userMessage(input: NativeTurnInput, staged: ReadonlySet<string>): Record<string, unknown> {
   const skills = (input.skills ?? []).map((name) => staged.has(name) ? `${SESSION_PLUGIN}:${name}` : name);
+  const project = input.projectSkills ?? [];
+  const command = skillMentionRanges(input.text, project.map((skill) => skill.name)).at(-1);
+  const files = project.filter((skill) => skill.name !== command?.name).map((skill) => skill.file);
+  const asked = [
+    ...(skills.length ? [skillInstruction(skills)] : []),
+    ...(files.length ? [`Read and follow these Skill files: ${files.join(", ")}.`] : []),
+  ].join("\n");
+  const text = command ? input.text.slice(0, command.start).trimEnd() : input.text;
+  const leading = asked && text ? `${asked}\n\n${text}` : asked || text;
   return {
     type: "user",
     message: {
       role: "user",
       content: [
-        { type: "text", text: skills.length ? `${skillInstruction(skills)}\n\n${input.text}` : input.text },
+        ...(leading || !command ? [{ type: "text", text: leading }] : []),
         ...input.images.map((image) => ({
           type: "image",
           source: {
@@ -874,6 +891,7 @@ function userMessage(input: NativeTurnInput, staged: ReadonlySet<string>): Recor
             data: image.data,
           },
         })),
+        ...(command ? [{ type: "text", text: `/${command.name}${input.text.slice(command.end)}`.trimEnd() }] : []),
       ],
     },
     parent_tool_use_id: null,
