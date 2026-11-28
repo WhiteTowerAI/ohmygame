@@ -91,7 +91,14 @@ person's own.
     something to tell (`marketFact`): **Community** and the publisher for one
     not OhMyGame's, and what a provider makes when that's more than one kind
     (**Image · Video**).
-  - A card opens the plugin's page, the same page whether it's installed or
+  - A card opens the plugin's page without leaving Discover: the cards fold
+    into one list at the side, still in sections and marking the open one
+    (`DiscoverList`), so the next plugin to compare is a click away; Installed's
+    list looks the same. The close button or Esc returns to the cards where
+    they were scrolled to. Esc leaves a field, a menu or a dialog to close
+    first. A window too narrow for both gives the page the whole width, with
+    **Plugins** to go back.
+  - The page is the same whether the plugin is installed or
     not. One not installed is drawn from the index alone
     (`MarketPluginPage`): its name, marks, description and **Get** at the top;
     its screenshots, long description, what it adds and asks for; and at the
@@ -102,9 +109,10 @@ person's own.
     often only in English, and would need its Markdown and pictures made safe;
     the manifest's localized `longDescription` and screenshots are the page,
     and the repository link leads to the README. **Get** opens [Add plugin](#adding-a-plugin)'s review at
-    the listed version; once added, the page becomes the installed one. A
-    link to a plugin that isn't installed opens the same page. Back returns
-    to the list where it was scrolled to.
+    the listed version; once added, the page becomes the installed one, open
+    on **Settings** when the plugin needs a key or a required setting first
+    (it adds a model provider, or asks for a secret or required setting). A
+    link to a plugin that isn't installed opens the same page.
 
 A project's **Plugins** sheet, from the project menu, lists every plugin that
 suits the project in one list, each with its switch for this project and how

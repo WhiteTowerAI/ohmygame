@@ -74,12 +74,12 @@ describe("PluginsSettings", () => {
     expect(html).toContain('role="tabpanel"');
   });
 
-  it("opens plugin details from the route without rendering catalog controls", () => {
+  it("opens plugin details from the route beside Discover's list, which closes back to it", () => {
     const html = renderToStaticMarkup(<PluginsSettings pluginId="ohmygame/web-game-studio" onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
-    expect(html).toContain("</span>Plugins</button>");
+    expect(html).toContain('aria-label="Close"');
     expect(html).toContain("Loading plugin");
-    expect(html).not.toContain("Search plugins");
+    expect(html).not.toContain("</span>Plugins</button>");
   });
 
   describe("Installed", () => {

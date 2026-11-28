@@ -54,7 +54,8 @@
     "radius": 1
   },
   "src/renderer/plugins.css": {
-    "fontSize": 1
+    "fontSize": 1,
+    "zIndex": 1
   },
   "src/renderer/project-card.css": {
     "color": 4,

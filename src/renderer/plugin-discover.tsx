@@ -3,7 +3,8 @@ import type { PluginCategory } from "../shared/plugin-manifest.js";
 import type { ProviderCapability } from "../shared/contracts.js";
 import { PROVIDER_KINDS, type MarketPlugin } from "../shared/plugins.js";
 import { language, t } from "./i18n.js";
-import { isOfficialPlugin, MarketPluginCard, marketSearchText, pluginPublisherName } from "./plugin-catalog.js";
+import { isOfficialPlugin, MarketPluginCard, marketSearchText, MarketTile, pluginPublisherName } from "./plugin-catalog.js";
+import { PluginMarks } from "./plugin-marks.js";
 import { Button, Empty } from "./ui/index.js";
 
 // Discover: every plugin on the market, in sections by what someone wants to
@@ -158,6 +159,45 @@ export function DiscoverView({ plugins, installed, query, jumpTo, onOpen }: {
       })}
     </div>
   </div>;
+}
+
+/**
+ * Discover with a plugin open: the cards fold into one column beside its page,
+ * still in sections, so the next one to compare is a click away. Installed's
+ * list looks the same.
+ */
+export function DiscoverList({ plugins, installed, query, selected, onOpen }: {
+  plugins: readonly MarketPlugin[];
+  installed: ReadonlySet<string>;
+  query: string;
+  selected: string;
+  onOpen: (id: string) => void;
+}): ReactNode {
+  const list = useRef<HTMLElement>(null);
+  const shown = discoverSections(plugins, query).filter((section) => section.plugins.length);
+  // The open plugin stays in view, first where it's listed.
+  useLayoutEffect(() => {
+    list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [selected]);
+  return <aside ref={list} className="installed-plugin-inventory" aria-label={t("plugins.discoverTab")}>
+    {shown.length ? shown.map((section) => <section key={section.id} className="installed-plugin-group" aria-label={sectionLabel(section.id)}>
+      <div className="installed-plugin-group-head"><h2>{sectionLabel(section.id)}</h2></div>
+      <ul className="installed-plugin-list">
+        {section.plugins.map((plugin) => <li key={plugin.id} className="installed-plugin-row">
+          <button type="button" className="installed-plugin-open" aria-current={plugin.id === selected ? "true" : undefined} onClick={() => onOpen(plugin.id)}>
+            <MarketTile plugin={plugin} />
+            <span className="installed-plugin-label">
+              <span className="installed-plugin-title">
+                <span className="installed-plugin-identity"><span className="installed-plugin-name" title={plugin.displayName}>{plugin.displayName}</span></span>
+                <PluginMarks marks={[installed.has(plugin.id) && "installed"]} />
+              </span>
+              <span className="installed-plugin-meta"><span className="discover-row-text">{marketFact(plugin) ?? plugin.description}</span></span>
+            </span>
+          </button>
+        </li>)}
+      </ul>
+    </section>) : <Empty title={t("plugins.noMatch")} />}
+  </aside>;
 }
 
 /** Room above a section that a jump leaves, matching `scroll-margin-top` in plugins.css. */

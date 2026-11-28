@@ -32,7 +32,10 @@ let container: HTMLDivElement, root: ReturnType<typeof createRoot>;
 let store: StorePlugin[];
 let market: PluginMarketListing;
 let marketSettings: PluginMarketSettings;
+/** What the plugin the install route adds asks for, as a test sets it. */
+let freshSettings: StorePlugin["settings"];
 beforeEach(() => {
+  freshSettings = [];
   marketSettings = { index: "https://plugins.example.com/index.json", defaultIndex: "https://plugins.example.com/index.json", extra: [], download: "auto", proxy: "" };
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   market = { status: "off", plugins: [], blocked: [] };
@@ -82,7 +85,7 @@ beforeEach(() => {
       if (init.method === "POST" && route === "/plugin-sources/inspect")
         return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], tools: 0, skills: 1 }, settings: false, installedVersions: [] });
       if (init.method === "POST" && route === "/plugin-sources/install") {
-        store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, origin: { type: "github", repository: "acme/fresh", commit: "a".repeat(40) }, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }] }));
+        store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, origin: { type: "github", repository: "acme/fresh", commit: "a".repeat(40) }, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }], settings: freshSettings }));
         return Response.json({ id: "acme/fresh", version: "1.0.0" }, { status: 201 });
       }
       throw new Error(`Unexpected request: ${route}`);
@@ -298,11 +301,41 @@ describe("plugin catalog browsing", () => {
       expect(container.querySelector('.plugin-head [aria-label="Official"]')).toBeTruthy();
       expect(container.querySelector(".plugin-head")?.textContent).toContain("Beta");
       expect(container.querySelector(".plugins-grid")).toBeNull();
-      await click("Plugins");
+      await click("Close");
       expect(cards()).toEqual(["Market official", "Market popular"]);
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market popular"))!.click());
       await vi.waitFor(() => expect(container.querySelector(".plugin-side .plugin-publisher img")).toBeTruthy());
       expect(container.querySelector(".plugin-side")?.textContent).toContain("Source verified");
+    });
+
+    it("opens a plugin beside the list, goes from one to the next, and closes on Esc", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("other", { categories: ["audio"] }), listed("voices", { categories: ["audio"] })] };
+      await act(async () => root.render(<Routed tab="discover" />));
+      const open = (name: string, selector: string) => act(async () => [...container.querySelectorAll<HTMLButtonElement>(selector)].find((item) => item.textContent?.includes(name))!.click());
+      await open("Market voices", ".plugin-card-link");
+      // The cards fold into one list, still in sections, with the open one marked.
+      expect(container.querySelector('.installed-plugin-inventory section[aria-label="Sound"] [aria-current="true"]')?.textContent).toContain("Market voices");
+      expect(container.querySelector(".plugin-head h1")?.textContent).toBe("Market voices");
+      await open("Market other", ".installed-plugin-open");
+      expect(container.querySelector(".plugin-head h1")?.textContent).toBe("Market other");
+      // Esc in the search leaves the page open; elsewhere it closes it.
+      await act(async () => container.querySelector('[aria-label="Search plugins"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      expect(container.querySelector(".plugin-head")).not.toBeNull();
+      await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      expect(container.querySelector(".plugin-head")).toBeNull();
+      expect(cards()).toEqual(["Market other", "Market voices"]);
+    });
+
+    it("opens a plugin got from Discover on Settings when it needs a key", async () => {
+      freshSettings = [{ name: "apiKey", type: "secret", title: "API key" }];
+      market = { status: "ready", blocked: [], plugins: [listed("fresh", { categories: ["audio"] })] };
+      await act(async () => root.render(<Routed tab="discover" />));
+      await act(async () => container.querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
+      await click("Get");
+      await vi.waitFor(() => expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Fresh?"));
+      await act(async () => document.querySelector<HTMLFormElement>("#plugin-add-form")!.requestSubmit());
+      await vi.waitFor(() => expect(container.querySelector(".plugin-head h1")?.textContent).toContain("Fresh"));
+      expect(container.querySelector('.installed-plugin-document [role="tab"][aria-selected="true"]')?.textContent).toBe("Settings");
     });
 
     it("finds a plugin by its keywords and what it adds, and searches for a keyword from its page", async () => {
@@ -320,7 +353,7 @@ describe("plugin catalog browsing", () => {
       await search("");
       await act(async () => [...section("Images & pixel art").querySelectorAll<HTMLButtonElement>(".plugin-card-link")][0]!.click());
       expect(container.querySelector(".plugin-keywords")).toBeNull();
-      await click("Plugins");
+      await click("Close");
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market flow"))!.click());
       expect([...container.querySelectorAll(".plugin-keyword")].map((item) => item.textContent)).toEqual(["aggregator", "LLM"]);
       // A keyword on the page searches for it.

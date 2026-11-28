@@ -1,7 +1,7 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { PluginDraftRow, pluginDrafts, usePluginWorkspaces } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert } from "./icons.js";
+import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert, X } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
@@ -9,7 +9,7 @@ import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
 import { groupStorePlugins, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
 import { MarketPluginPage } from "./plugin-catalog.js";
-import { DiscoverView, type DiscoverSection } from "./plugin-discover.js";
+import { DiscoverList, DiscoverView, type DiscoverSection } from "./plugin-discover.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash, type PluginsTab } from "./routes.js";
 import { t } from "./i18n.js";
@@ -61,6 +61,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   const [lastInstalledId, setLastInstalledId] = useState<string>();
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const listScroll = useRef<number | undefined>(undefined);
+  // A plugin just got from Discover: its page opens on Settings when it needs a key or other setting first.
+  const [justAdded, setJustAdded] = useState<string>();
   useLayoutEffect(() => {
     const page = pageRef.current;
     if (!page || typeof ResizeObserver === "undefined") return;
@@ -142,6 +144,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       void refreshInstalled().finally(() => setOperation(undefined));
     } else {
       setOperation(undefined);
+      setJustAdded(id);
       void refreshInstalled().then(() => onPluginChange(id, tab === "installed" ? tab : undefined));
     }
   }
@@ -232,25 +235,26 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
   // Discover: the market in sections. A card opens the plugin's page, the same page an installed one has.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const marketPlugins = market?.plugins ?? [];
-  const discoverTab = <>
-    {/* The main index may be one the person set, so where it's set is right here. */}
-    {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
-      action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
-    {marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onOpen={openPlugin} />
-     : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
-      <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
-      <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
-      {/* With no rail to hold it, where the market is listed from is here too. */}
-      {market && market.status !== "off" ? <Button variant="ghost" icon={<SlidersHorizontal size="sm" />} disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button> : null}
-    </div>} />}
-  </>;
-
   const detail = pluginId ? groups.find(group => group.plugin.id === pluginId) : undefined;
   // A plugin that isn't installed has the same page, from what the market says about it.
   const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
   const page = pluginId;
 
   const inInstalled = tab === "installed" && (!pluginId || Boolean(detail));
+  // Opened from Discover, a plugin's page sits beside the list; a narrow window gives it the whole page.
+  const split = Boolean(page) && !inInstalled && tab === "discover" && !compact;
+  useEffect(() => {
+    if (!split) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Esc closes what's on top first, and leaves a field to clear itself.
+      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]")) return;
+      showCatalog();
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [split, tab]);
   const installedSelection = inInstalled ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? shownInstalled[0] : undefined;
   const selectedId = installedSelection?.plugin.id;
   const showInstalledDetail = Boolean(selectedId && (!compact || pluginId));
@@ -292,6 +296,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     onRemoved: (id) => { if (activeRoute.current === id) showCatalog(); } });
 
   const editor = (group: StorePluginGroup, embedded: boolean) => <StorePluginDetail key={group.plugin.id} group={group}
+    openOn={group.plugin.id === justAdded && needsSetup(group.plugin) ? "settings" : undefined}
     safeMode={safeMode} market={market} updates={updates} installDisabled={updateDisabled} everyProject={everyProject}
     onUpdate={(listed) => openAddDialog({ listed })} onUpdateSource={({ source }) => openAddDialog({ source })}
     onAddAgain={() => openAddDialog()} onChanged={reload}
@@ -311,6 +316,27 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         headerSearch()?.focus();
       }
     }} />;
+
+  const discoverTab = <>
+    {/* The main index may be one the person set, so where it's set is right here. */}
+    {market?.status === "unavailable" || market?.status === "stale" ? <Alert tone="info" title={t(market.status === "stale" ? "plugins.marketStale" : "plugins.marketUnavailable")}
+      action={<Button variant="ghost" size="sm" disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button>} /> : null}
+    {split && pluginId ? <div className="installed-plugins">
+      <DiscoverList plugins={marketPlugins} installed={installedIds} query={normalizedQuery} selected={pluginId} onOpen={openPlugin} />
+      <section className="installed-plugin-editor discover-open" aria-label={t("plugins.detailPane")}>
+        {/* Esc closes it too: back to the cards, where they were. */}
+        <IconButton className="discover-close" size="sm" label={t("common.close")} onClick={showCatalog}><X size="sm" /></IconButton>
+        <div className="installed-plugin-document">{pluginPage()}</div>
+      </section>
+    </div>
+    : marketPlugins.length ? <DiscoverView plugins={marketPlugins} installed={installedIds} query={normalizedQuery} jumpTo={jumpTo} onOpen={openPlugin} />
+     : <Empty title={t("plugins.nothingToDiscover")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+      <Button disabled={installing} icon={<Package size="sm" />} onClick={() => openAddDialog()}>{t("pluginAdd.menu")}</Button>
+      <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
+      {/* With no rail to hold it, where the market is listed from is here too. */}
+      {market && market.status !== "off" ? <Button variant="ghost" icon={<SlidersHorizontal size="sm" />} disabled={installing} onClick={() => setMarketSettings(true)}>{t("pluginMarketSettings.open")}</Button> : null}
+    </div>} />}
+  </>;
 
   const installedTab = <>
     {updatedAll ? <Alert tone={updatedAll.failed.length ? "danger" : updatedAll.review ? "info" : "success"}
@@ -370,17 +396,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       {t("pluginSafeMode.hint")}
     </Alert></div> : null}
     {phase === "ready" && pageError ? <Alert tone="danger" title={pageError} /> : null}
-    {page && !inInstalled ? <>
+    {page && !inInstalled && !split ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size="sm" />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
-      {detail
-        ? editor(detail, false)
-        : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
-          // A keyword searches the whole market, not just the section it was opened from.
-          onSearch={(keyword) => { setQuery(keyword); listScroll.current = 0; showDiscover(); }} />
-        : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
-          : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />}
+      {pluginPage()}
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         {/* One search for whichever tab is open. */}
@@ -395,9 +415,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         { value: "installed", label: t("plugins.installedTab"), attention: toUpdate.length ? t("plugins.updatesAvailable") : undefined },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={t(`plugins.${tab}Tab`)}>
-        {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
-        {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
-        {phase === "ready" && tab === "discover" ? discoverTab : null}
+        {/* An open plugin's page says itself when it's loading, and keeps what's typed in it while the service reconnects. */}
+        {split ? discoverTab : <>
+          {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
+          {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
+          {phase === "ready" && tab === "discover" ? discoverTab : null}
+        </>}
         {phase === "ready" && (inInstalled || opened.size > 0) ? <Activity mode={inInstalled ? "visible" : "hidden"}>
           <div className="installed-plugin-workspace">{installedTab}</div>
         </Activity> : null}
@@ -412,8 +435,20 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     return pageRef.current?.querySelector<HTMLInputElement>('.plugins-toolbar input[type="search"]');
   }
 
+  /** The open plugin's page, installed or not. */
+  function pluginPage(): ReactNode {
+    return detail
+      ? editor(detail, false)
+      : linked ? <MarketPluginPage key={linked.id} plugin={linked} getDisabled={installing} onGet={() => openAddDialog({ listed: linked })}
+        // A keyword searches the whole market, not just the section it was opened from.
+        onSearch={(keyword) => { setQuery(keyword); listScroll.current = 0; showDiscover(); }} />
+      : phase === "loading" || !market ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
+        : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => { readMarket(); void load(); }} />;
+  }
+
   function openPlugin(id: string): void {
-    listScroll.current = pageRef.current?.closest<HTMLElement>(".sidebar-page")?.scrollTop;
+    // Where the cards were, to come back to; going from one plugin to the next keeps it.
+    if (!pluginId) listScroll.current = pageRef.current?.closest<HTMLElement>(".sidebar-page")?.scrollTop;
     onPluginChange(id);
   }
 
@@ -428,6 +463,11 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
     if (onTabChange) onTabChange(tab);
     else onPluginChange();
   }
+}
+
+/** Whether a plugin asks for something before it works: a key, or a setting it can't do without. */
+function needsSetup(plugin: StorePlugin): boolean {
+  return plugin.adds.modelProviders.length > 0 || plugin.settings.some((field) => field.required || field.type === "secret");
 }
 
 /** How often an open page picks up what the daemon's market has read. */

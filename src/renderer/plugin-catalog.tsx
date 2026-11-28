@@ -128,7 +128,7 @@ function useMarketAvatar(id: string | undefined): string | null | undefined {
 }
 
 /** A market plugin's own icon, as an installed one's tile shows it, or its first letter. */
-function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
+export function MarketTile({ plugin, large = false }: { plugin: MarketPlugin; large?: boolean }): ReactNode {
   const [icon] = useMarketImages("icon", plugin.source, [plugin.icon]);
   const size = large ? 40 : 24;
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}>

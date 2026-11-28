@@ -315,8 +315,10 @@ export function useInstalledPluginMenu({ market, updates, everyProject, busy = f
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, everyProject, safeMode = false, installDisabled = false }: {
+export function StorePluginDetail({ group, openOn, market, updates, onUpdate, onUpdateSource, onAddAgain, onChanged, onRemoved, onTry, onSearch, everyProject, safeMode = false, installDisabled = false }: {
   group: StorePluginGroup;
+  /** Opens on Settings, as for a plugin just added that needs a key. */
+  openOn?: "settings" | undefined;
   safeMode?: boolean;
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
@@ -345,7 +347,7 @@ export function StorePluginDetail({ group, market, updates, onUpdate, onUpdateSo
   const [exporting, setExporting] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const [selectedTab, setTab] = useState<StoreDetailTab>("about");
+  const [selectedTab, setTab] = useState<StoreDetailTab>(openOn ?? "about");
   const enabled = storePluginEnabled(plugin);
   const update = marketUpdate(plugin, market);
   const fromSource = sourceUpdate(plugin, market, updates);

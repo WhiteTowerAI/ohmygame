@@ -704,6 +704,29 @@
   max-height: calc(var(--installed-pane-height) - 36px);
 }
 
+/* Discover with a plugin open: its page beside the list, closed from the corner */
+.discover-open {
+  position: relative;
+}
+
+.discover-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+}
+
+/* the page's own buttons keep clear of the close button */
+.discover-open .plugin-head {
+  padding-right: calc(var(--space-6) + var(--space-2));
+}
+
+.discover-row-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .installed-plugin-editor > .ui-button {
   margin-bottom: var(--space-3);
 }
