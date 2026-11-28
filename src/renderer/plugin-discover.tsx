@@ -31,6 +31,12 @@ const SECTIONS = [
   { id: "connect", categories: ["integration"], kinds: [], words: ["连接", "集成", "消息", "机器人", "integration", "connect", "bot", "message"] },
 ] as const satisfies readonly { id: Exclude<PluginsSection, "featured" | "other">; categories: readonly PluginCategory[]; kinds: readonly ProviderCapability[]; words: readonly string[] }[];
 
+/**
+ * Featured waits until the market's picks are made: off, the index's `featured`
+ * neither adds the section nor moves a plugin up. Turning it on brings both back.
+ */
+const SHOW_FEATURED = false;
+
 /** Past this many, a section shows this many until All N opens the rest. */
 const SECTION_LIMIT = 12;
 
@@ -44,14 +50,14 @@ const namesSection = (query: string, section: (typeof SECTIONS)[number]) =>
 
 /** Featured first, in the market's order, then by name. */
 function ordered(plugins: readonly MarketPlugin[]): MarketPlugin[] {
-  const featured = plugins.filter((plugin) => plugin.featured);
-  return [...featured, ...plugins.filter((plugin) => !plugin.featured).sort((a, b) => a.displayName.localeCompare(b.displayName, language))];
+  const featured = SHOW_FEATURED ? plugins.filter((plugin) => plugin.featured) : [];
+  return [...featured, ...plugins.filter((plugin) => !featured.includes(plugin)).sort((a, b) => a.displayName.localeCompare(b.displayName, language))];
 }
 
 /**
  * The market in sections, each with what's in it, empty ones included so the
- * side list can show them greyed while searching. Featured comes first when
- * nothing is searched; Other holds what's in no section.
+ * side list can show them greyed while searching. Featured, once shown, comes
+ * first when nothing is searched; Other holds what's in no section.
  */
 export function discoverSections(plugins: readonly MarketPlugin[], query: string): { id: DiscoverSection; plugins: MarketPlugin[] }[] {
   const matches = (plugin: MarketPlugin, named: boolean) => !query || named || marketSearchText(plugin).includes(query);
@@ -61,7 +67,7 @@ export function discoverSections(plugins: readonly MarketPlugin[], query: string
   });
   const other = plugins.filter((plugin) => !SECTIONS.some((section) => inSection(plugin, section)) && matches(plugin, false));
   return [
-    ...(query ? [] : [{ id: "featured" as const, plugins: plugins.filter((plugin) => plugin.featured) }]),
+    ...(query || !SHOW_FEATURED ? [] : [{ id: "featured" as const, plugins: plugins.filter((plugin) => plugin.featured) }]),
     ...sections,
     { id: "other", plugins: ordered(other) },
   ];

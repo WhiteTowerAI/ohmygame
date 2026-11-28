@@ -258,9 +258,11 @@ describe("plugin catalog browsing", () => {
       const opened: Array<string | undefined> = [];
       await act(async () => root.render(<PluginsSettings onPluginChange={(id) => opened.push(id)} onTryPlugin={async () => {}} />));
       expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Discover");
-      // Featured first, then each section; a plugin no section takes is in Other, featured ones first, then by name.
-      expect(cards(section("Featured"))).toEqual(["Market picked"]);
-      expect(cards(section("Other"))).toEqual(["Market picked", "Market avatar", "Market official", "Market owned", "Market popular"]);
+      // Featured waits for the market's picks: the index marking one neither shows the section nor moves it up.
+      expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
+      expect([...container.querySelectorAll(".plugins-rail-item")].map((item) => item.textContent)).not.toContain("Featured");
+      // A plugin no section takes is in Other, by name.
+      expect(cards(section("Other"))).toEqual(["Market avatar", "Market official", "Market owned", "Market picked", "Market popular"]);
       const card = (name: string) => [...section("Other").querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
       // A card is one button: it is added from its page.
       expect(card("Market popular").querySelectorAll("button")).toHaveLength(1);
@@ -284,10 +286,8 @@ describe("plugin catalog browsing", () => {
       await act(async () => card("Market owned").querySelector<HTMLButtonElement>(".plugin-card-link")!.click());
       expect(opened).toEqual(["acme/popular", "acme/owned"]);
       expect(dialog()).toBeNull();
-      // A search keeps the sections but not Featured.
       await search("popular");
       expect(cards()).toEqual(["Market popular"]);
-      expect(container.querySelector('section[aria-label="Featured"]')).toBeNull();
     });
 
     it("gives a plugin that isn't installed the installed one's page, with its marks, and comes back to the list", async () => {

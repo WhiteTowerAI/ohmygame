@@ -78,15 +78,15 @@ person's own.
   [categories](#more-manifest-fields) or makes one of its provider kinds, so a
   provider that makes images and sound is in both; the kinds come from the
   manifest, so a plugin can't claim one it doesn't implement. What no section
-  takes is under **Other**. **Featured** (picked by the index, in its order)
-  comes first and is left out when the index picks none. Within a section,
-  featured plugins come first, then by name. A section shows twelve cards until
+  takes is under **Other**. Within a section plugins go by name. **Featured**
+  (the index's picks, first in the list and first in each section) is
+  reserved but not shown until the market's picks are made: `SHOW_FEATURED`
+  in `plugin-discover.tsx` turns it on. A section shows twelve cards until
   **All N** opens the rest. There is no sort or filter: forty-odd plugins fit
   in sections, and a search does the rest.
   - A side list jumps to each section, with how many plugins it has, and
     follows the scroll. On a narrow window it becomes a row above the cards.
-  - A search keeps the sections, without **Featured**, and shows all each one
-    finds. Empty sections stay in the side list, greyed. Search also
+  - A search keeps the sections and shows all each one finds. Empty sections stay in the side list, greyed. Search also
     reads each section's words in both languages, so "配音" or "voice" finds
     every plugin under **Sound** even when it says "speech".
   - A card is one button. It shows the plugin's icon, or its first letter,
