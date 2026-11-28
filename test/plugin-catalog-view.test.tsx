@@ -205,14 +205,13 @@ describe("plugin catalog browsing", () => {
 
   it("adds plugins from a menu that closes on Escape", async () => {
     await renderCatalog();
-    const add = container.querySelector<HTMLButtonElement>('.plugins-toolbar button[aria-label="More actions"]')!;
+    const add = [...container.querySelectorAll<HTMLButtonElement>(".plugins-toolbar button")].find((button) => button.textContent === "Add")!;
     await act(async () => add.click());
     expect(add.getAttribute("aria-expanded")).toBe("true");
     const items = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
-    // Making one with AI is the header's own button.
-    expect(items.map((item) => item.textContent)).toEqual(["Add plugin", "Add MCP service"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Create with AI", "From GitHub or this computer", "Add MCP service"]);
     // The market is a tab, so the menu doesn't offer it again.
     expect(items.map((item) => item.textContent)).not.toContain("Browse plugins");
     expect(document.activeElement).toBe(items[0]);
@@ -227,7 +226,7 @@ describe("plugin catalog browsing", () => {
     await act(async () => add.click());
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((item) => item.textContent?.startsWith("Add plugin"))!
+        .find((item) => item.textContent === "From GitHub or this computer")!
         .click(),
     );
     expect(document.querySelector('[role="menu"]')).toBeNull();
@@ -501,7 +500,7 @@ describe("plugin catalog browsing", () => {
     it("sets where plugins download from in Plugin sources, asking for an address only for a proxy", async () => {
       market = { status: "ready", blocked: [], plugins: [listed("picked")] };
       await renderCatalog(undefined, "discover");
-      await click("More actions");
+      await click("Add");
       await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === "Plugin sources")!.click());
       const dialog = () => document.querySelector<HTMLElement>(".ui-dialog")!;
       const trigger = () => dialog().querySelector<HTMLButtonElement>('[aria-label="Download from"]')!;
@@ -579,10 +578,10 @@ describe("plugin catalog browsing", () => {
     await renderCatalog();
     await search("fresh-skill");
     expect(cards()).toEqual([]);
-    await click("More actions");
+    await click("Add");
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((item) => item.textContent?.startsWith("Add plugin"))!
+        .find((item) => item.textContent === "From GitHub or this computer")!
         .click(),
     );
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('.ui-dialog [role="tab"]')].find((item) => item.textContent === "GitHub")!.click());

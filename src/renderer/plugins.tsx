@@ -1,7 +1,8 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { PluginDraftRow, pluginDrafts, usePluginWorkspaces } from "./plugin-builder.js";
+import { PluginDraftPage, PluginDraftRow, pluginDrafts, usePluginWorkspaces } from "./plugin-builder.js";
+import { draftPlugin, draftSetupId } from "../shared/plugin-setup.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { ChevronLeft, MoreHorizontal, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert, X } from "./icons.js";
+import { ChevronLeft, CirclePlus, Package, RefreshCw, Server, SlidersHorizontal, Sparkles, Spinner as SpinnerIcon, TriangleAlert, X } from "./icons.js";
 import { Activity, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
@@ -151,6 +152,11 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
     }
   }
 
+  function draftDeleted(id: string): void {
+    workspaces.removed(id);
+    if (activeRoute.current === draftPlugin(id)) showCatalog();
+  }
+
   function createWithAi(): void {
     void openPluginBuilder().catch(cause => setError(errorMessage(cause)));
   }
@@ -158,8 +164,9 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   const normalizedQuery = query.trim().toLowerCase();
   const groups = groupStorePlugins(store).sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
   const matching = groups.filter(({ plugin }) => !normalizedQuery || storePluginSearchText(plugin).includes(normalizedQuery));
-  // What the header's ⋯ holds: ways to add that most people never need.
-  const moreItems: MenuEntry[] = [
+  // Every way to add that isn't Discover, and where Discover's plugins come from.
+  const addItems: MenuEntry[] = [
+    { label: t("plugins.createWithAi"), icon: <Sparkles size="sm" />, onSelect: createWithAi },
     { label: t("pluginAdd.menu"), icon: <Package size="sm" />, disabled: installing, onSelect: () => openAddDialog() },
     { label: t("plugins.addMcp"), icon: <Server size="sm" />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     ...(market && market.status !== "off" ? ["separator" as const, { label: t("pluginMarketSettings.open"), icon: <SlidersHorizontal size="sm" />, disabled: installing, onSelect: () => setMarketSettings(true) }] : []),
@@ -242,7 +249,9 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
   const linked = pluginId && !detail ? marketPlugins.find(plugin => plugin.id === pluginId) : undefined;
   const page = pluginId;
 
-  const inInstalled = tab === "installed" && (!pluginId || Boolean(detail));
+  // A draft that isn't installed has its own page in Installed, under the plugin id it runs as.
+  const draftId = pluginId && !detail ? draftSetupId(pluginId) : undefined;
+  const inInstalled = tab === "installed" && (!pluginId || Boolean(detail) || Boolean(draftId));
   // Opened from Discover, a plugin's page sits beside the list.
   // A narrow window hides the list rather than leaving it, so the page keeps what's typed in it across a resize.
   const split = Boolean(page) && !inInstalled && tab === "discover";
@@ -258,9 +267,10 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [split, tab]);
-  const installedSelection = inInstalled ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? shownInstalled[0] : undefined;
+  const installedSelection = inInstalled && !draftId ? detail ?? groups.find(({ plugin }) => plugin.id === lastInstalledId) ?? shownInstalled[0] : undefined;
   const selectedId = installedSelection?.plugin.id;
-  const showInstalledDetail = Boolean(selectedId && (!compact || pluginId));
+  const selectedDraft = inInstalled && draftId ? workspaces.sessions?.find(session => session.id === draftId) : undefined;
+  const showInstalledDetail = Boolean((selectedId || selectedDraft) && (!compact || pluginId));
   useEffect(() => {
     if (!inInstalled || !pluginId) return;
     setLastInstalledId(pluginId);
@@ -374,7 +384,10 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
                 onPluginChange(plugin.plugin.id, "installed");
               }} />)}
             {group.id === "mine" ? drafts.map((session) => <PluginDraftRow key={session.id} session={session}
-              onDeleted={() => workspaces.removed(session.id)} onError={(cause) => setError(errorMessage(cause))} />) : null}
+              selected={session.id === selectedDraft?.id} onOpen={() => {
+                if (compact) pendingFocus.current = "detail";
+                onPluginChange(draftPlugin(session.id), "installed");
+              }} onDeleted={() => draftDeleted(session.id)} onError={(cause) => setError(errorMessage(cause))} />) : null}
           </ul>
         </section>)
           : <Empty title={groups.length || workspaces.sessions?.length ? t("plugins.noMatch") : t("plugins.noneInstalled")} action={!groups.length
@@ -389,6 +402,8 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
           key={group.plugin.id} mode={showInstalledDetail && group.plugin.id === selectedId ? "visible" : "hidden"}>
           <div className="installed-plugin-document">{editor(group, true)}</div>
         </Activity>)}
+        {selectedDraft && showInstalledDetail ? <div className="installed-plugin-document"><PluginDraftPage key={selectedDraft.id} session={selectedDraft}
+          onDeleted={() => draftDeleted(selectedDraft.id)} onError={(cause) => setError(errorMessage(cause))} /></div> : null}
       </section>
     </div>
   </>;
@@ -409,9 +424,8 @@ export function PluginsSettings({ pluginId, section, tab: routeTab, onPluginChan
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         {/* One search for whichever tab is open. */}
         <SearchInput value={query} onChange={setQuery} placeholder={t(tab === "installed" ? "plugins.searchInstalled" : "plugins.search")} label={t("plugins.searchLabel")} />
-        <Button icon={<Sparkles size="sm" />} onClick={createWithAi}>{t("plugins.newPlugin")}</Button>
-        <DropdownMenu placement="bottom-end" items={moreItems} trigger={(props) => (
-          <IconButton {...props} label={t("plugins.moreActions")}><MoreHorizontal size="md" /></IconButton>
+        <DropdownMenu placement="bottom-end" items={addItems} trigger={(props) => (
+          <Button {...props} variant="primary" icon={<CirclePlus size="sm" />}>{t("plugins.add")}</Button>
         )} />
       </div>} />
       <Tabs<PluginsTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[

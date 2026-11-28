@@ -26,6 +26,7 @@ const made: StorePlugin = { ...official, id: "personal/notes", displayName: "My 
 const developed: StorePlugin = { ...official, id: "acme/level-tools", displayName: "Level Tools", bundled: false,
   origin: { type: "development", folder: "/work/level-tools" } };
 const imported: StorePlugin = { ...official, id: "acme/imported", displayName: "Imported Pack", bundled: false };
+const DRAFT = "00000000-0000-4000-8000-0000000d4af7";
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 let saved: unknown;
@@ -61,10 +62,16 @@ beforeEach(() => {
             createdAt: 0,
             updatedAt: 2,
           },
-          { id: "draft", mode: "create", title: "Tile painter", status: "ready", createdAt: 0, updatedAt: 1 },
+          { id: DRAFT, mode: "create", title: "Tile painter", status: "ready", createdAt: 0, updatedAt: 1 },
         ]);
+      if (route === `/plugins/setup-sessions/${DRAFT}/draft`) return Response.json({
+        files: [], errors: [],
+        plugin: { id: "_draft/x", version: "0.1.0", displayName: "Tile painter", description: "Paints tiles.", examples: [], appWide: false, asks: [],
+          skills: [{ id: "paint", name: "Paint tiles", description: "" }], mcpServers: [], settings: false,
+          adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], modelProviders: [], agents: [], skills: 1, tools: 0 } },
+      });
       if (
-        route === "/plugins/setup-sessions/draft" &&
+        route === `/plugins/setup-sessions/${DRAFT}` &&
         init.method === "DELETE"
       ) {
         removed.push(route);
@@ -128,11 +135,11 @@ describe("Plugin library", () => {
     expect(saved).toEqual({ on: false });
     expect(toggle().getAttribute("aria-checked")).toBe("false");
     expect(window.location.hash).toBe("#/plugins");
-    // Making one starts from the header, on either tab.
-    expect([...container.querySelectorAll(".plugins-toolbar button")].map(button => button.textContent)).toContain("New plugin");
+    // Making one starts from the header's Add menu, on either tab.
+    expect([...container.querySelectorAll(".plugins-toolbar button")].map(button => button.textContent)).toContain("Add");
   });
 
-  it("lists what the person makes first, a draft opening its workspace", async () => {
+  it("lists what the person makes first, a draft opening its page beside the list", async () => {
     const opened: string[] = [];
     await act(async () => root.render(<PluginsSettings tab="installed" onPluginChange={id => opened.push(id!)} onTryPlugin={async () => {}} />));
     // Their own and one developed from a folder, then a draft not installed yet; not a package added from a folder.
@@ -142,11 +149,18 @@ describe("Plugin library", () => {
     ]);
     expect(row("Tile painter").textContent).toContain("Draft, not installed");
     expect(row("My Notes").textContent).not.toContain("@personal");
-    // An installed one opens its page; the draft opens where it's made.
+    // An installed one and the draft both open their page beside the list.
     await act(async () => row("My Notes").querySelector<HTMLButtonElement>(".installed-plugin-open")!.click());
-    expect(opened).toEqual([made.id]);
     await act(async () => row("Tile painter").querySelector<HTMLButtonElement>(".installed-plugin-open")!.click());
-    expect(window.location.hash).toBe("#/plugins/builder/draft");
+    expect(opened).toEqual([made.id, `_draft/${DRAFT}`]);
+    await act(async () => root.render(<PluginsSettings tab="installed" pluginId={`_draft/${DRAFT}`} onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    await vi.waitFor(() => expect(container.querySelector(".installed-plugin-editor")!.textContent).toContain("Paint tiles"));
+    expect(row("Tile painter").querySelector("[aria-current]")).not.toBeNull();
+    // Pages opened before stay mounted but hidden; the draft's comes last.
+    expect([...container.querySelectorAll(".installed-plugin-editor h1")].at(-1)?.textContent).toBe("Tile painter");
+    // Its next step is back into the Builder.
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".installed-plugin-editor button")].find(button => button.textContent === "Keep making")!.click());
+    expect(window.location.hash).toBe(`#/plugins/builder/${DRAFT}`);
   });
 
   it("finds drafts by name, and lists the plugins when workspaces can't be read", async () => {
@@ -186,7 +200,7 @@ describe("Plugin library", () => {
     await act(async () =>
       [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Delete")!.click(),
     );
-    expect(removed).toEqual(["/plugins/setup-sessions/draft"]);
+    expect(removed).toEqual([`/plugins/setup-sessions/${DRAFT}`]);
     await vi.waitFor(() => expect(groups()[0]).toEqual(["Made by you", ["Level Tools", "My Notes"]]));
   });
 });

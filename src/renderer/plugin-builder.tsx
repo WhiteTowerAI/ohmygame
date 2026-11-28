@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { NEW_PLUGIN_TITLE, type PluginSetupSummary } from "../shared/plugin-setup.js";
+import { NEW_PLUGIN_TITLE, type PluginDraft, type PluginSetupSummary } from "../shared/plugin-setup.js";
 import { allowPluginDraftRun, deletePluginSetup, installPluginDraft, readPluginLog, listPluginSetups, listStorePlugins, readPluginDraft, readPluginSetup, testPluginDraft,
   uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { AppRail, RailConversationsItem, type RailConversations } from "./app-sidebar.js";
@@ -15,12 +15,13 @@ import { pluginBuilderHash, pluginHash, pluginsTabHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { openPluginBuilder, takePendingBuilderPrompt } from "./plugin-builder-navigation.js";
 import { PluginLogDialog } from "./plugin-log.js";
+import { PluginAddsList, pluginAddRows, PluginHead, type PluginAddRow } from "./plugin-summary.js";
 import { PluginPublishDialog } from "./plugin-publish.js";
 import { NativeCodeWarning, PluginCapabilityList } from "./plugin-consent-dialog.js";
 import type { TryPlugin } from "./plugin-try.js";
 import { Bell, Check, CirclePlus, ExternalLink, FileText, FolderPlus, Palette, LayoutGrid, Spinner, Package,
-  Pencil, Plug, RefreshCw, Share2, Sparkles, Toolbox, Trash2, Upload } from "./icons.js";
-import { Alert, Button, Dialog, Empty, IconButton, Tooltip, useContextMenu, type MenuEntry } from "./ui/index.js";
+  MoreHorizontal, Pencil, Plug, RefreshCw, Share2, Sparkles, Toolbox, Trash2, Upload, WandSparkles } from "./icons.js";
+import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton, Tooltip, useContextMenu, type MenuEntry } from "./ui/index.js";
 import "./plugin-builder.css";
 import { language, t } from "./i18n.js";
 
@@ -57,39 +58,89 @@ export function pluginDrafts(sessions: readonly PluginSetupSummary[], installed:
   });
 }
 
-/** A draft in Installed's list: it opens its workspace, and its menu deletes it. */
-export function PluginDraftRow({ session, onDeleted, onError }: {
+/** A draft in Installed's list: it opens its page beside the list, and its menu deletes it. */
+export function PluginDraftRow({ session, selected, onOpen, onDeleted, onError }: {
+  session: PluginSetupSummary;
+  selected: boolean;
+  onOpen: () => void;
+  onDeleted: () => void;
+  onError: (cause: unknown) => void;
+}) {
+  const name = workspaceTitle(session.title);
+  const removal = useDraftRemoval(session, name, onDeleted, onError);
+  const context = useContextMenu([removal.entry]);
+  return <><li className="installed-plugin-row" onContextMenu={context.onContextMenu}>
+    <button className="installed-plugin-open" type="button" aria-current={selected ? "true" : undefined} onClick={onOpen}>
+      <span className="plugin-tile">{session.status === "working" ? <Spinner size="md" /> : <PluginGlyph plugin={session} size={24} setupId={session.id} name={name} />}</span>
+      <span className="installed-plugin-label">
+        <span className="installed-plugin-title"><span className="installed-plugin-name" title={name}>{name}</span></span>
+        <span className="installed-plugin-meta">{draftState(session)}</span>
+      </span>
+    </button>
+  </li>{context.menu}{removal.dialog}</>;
+}
+
+/** A draft's page beside Installed's list: what it adds so far, and the way back into making it. */
+export function PluginDraftPage({ session, onDeleted, onError }: {
   session: PluginSetupSummary;
   onDeleted: () => void;
   onError: (cause: unknown) => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const working = session.status === "working";
+  const generation = useReadyRuntimeGeneration();
+  const [draft, setDraft] = useState<PluginDraft>();
   const name = workspaceTitle(session.title);
+  const removal = useDraftRemoval(session, name, onDeleted, onError);
+  useEffect(() => {
+    let active = true;
+    // Without a readable draft the page still has its name and state, and the Builder says what's wrong.
+    void readPluginDraft(session.id).then(next => { if (active) setDraft(next); }, () => { if (active) setDraft(undefined); });
+    return () => { active = false; };
+  }, [session.id, session.updatedAt, generation]);
+  const plugin = draft?.plugin;
+  const rows: PluginAddRow[] = plugin ? [
+    ...plugin.skills.map(skill => ({ id: `skill:${skill.id}`, kind: t("plugins.skills"), title: skill.name })),
+    ...pluginAddRows({ ...plugin.adds, skills: 0 }),
+  ] : [];
+  return <div className="plugin-page">
+    <PluginHead title={plugin?.displayName ?? name} description={plugin?.description || draftState(session)}
+      tile={<span className="plugin-tile plugin-tile-large">{session.status === "working" ? <Spinner size="md" /> : <PluginGlyph plugin={session} size={40} setupId={session.id} name={name} />}</span>}>
+      <div className="plugin-head-actions">
+        <Button variant="primary" icon={<WandSparkles size="sm" />} onClick={() => { window.location.hash = pluginBuilderHash(session.id); }}>{t("pluginBuilder.keepMaking")}</Button>
+        <DropdownMenu placement="bottom-end" items={[removal.entry]} trigger={(props) =>
+          <IconButton {...props} label={t("plugins.moreActionsFor", { name })}><MoreHorizontal size="md" /></IconButton>} />
+      </div>
+    </PluginHead>
+    {plugin?.description ? <p className="plugin-long">{draftState(session)}</p> : null}
+    {rows.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
+      <h2>{t("pluginStore.adds")}</h2>
+      <PluginAddsList rows={rows} />
+    </section> : null}
+    {removal.dialog}
+  </div>;
+}
+
+/** Where a draft is and when it last changed. */
+function draftState(session: PluginSetupSummary): string {
   const edited = new Date(session.updatedAt).toLocaleDateString(language, { month: "short", day: "numeric" });
-  const context = useContextMenu([{ label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size="sm" />, danger: true, disabled: working, onSelect: () => setConfirming(true) }]);
+  const state = t(session.status === "working" ? "pluginMine.status.working" : session.status === "idle" ? "pluginMine.status.idle" : "pluginMine.status.draft");
+  return `${state} · ${t("pluginMine.edited", { date: edited })}`;
+}
+
+/** Deleting a draft's workspace, after asking; not while the agent is working in it. */
+function useDraftRemoval(session: PluginSetupSummary, name: string, onDeleted: () => void, onError: (cause: unknown) => void) {
+  const [confirming, setConfirming] = useState(false);
   const remove = () => {
     setConfirming(false);
     void deletePluginSetup(session.id).then(onDeleted, onError);
   };
-  return <><li className="installed-plugin-row" onContextMenu={context.onContextMenu}>
-    <button className="installed-plugin-open" type="button" onClick={() => { window.location.hash = pluginBuilderHash(session.id); }}>
-      <span className="plugin-tile">{working ? <Spinner size="md" /> : <PluginGlyph plugin={session} size={24} setupId={session.id} name={name} />}</span>
-      <span className="installed-plugin-label">
-        <span className="installed-plugin-title"><span className="installed-plugin-name" title={name}>{name}</span></span>
-        <span className="installed-plugin-meta">
-          {t(working ? "pluginMine.status.working" : session.status === "idle" ? "pluginMine.status.idle" : "pluginMine.status.draft")}
-          {" · "}{t("pluginMine.edited", { date: edited })}
-        </span>
-      </span>
-    </button>
-  </li>{context.menu}
-  <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
+  const entry: MenuEntry = { label: t("pluginBuilder.deleteWorkspace"), icon: <Trash2 size="sm" />, danger: true, disabled: session.status === "working", onSelect: () => setConfirming(true) };
+  const dialog = <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
     title={t("pluginBuilder.deleteTitle", { title: name })} description={t("pluginBuilder.deleteDescription")}
     footer={<>
       <Button onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
       <Button variant="primary" onClick={remove}>{t("common.delete")}</Button>
-    </>} /></>;
+    </>} />;
+  return { entry, dialog };
 }
 
 /** A new workspace is unnamed, and the daemon's name for that is English. */

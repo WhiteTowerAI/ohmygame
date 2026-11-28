@@ -22,9 +22,9 @@ Providers settings (the section for the kind picked there); the address then
 drops it, so going back to the page doesn't jump again. An old
 `adds=projectType` link opens **Engines & platforms**. Tabs show no counts;
 **Installed** has a dot when an installed plugin has an update. The header has
-one search for whichever tab is open, **New plugin**, which opens the
-[Plugin Builder](#making-a-plugin), and a ⋯ menu with **Add plugin**, **Add
-MCP service** and **Plugin sources**. `src/renderer/plugin-discover.tsx` is
+one search for whichever tab is open and an **Add** menu: **Create with AI**,
+which opens the [Plugin Builder](#making-a-plugin), **From GitHub or this
+computer**, **Add MCP service** and, below a line, **Plugin sources**. `src/renderer/plugin-discover.tsx` is
 Discover's overview; `src/renderer/plugin-catalog.tsx` holds what Discover and
 Installed share: cards, search text, the market's plugin page and the add
 dialog.
@@ -57,7 +57,9 @@ person's own.
   (`personal/<name>`, made with AI) and those developed from a folder, then the
   Plugin Builder's drafts not installed yet: each plugin's newest workspace
   whose plugin isn't installed (`GET /plugins/setup-sessions`). A draft opens its
-  workspace, and its right-click menu deletes it after asking. A package added
+  page beside the list like any other row, at `#/plugins/_draft/<workspace id>`,
+  the id it runs as: what it adds so far, **Keep making**, which opens its
+  workspace, and ⋯ or right-click to delete it after asking. A package added
   from a folder or file is someone's release, so it's under **Others**. Each row
   shows the installed version and publisher underneath, and **Every project**
   for one on in every project.
