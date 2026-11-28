@@ -136,7 +136,7 @@ import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectSettings, type ProjectSettingsSlot, type ProjectSettingsTab } from "./project-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
-import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
+import { AssetsPanel, CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { useViewedProjectResult } from "./project-attention.js";
 import { FloatingChat } from "./floating-chat.js";
@@ -2071,6 +2071,9 @@ export function ProjectShell({
           <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
         </ErrorBoundary>
       </main>, nodes.code.body) : null}
+      {project && canvasOnly ? createPortal(<ErrorBoundary label={panelTitle("assets")} resetKey={project.id}>
+        <AssetsPanel key={project.id} projectId={project.id} shown={visible.includes("assets")} revision={workspaceRevision} onShowInCode={openWorkspaceFile} />
+      </ErrorBoundary>, nodes.assets.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
     </PluginSlotsContext.Provider>
