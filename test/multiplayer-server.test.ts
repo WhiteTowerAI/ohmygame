@@ -1584,20 +1584,21 @@ export default defineRealtimeGame({
     }
   });
 
-  it("answers a command sent twice with one result while the hosting player applies it, and plays on after a command fails", async () => {
+  /** Two players in a started hosted turn-based room: the owner hosts and moves first. */
+  async function hostedTurns(deploymentId: string) {
     const rules = defineGame({
       players: { min: 2, max: 2 },
       setup: () => ({ turns: 0 }),
       moves: { pass(G) { G.turns++; } },
     });
-    const manifest = await hostedService({ deploymentId: "turns-resent" });
+    const manifest = await hostedService({ deploymentId });
     const results: TurnCommandResult[] = [];
-    const owner = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
+    const player = () => new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
       onCommandResult: (result) => results.push(result),
     });
-    const guest = new MultiplayerClient({ manifest, rules, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }, {
-      onCommandResult: (result) => results.push(result),
-    });
+    const owner = player();
+    const guest = player();
+    const dispose = () => { owner.dispose(); guest.dispose(); };
     try {
       await owner.createRoom();
       await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
@@ -1606,7 +1607,16 @@ export default defineRealtimeGame({
       owner.sendCommand("start");
       await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
       await wait(() => expect(owner.snapshot?.state.currentPlayerId).toBe(owner.playerId));
+    } catch (cause) {
+      dispose();
+      throw cause;
+    }
+    return { owner, guest, results, dispose };
+  }
 
+  it("answers a command sent twice with one result while the hosting player applies it", async () => {
+    const { owner, guest, results, dispose } = await hostedTurns("turns-resent");
+    try {
       // A page resends a command it has no answer for when it reconnects, so the room can
       // hold two copies of one command before the hosting player has applied the first.
       const resent: TurnCommand = { commandId: randomUUID(), expectedSequence: owner.snapshot!.sequence, type: "action", payload: { action: "pass" } };
@@ -1617,7 +1627,7 @@ export default defineRealtimeGame({
       const [first, second] = results.filter((result) => result.commandId === resent.commandId);
       expect(first).toMatchObject({ accepted: true, sequence: resent.expectedSequence + 1 });
       expect(second).toEqual(first);
-      expect(guest.snapshot!.state.game).toMatchObject({ turns: 1 });
+      await wait(() => expect(guest.snapshot?.state.game).toMatchObject({ turns: 1 }));
 
       guest.moves.pass();
       await wait(() => expect(owner.snapshot?.state.game).toMatchObject({ turns: 2 }));
@@ -1632,25 +1642,28 @@ export default defineRealtimeGame({
       const [refusal, again] = results.filter((result) => result.commandId === refused.commandId);
       expect(refusal).toMatchObject({ accepted: false, error: { code: "not_your_turn" } });
       expect(again).toEqual(refusal);
-
-      // A command the room cannot save, nor save a refusal for, fails alone: the next one is applied.
-      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-      const save = vi.spyOn(RoomStore.prototype, "save");
-      const unsaved = () => { throw new Error("The disk is full."); };
-      save.mockImplementationOnce(unsaved).mockImplementationOnce(unsaved);
-      try {
-        owner.moves.pass();
-        await wait(() => expect(errors.mock.calls.map(([message]) => message)).toEqual(["A request to the hosting player failed"]));
-        expect(guest.snapshot!.state.game).toMatchObject({ turns: 2 });
-        owner.moves.pass();
-        await wait(() => expect(guest.snapshot?.state.game).toMatchObject({ turns: 3 }));
-      } finally {
-        save.mockRestore();
-        errors.mockRestore();
-      }
     } finally {
-      owner.dispose();
-      guest.dispose();
+      dispose();
+    }
+  });
+
+  it("plays on in a hosted room after a command it cannot save", async () => {
+    const { owner, guest, dispose } = await hostedTurns("turns-unsaved");
+    // Neither the command nor its refusal can be saved; the next command is still applied.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.spyOn(RoomStore.prototype, "save");
+    const unsaved = () => { throw new Error("The disk is full."); };
+    save.mockImplementationOnce(unsaved).mockImplementationOnce(unsaved);
+    try {
+      owner.moves.pass();
+      await wait(() => expect(errors.mock.calls.map(([message]) => message)).toEqual(["A request to the hosting player failed"]));
+      expect(guest.snapshot!.state.game).toMatchObject({ turns: 0 });
+      owner.moves.pass();
+      await wait(() => expect(guest.snapshot?.state.game).toMatchObject({ turns: 1 }));
+    } finally {
+      save.mockRestore();
+      errors.mockRestore();
+      dispose();
     }
   });
 
