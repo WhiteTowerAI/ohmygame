@@ -370,8 +370,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
                   const list = event.currentTarget;
                   if (!event.deltaX && list.scrollWidth > list.clientWidth) list.scrollLeft += event.deltaY;
                 }}
-                onDragOver={(event) => {
-                  // A tab dragged near an edge scrolls the strip, to place it among tabs out of view.
+                onDragOverCapture={(event) => {
+                  // A tab dragged near an edge, over a tab or not, scrolls the strip to place it among tabs out of view.
                   const list = event.currentTarget, box = list.getBoundingClientRect();
                   if (event.clientX < box.left + DRAG_EDGE) list.scrollLeft -= DRAG_SCROLL;
                   else if (event.clientX > box.right - DRAG_EDGE) list.scrollLeft += DRAG_SCROLL;
@@ -495,7 +495,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, onReset, ove
 }
 
 /**
- * An area's tab strip. Its tabs keep their labels and take up to part of the
+ * An area's tab strip. Its tabs keep their labels and take up to 60% of the
  * strip, scrolling past it (see panel-layout.css), so opening one moves none.
  * The active panel's toolbar shortens its titles first; when it still does not
  * fit, its tools fold into a menu one at a time (see panel-tools.tsx), and come
@@ -520,7 +520,7 @@ function DockTabStrip({ single, resetKey, titlebar, children, ...props }: { sing
     list.addEventListener("scroll", measure, { passive: true });
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
     observer?.observe(list);
-    for (const tab of list.children) observer?.observe(tab);
+    for (const tab of list.querySelectorAll(".dock-tab")) observer?.observe(tab);
     return () => {
       list.removeEventListener("scroll", measure);
       observer?.disconnect();

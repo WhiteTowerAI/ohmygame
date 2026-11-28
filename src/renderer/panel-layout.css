@@ -106,10 +106,6 @@
   mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
 }
 
-.dock-all {
-  flex: none;
-}
-
 .dock-tabs:not(.is-crowded) .dock-all {
   display: none;
 }
@@ -196,8 +192,10 @@
   place-items: center;
 }
 
+/* A long title stops short, so one tab can't take the strip. */
 .dock-tab-label {
   min-width: 0;
+  max-width: 12em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -254,6 +252,7 @@
   color: var(--color-text);
 }
 
+.dock-all,
 .dock-add {
   flex: none;
 }
@@ -294,7 +293,7 @@
   }
 }
 
-/* Titles in a toolbar shorten before the tabs give up their labels. */
+/* A toolbar's controls keep their size; what doesn't fit folds into ···. */
 .dock-toolbar > * {
   flex: none;
 }
