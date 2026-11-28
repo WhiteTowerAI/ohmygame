@@ -7,7 +7,7 @@ import { PluginMarketSourcesDialog } from "./plugin-market-sources.js";
 import { type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type PluginSourceUpdate, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { addPlugin, ApiError, inspectAddedPlugin, listStorePlugins, readPluginMarket, readPluginStatus, readPluginUpdates, waitForRuntime } from "./api.js";
-import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useEveryProjectSwitch } from "./plugin-store.js";
+import { groupStorePlugins, marketContributions, marketUpdate, sourceUpdate, type StorePluginGroup, StorePluginRow, StorePluginDetail, storePluginEnabled, storePluginSearchText, useInstalledPluginMenu, useEveryProjectSwitch } from "./plugin-store.js";
 import { CATALOG_CATEGORIES, categoryLabel, type CatalogFilter, inCatalogCategory, marketFront, marketOnly, type MarketOnly, MarketPluginCard, MarketPluginPage, MarketRail, type MarketSection, type MarketSort, MarketSortSelect, marketSearchText, inProviderKind, ProviderKindChips, type ProviderKindFilter, sortMarket } from "./plugin-catalog.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { useListPage } from "./use-list-page.js";
@@ -390,6 +390,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
       }
     }} />;
 
+  const pluginMenu = useInstalledPluginMenu({ market, updates, everyProject, busy: updateDisabled, onChanged: reload,
+    onUpdate: (plugin) => void updatePlugin(plugin),
+    onRemoved: (id) => { if (activeRoute.current === id) showCatalog(); } });
+
   const installedTab = <>
     {updatedAll ? <Alert tone={updatedAll.failed.length ? "danger" : updatedAll.review ? "info" : "success"}
       title={[
@@ -424,6 +428,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
           group={group} market={market} updates={updates} selected={group.plugin.id === selectedId}
           showEveryProject={installedSection === "all" && everyProjectIds.has(group.plugin.id)}
           updating={operation?.kind !== "dialog" && operation?.id === group.plugin.id} updateDisabled={updateDisabled}
+          menu={pluginMenu.menuFor(group)}
           onUpdate={() => void updatePlugin(group.plugin)} onOpen={() => {
             if (compact) pendingFocus.current = "detail";
             onPluginChange(group.plugin.id, "installed");
@@ -442,9 +447,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, tab: routeTab, on
         </Activity>)}
       </section>
     </div>
+    {pluginMenu.dialogs}
   </>;
 
-  const pageError = error ?? everyProject.error;
+  const pageError = error ?? everyProject.error ?? pluginMenu.error;
   return <section ref={pageRef} className="plugins-page">
     {safeMode ? <div className="plugins-safe-mode"><Alert tone="danger" title={t("pluginSafeMode.title")} action={runtimeService
       ? <Button size="sm" onClick={() => restart(false)}>{t("pluginSafeMode.restartNormally")}</Button> : undefined}>

@@ -36,12 +36,13 @@ import { ProjectPlaceholder } from "./project-placeholder.js";
 import { openNewGame } from "./new-game.js";
 import { communityProfileHash, conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, useContextMenu, useToast, type MenuEntry } from "./ui/index.js";
+import { useProjectActions, useProjectMenu, type ProjectCardActions } from "./project-card.js";
 import { installingText, useDesktopUpdate } from "./use-desktop-update.js";
 import { useProjectImagePreview } from "./use-project-image-preview.js";
 import { UserAvatar } from "./user-avatar.js";
 import { attentionLabel, ProjectAttentionMark, useProjectAttention } from "./project-attention.js";
-import { moveSidebarProject, PROJECT_COUNTS, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
+import { moveSidebarProject, PROJECT_COUNTS, PROJECTS_CHANGED_EVENT, publishSidebarProjects, setVisibleProjects, shownProjects, useSidebarProjectList, type VisibleProjects } from "./sidebar-projects.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
 import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
@@ -329,6 +330,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const { projects, visible } = useSidebarProjects(active);
   const shown = shownProjects(projects, visible);
   const reorder = useProjectReorder(shown);
+  // A project's menu works here as on its card.
+  const projectActions = useProjectActions(reloadProjectLists);
+  useErrorToast(projectActions.error);
   const mac = window.ohMyGameDesktop?.platform === "darwin";
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
@@ -383,7 +387,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             {quickAccessOpen ? (
               <div {...reorder.listProps}>
                 {shown.map((project) => <QuickAccessProject key={project.id} project={project} collapsed={collapsed}
-                  reorder={reorder.itemProps(project.id)} />)}
+                  reorder={reorder.itemProps(project.id)} actions={projectActions.actionsFor(project)} />)}
                 {reorder.line}
               </div>
             ) : null}
@@ -399,23 +403,39 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         </div>
       </nav>
       {collapsed ? null : <SidebarResizer width={width} />}
+      {projectActions.dialogs}
     </>
   );
 }
 
-function QuickAccessProject({ project, collapsed, reorder }: { project: ProjectState; collapsed: boolean; reorder: ProjectItemProps }) {
+/** After a project changed outside the page listing projects: the sidebar and that page read them again. */
+export async function reloadProjectLists(): Promise<void> {
+  window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+  publishSidebarProjects(await listProjects());
+}
+
+/** Shows a failed action's reason as a toast, once for each failure. */
+function useErrorToast(error: string | undefined) {
+  const toast = useToast();
+  useEffect(() => { if (error) toast({ title: error, tone: "danger" }); }, [error]);
+}
+
+function QuickAccessProject({ project, collapsed, reorder, actions }: { project: ProjectState; collapsed: boolean; reorder: ProjectItemProps; actions: ProjectCardActions }) {
   const attention = useProjectAttention(project.id);
   const open = () => { window.location.hash = projectHash(project.id); };
-  const button = { ...reorder, "aria-description": attentionLabel(attention) };
+  const { menu, error } = useProjectMenu(project, open, actions);
+  useErrorToast(error);
+  const context = useContextMenu(menu ?? [], { disabled: !menu });
+  const button = { ...reorder, "aria-description": attentionLabel(attention), onContextMenu: context.onContextMenu };
   const mark = <ProjectAttentionMark attention={attention} />;
-  if (!collapsed) return <SidebarItem icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />}
-    label={project.name} onClick={open} button={button} trailing={mark} />;
-  return <SidebarTip label={project.name}>
+  if (!collapsed) return <><SidebarItem icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />}
+    label={project.name} onClick={open} button={button} trailing={mark} />{context.menu}</>;
+  return <><SidebarTip label={project.name}>
     <button {...button} type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
       <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
       {mark}
     </button>
-  </SidebarTip>;
+  </SidebarTip>{context.menu}</>;
 }
 
 const HOVER_OPEN = 220;
@@ -439,17 +459,23 @@ export function editedAgo(value: string, now = Date.now()): string {
   return format.format(0, "second");
 }
 
-// A project in the rail.
-function RailProject({ project, open, conversations, reorder }: {
+// A project in the rail. Right-clicked, another project offers its card's
+// menu; the open one offers its title bar's.
+function RailProject({ project, current, open, conversations, reorder, actions, currentMenu }: {
   project: ProjectState;
+  current: boolean;
   open: (hash: string) => void;
   conversations?: RailConversations;
   reorder: ProjectItemProps;
+  actions: ProjectCardActions;
+  currentMenu?: readonly MenuEntry[];
 }) {
+  const card = useProjectMenu(project, () => open(projectHash(project.id)), actions);
+  useErrorToast(card.error);
   return <RailConversationsItem projectId={project.id} name={project.name} updatedAt={project.updatedAt}
     cover={<SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />}
     hash={projectHash(project.id)} conversationHash={(id) => conversationHash(project.id, id)}
-    open={open} conversations={conversations} reorder={reorder} />;
+    open={open} conversations={conversations} reorder={reorder} menu={current ? currentMenu : card.menu} />;
 }
 
 // An item in a full-window rail that holds a project: a game's, or a plugin's
@@ -457,7 +483,7 @@ function RailProject({ project, open, conversations, reorder }: {
 // between them, or to another item, is one move. From the keyboard, the right
 // arrow opens the list and the arrows move through it; the left arrow or Escape
 // goes back to the icon.
-export function RailConversationsItem({ projectId, name, updatedAt, cover, hash, conversationHash: hashOf, open: openProject, conversations, reorder, className = "" }: {
+export function RailConversationsItem({ projectId, name, updatedAt, cover, hash, conversationHash: hashOf, open: openProject, conversations, reorder, menu, className = "" }: {
   projectId: string;
   name: string;
   /** When it last changed, as an ISO date. */
@@ -471,6 +497,8 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
   conversations?: RailConversations;
   /** Dragging to reorder, where the rail has it. */
   reorder?: ProjectItemProps;
+  /** Its right-click menu. */
+  menu?: readonly MenuEntry[];
   className?: string;
 }) {
   const attention = useProjectAttention(projectId);
@@ -520,6 +548,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
     if (focusInside()) anchor.current?.focus();
     setOpen(false);
   };
+  const context = useContextMenu(menu ?? [], { disabled: !menu?.length });
   const pick = (conversationId: string) => {
     close();
     if (conversations) conversations.onOpen(conversationId);
@@ -538,6 +567,11 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
           reorder?.onDragStart(event);
         }}
         onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
+        onContextMenu={(event) => {
+          // The menu takes the conversations' place.
+          close();
+          context.onContextMenu(event);
+        }}
         onKeyDown={(event) => {
           reorder?.onKeyDown(event);
           if (event.key !== "ArrowRight") return;
@@ -555,6 +589,7 @@ export function RailConversationsItem({ projectId, name, updatedAt, cover, hash,
         {cover}
         <ProjectAttentionMark attention={attention} />
       </button>
+      {context.menu}
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
         label={t("sidebar.projectConversations", { name })}>
         <div ref={body} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
@@ -616,11 +651,13 @@ function RailConversationButton({ projectId, item, current, onClick }: {
 // search and the account. The pages' sidebar comes back on the way out.
 // `onLeave` runs before anything here leaves the project, so the project can
 // save first.
-export function ProjectRail({ projectId, project, conversations, onNavigate, onLeave }: {
+export function ProjectRail({ projectId, project, conversations, menu, onNavigate, onLeave }: {
   projectId: string;
   /** The open project; listed after the others while it is past the chosen count. */
   project?: ProjectState;
   conversations?: RailConversations;
+  /** The open project's menu, from its title bar. */
+  menu?: readonly MenuEntry[];
   onNavigate: (page: AppNavigationTarget) => void;
   onLeave: (go: () => void) => void;
 }) {
@@ -630,11 +667,14 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const shown = !current || listed.some((item) => item.id === current.id) ? listed : [...listed, current];
   const reorder = useProjectReorder(shown);
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
+  const projectActions = useProjectActions(reloadProjectLists);
+  useErrorToast(projectActions.error);
   return (
     <AppRail label={t("sidebar.projectNavigation")} onNavigate={onNavigate} onLeave={onLeave}>
       <div {...reorder.listProps}>
         {shown.map((item) => (
           <RailProject key={item.id} project={item} open={openHash} reorder={reorder.itemProps(item.id)}
+            current={item.id === projectId} actions={projectActions.actionsFor(item)} currentMenu={menu}
             conversations={item.id === projectId ? conversations : undefined} />
         ))}
         {reorder.line}
@@ -645,6 +685,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
           <CirclePlus size="md" />
         </button>
       </Tooltip>
+      {projectActions.dialogs}
     </AppRail>
   );
 }

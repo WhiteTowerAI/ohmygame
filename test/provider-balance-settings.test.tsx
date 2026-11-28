@@ -6,9 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { CustomProviderDetails, ProviderSummary } from "../src/shared/contracts.js";
 import { defaultModel3DSettings } from "../src/shared/custom-models.js";
 
-const api = { balance: vi.fn(), providers: vi.fn(), custom: vi.fn(), enabled: vi.fn() };
+const api = { balance: vi.fn(), providers: vi.fn(), custom: vi.fn(), enabled: vi.fn(), remove: vi.fn() };
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
-  setProviderEnabled: api.enabled, model3DBalance: api.balance, listProviders: api.providers, getCustomProvider: api.custom, MODELS_CHANGED_EVENT: "ohmygame-models-changed",
+  setProviderEnabled: api.enabled, model3DBalance: api.balance, listProviders: api.providers, getCustomProvider: api.custom, removeProvider: api.remove, MODELS_CHANGED_EVENT: "ohmygame-models-changed",
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: ({ providerId }: { providerId: string }) => <div data-model-provider={providerId}>Models</div> }));
@@ -124,6 +124,38 @@ it.each(["undeclared", "disabled", "no-key"])("does not query plugin credits whe
   await render(value);
   expect(api.balance).not.toHaveBeenCalled();
   expect(container.querySelector('[aria-label="API balance"]')).toBeNull();
+});
+
+it("offers a connection's actions on right-click, and deletes it there after asking", async () => {
+  const meshy = { ...provider("meshy"), enabled: true };
+  api.providers.mockResolvedValue([meshy, { ...provider("cloud-hyper3d"), managed: "free_cloud" as const, cloud: { userId: "u", availability: "ready" } } as ProviderSummary]);
+  api.enabled.mockResolvedValue({ ...meshy, enabled: false });
+  const onViewChange = vi.fn();
+  const list = () => act(async () => root.render(<ModelsSettings view={{ page: "providers" }} onViewChange={onViewChange} onOpenAgents={() => {}} />));
+  const menuFor = async (name: string) => {
+    const row = [...container.querySelectorAll(".settings-provider-row")].find((item) => item.querySelector(".settings-provider-name")?.textContent === name)!;
+    await act(async () => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    return [...document.querySelectorAll<HTMLButtonElement>(".ui-popover-menu [role^='menuitem']")];
+  };
+  await list();
+  // OhMyGame's free models have no delete.
+  expect((await menuFor("cloud-hyper3d")).map((item) => item.textContent)).toEqual(["Manage", "Enabled"]);
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+  let items = await menuFor("meshy");
+  expect(items.map((item) => item.textContent)).toEqual(["Manage", "Enabled", "Delete"]);
+  expect(items[1]!.getAttribute("aria-checked")).toBe("true");
+  await act(async () => items[1]!.click());
+  expect(api.enabled).toHaveBeenCalledWith("meshy", false);
+  items = await menuFor("meshy");
+  await act(async () => items[2]!.click());
+  // It asks here, with its page's question, and stays on the list.
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("Delete this provider's saved connection and settings?");
+  api.providers.mockResolvedValue([]);
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Delete provider")!.click());
+  expect(api.remove).toHaveBeenCalledWith("meshy");
+  expect(onViewChange).not.toHaveBeenCalled();
+  expect(container.querySelector('[aria-label="Connected providers"]')).toBeNull();
 });
 
 it("lists a connected plugin provider under From plugins", async () => {

@@ -24,6 +24,7 @@ import {
   Package,
   WindowFrame,
   UsersGroupRounded,
+  Trash2,
 } from "./icons.js";
 import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -52,6 +53,7 @@ import {
   acquirePreview,
   buildWebGame,
   exportProject,
+  deleteProject,
   renameProject,
   releasePreview,
   stopPreview,
@@ -165,8 +167,9 @@ import { blobBase64, captureElement, nextPaint } from "./page-capture.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
-import { ProjectRail, type RailConversations } from "./app-sidebar.js";
+import { ProjectRail, reloadProjectLists, type RailConversations } from "./app-sidebar.js";
 import { refreshSidebarProject } from "./sidebar-projects.js";
+import { ProjectRemovalDialog } from "./project-card.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { Button, Dialog, DropdownMenu, Empty, IconButton, Loading, useToast, type Command, type MenuEntry } from "./ui/index.js";
@@ -1233,6 +1236,21 @@ export function ProjectShell({
       setExporting(undefined);
     }
   }
+  const [removing, setRemoving] = useState(false);
+  // Removed from inside, the project goes first and the page after, so a
+  // removal the daemon refuses, such as while the agent works, leaves it open.
+  async function removeThisProject(): Promise<void> {
+    setRemoving(false);
+    if (!project) return;
+    try {
+      await deleteProject(project.id);
+    } catch (cause) {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+      return;
+    }
+    void reloadProjectLists().catch(() => undefined);
+    onNavigate("home");
+  }
   async function renameTo(input: string): Promise<void> {
     const name = input.trim();
     if (!project || !name || name === project.name) return;
@@ -1526,6 +1544,8 @@ export function ProjectShell({
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size="sm" />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     ...pluginCommandEntries("project.menu"),
+    "separator",
+    { label: t("projectCard.remove"), icon: <Trash2 size="sm" />, danger: true, disabled: !project, onSelect: () => setRemoving(true) },
   ];
   const publishCommands = project ? commandsForSlot(plugins.commands, "project.publish", plugins.when) : [];
   // The game's toolbar and the canvas show their own slots, deep in the workspace.
@@ -1878,10 +1898,11 @@ export function ProjectShell({
       onChanged={() => setCapabilitiesRevision((value) => value + 1)} /> : null}
     {project && settingsTab ? <ProjectSettings project={project} initialTab={settingsTab} workspaceTab={workspaceSettingsTab} workspaceRef={setSettingsNode} busy={settingsBusy}
       onRename={(name) => void renameTo(name)} onClose={closeSettings} /> : null}
+    <ProjectRemovalDialog project={removing ? project : undefined} onClose={() => setRemoving(false)} onConfirm={() => void removeThisProject()} />
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)}
       onUndone={() => setWorkspaceRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     <ProjectFrame
-      rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
+      rail={workspace ? workspace.rail(railConversations) : <ProjectRail projectId={projectId} project={project} menu={projectMenu} onNavigate={onNavigate} onLeave={leave} conversations={railConversations} />}
       top={workspace ? <span className="project-top-slot" ref={setWorkspaceTop} /> : <ProjectTop name={project?.name ?? ""} menu={projectMenu}>
         {project ? <PluginPanelToolbar commands={commandsForSlot(plugins.commands, "project.toolbar", plugins.when)} onRun={runProjectPluginCommand} /> : null}
         {/* Play stays in place from every view. A Web preview fills the slot

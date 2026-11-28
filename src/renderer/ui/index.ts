@@ -25,6 +25,8 @@ export { MediaTile } from "./media.js";
 export {
   CommandMenu,
   ContextMenu,
+  useContextMenu,
+  MenuAtPoint,
   Dialog,
   DropdownMenu,
   Popover,

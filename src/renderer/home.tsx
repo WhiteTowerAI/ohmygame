@@ -8,7 +8,7 @@ import { matchesWhen } from "../shared/plugin-when.js";
 import { composerDrafts, homeDraftScope } from "./composer-drafts.js";
 import { commandPrompt, PluginPanelToolbar } from "./project-plugin-contributions.js";
 import { ExampleShelf, useExamples } from "./examples.js";
-import { publishSidebarProjects } from "./sidebar-projects.js";
+import { PROJECTS_CHANGED_EVENT, publishSidebarProjects } from "./sidebar-projects.js";
 import { PageFrame } from "./page-frame.js";
 import { ProjectCard, projectTime, useProjectActions } from "./project-card.js";
 import { NEW_GAME_TYPES, NewGameCard, openNewGame } from "./new-game.js";
@@ -88,6 +88,12 @@ export function Home({ onNavigate, onOpen, inert = false, start, onStartHandled 
   }
 
   useEffect(() => { void loadProjects(); }, [serviceGeneration]);
+  // A change from the sidebar's menu: read the list again without the loading state.
+  useEffect(() => {
+    const refresh = () => void listProjects().then(setProjects, () => undefined);
+    window.addEventListener(PROJECTS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
+  }, []);
 
   // Setup's last step: describe a game, start blank, or choose a folder.
   useEffect(() => {

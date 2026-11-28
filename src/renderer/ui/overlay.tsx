@@ -373,6 +373,61 @@ export function DropdownMenu({
   );
 }
 
+/**
+ * A right-click menu for an element of the caller's own: spread
+ * `onContextMenu` on it and render `menu` beside it.
+ */
+export function useContextMenu(items: readonly MenuEntry[], { disabled = false, contained = false, menuClassName = "" }: {
+  /** Right-click does nothing, and the browser's own menu stays away. */
+  disabled?: boolean;
+  /** Keeps the right-click from an enclosing area's menu. */
+  contained?: boolean;
+  /** Added to the menu's popover, so a menu opened over a high overlay can stack above it. */
+  menuClassName?: string;
+} = {}): { onContextMenu: (event: React.MouseEvent) => void; menu: ReactNode } {
+  const [point, setPoint] = useState<{ x: number; y: number }>();
+  const close = useCallback(() => setPoint(undefined), []);
+  return {
+    onContextMenu: (event) => {
+      event.preventDefault();
+      if (contained && !disabled) event.stopPropagation();
+      if (!disabled) setPoint({ x: event.clientX, y: event.clientY });
+    },
+    menu: <MenuAtPoint point={point} items={items} onClose={close} className={menuClassName} />,
+  };
+}
+
+/** `items` as a menu at `point`, for an area that tracks what was right-clicked itself. */
+export function MenuAtPoint({ point, items, onClose, className = "" }: {
+  point?: { x: number; y: number };
+  items: readonly MenuEntry[];
+  onClose: () => void;
+  className?: string;
+}) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  return <>
+    {point
+      ? createPortal(
+          <span
+            ref={anchor}
+            className="ui-context-anchor"
+            style={{ left: point.x, top: point.y }}
+          />,
+          document.body,
+        )
+      : null}
+    <Popover
+      open={!!point}
+      onClose={onClose}
+      anchor={anchor}
+      placement="bottom-start"
+      className={`ui-popover-menu ${className}`}
+    >
+      <MenuList items={items} onClose={onClose} />
+    </Popover>
+  </>;
+}
+
 /** Opens `items` at the pointer on right-click inside `children`. */
 export function ContextMenu({
   items,
@@ -390,40 +445,13 @@ export function ContextMenu({
   menuClassName?: string;
   children: ReactNode;
 }) {
-  const [point, setPoint] = useState<{ x: number; y: number }>();
-  const anchor = useRef<HTMLSpanElement>(null);
-  const close = useCallback(() => setPoint(undefined), []);
+  // An inline target sits inside a larger area that may have a menu of its own.
+  const { onContextMenu, menu } = useContextMenu(items, { disabled, contained: inline, menuClassName });
   const Wrapper = inline ? "span" : "div";
   return (
-    <Wrapper
-      className="ui-context-area"
-      onContextMenu={(event) => {
-        event.preventDefault();
-        // An inline target sits inside a larger area that may have a menu of its own.
-        if (inline && !disabled) event.stopPropagation();
-        if (!disabled) setPoint({ x: event.clientX, y: event.clientY });
-      }}
-    >
+    <Wrapper className="ui-context-area" onContextMenu={onContextMenu}>
       {children}
-      {point
-        ? createPortal(
-            <span
-              ref={anchor}
-              className="ui-context-anchor"
-              style={{ left: point.x, top: point.y }}
-            />,
-            document.body,
-          )
-        : null}
-      <Popover
-        open={!!point}
-        onClose={close}
-        anchor={anchor}
-        placement="bottom-start"
-        className={`ui-popover-menu ${menuClassName}`}
-      >
-        <MenuList items={items} onClose={close} />
-      </Popover>
+      {menu}
     </Wrapper>
   );
 }

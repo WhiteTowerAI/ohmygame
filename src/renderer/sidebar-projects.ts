@@ -87,6 +87,9 @@ export function refreshSidebarProject(project: ProjectState): void {
   update({ projects: projects.map((item) => (item.id === project.id ? project : item)) });
 }
 
+/** Says a project was renamed, copied or removed outside the page showing the list, which then reads it again. */
+export const PROJECTS_CHANGED_EVENT = "ohmygame:projects-changed";
+
 export function setVisibleProjects(visible: VisibleProjects): void {
   update({ visible });
 }

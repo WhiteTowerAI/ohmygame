@@ -49,6 +49,9 @@ including `@ohmygame`.
   Switching plugins keeps the last detail tab and any unsaved settings for
   each plugin while the page is open. The **Official** seal appears beside the
   plugin name. Each row shows the installed version and publisher underneath.
+  Right-clicking a row offers its update, **On in every project**, the log,
+  **Edit with AI** for your own plugins, its folder, and **Uninstall** when it
+  has one version to remove; the uninstall dialog is the one its page uses.
   The list header shows counts for **All**, **On in every project**, and
   **Updates**. In **All**, enabled plugins that default to on show **Every
   project** after the publisher. Use the menu beside search to filter by category.

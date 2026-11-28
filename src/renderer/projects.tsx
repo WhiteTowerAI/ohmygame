@@ -11,7 +11,7 @@ import { ProjectCard, ProjectRow, useProjectActions } from "./project-card.js";
 import { useProjectsSelection } from "./projects-selection.js";
 import { pickProjectFolder, ProjectCreateDialog } from "./project-create-dialog.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
-import { publishSidebarProjects } from "./sidebar-projects.js";
+import { PROJECTS_CHANGED_EVENT, publishSidebarProjects } from "./sidebar-projects.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
@@ -73,6 +73,12 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
+  // A change from the sidebar's menu: read the list again without the loading state.
+  useEffect(() => {
+    const refresh = () => void listProjects().then(setProjects, () => undefined);
+    window.addEventListener(PROJECTS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
+  }, []);
 
   const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
   const filters = { projectType: projectType === "all" ? undefined : projectType, query, sort };

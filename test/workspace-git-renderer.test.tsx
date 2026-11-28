@@ -242,6 +242,27 @@ describe("Code file browser refresh", () => {
     expect(onSelect).toHaveBeenCalledWith("src/deep/saved.ts");
   });
 
+  it("offers a file's and a folder's actions as the app's menus do, with only the editors installed", async () => {
+    const resized = sized();
+    vi.stubGlobal("ohMyGameDesktop", { platform: "linux", installedEditors: async () => ["zed"] });
+    const onOpenExternal = vi.fn(async () => {});
+    await act(async () => root.render(<WorkspaceFileBrowser {...props} files={files()} onOpenExternal={onOpenExternal} />));
+    await resized();
+    await settled();
+    const labels = () => [...document.querySelectorAll(".ui-menu-item .ui-menu-label")].map((item) => item.textContent);
+    const rightClick = (title: string) => act(async () => {
+      container.querySelector(`.file-tree-node[title="${title}"]`)!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    await rightClick("src/deep/saved.ts");
+    expect(labels()).toEqual(["New file", "New folder", "Rename", "Copy relative path", "Open in default app", "Show in folder", "Open in Zed", "Delete"]);
+    await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")].find((item) => item.textContent === "Show in folder")!.click());
+    expect(onOpenExternal).toHaveBeenCalledWith("src/deep/saved.ts", "reveal");
+    expect(labels()).toEqual([]);
+    // A folder opens in the file manager itself; showing it in its own parent would say the same.
+    await rightClick("src");
+    expect(labels()).toEqual(["New file", "New folder", "Rename", "Copy relative path", "Open in folder", "Open in Zed", "Delete"]);
+  });
+
   it("brings the file back into view when it is asked for again", async () => {
     const resized = sized();
     const list = files();

@@ -43,7 +43,7 @@ import { AgentNotifications, trayBadgeBitmap, waitingDotBitmap } from "./agent-n
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, parseAgentResultRead, type AgentNotificationTarget } from "../shared/agent-notifications.js";
-import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
+import { PROJECT_FILE_EDITORS, PROJECT_FILE_OPEN_MODES, type ProjectFileEditor, type ProjectFileOpenMode } from "../shared/contracts.js";
 import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
@@ -480,6 +480,10 @@ handle("ohmygame:browse-account-directory", async (event, runtime: unknown, prof
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
+// The code editors that can open a project's files here: the ones that took
+// their link scheme, which is how they install on every platform.
+handle("ohmygame:installed-editors", () => (Object.keys(PROJECT_FILE_EDITORS) as ProjectFileEditor[])
+  .filter((editor) => app.getApplicationNameForProtocol(`${editor}://`) !== ""));
 handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath: unknown, mode: unknown = "default") => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid file open source");
   if (!validRouteId(projectId) || typeof filePath !== "string" || !filePath || filePath.length > 1_000 ||

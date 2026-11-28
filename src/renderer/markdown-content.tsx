@@ -220,13 +220,12 @@ function WorkspaceFileLink({ href, path, projectId, workspacePath, onOpen, child
   const openWith = desktop?.openProjectFile && projectId
     ? (mode: "default" | "reveal") => void desktop.openProjectFile(projectId, path, mode).catch(() => undefined)
     : undefined;
-  const fileManager = desktop?.platform === "darwin" ? "Finder" : desktop?.platform === "win32" ? t("workspace.fileExplorer") : t("workspace.fileManager");
   const absolutePath = workspacePath ? joinWorkspacePath(workspacePath, path) : undefined;
   const items: MenuEntry[] = [
     { label: t("markdown.openFile"), icon: <FileIcon size={14} />, onSelect: () => onOpen(path) },
     ...(openWith ? [
       { label: t("markdown.openInDefaultApp"), icon: <ExternalLink size="sm" />, onSelect: () => openWith("default") },
-      { label: t("workspace.showIn", { app: fileManager }), icon: <FolderOpen size="sm" />, onSelect: () => openWith("reveal") },
+      { label: t("workspace.showInFolder"), icon: <FolderOpen size="sm" />, onSelect: () => openWith("reveal") },
     ] : []),
     "separator",
     { label: t("workspace.copyPath"), icon: <Copy size="sm" />, onSelect: () => copyText(path) },

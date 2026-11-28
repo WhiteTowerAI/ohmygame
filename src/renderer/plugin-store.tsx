@@ -11,7 +11,7 @@ import { OfficialMark, PluginMarks } from "./plugin-marks.js";
 import { formatBytes } from "./format-bytes.js";
 import { t } from "./i18n.js";
 import { PluginAddsList, pluginAddRows, PluginHead } from "./plugin-summary.js";
-import { CircleHelp, ExternalLink, FolderOpen, Spinner, Play, RefreshCw, Upload, WandSparkles } from "./icons.js";
+import { CircleHelp, ExternalLink, FileText, FolderOpen, FolderWithFiles, Spinner, Play, RefreshCw, Trash2, Upload, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { PluginCapabilityList } from "./plugin-consent-dialog.js";
@@ -21,7 +21,7 @@ import { PluginMcpServers } from "./plugin-mcp-servers.js";
 import { PluginSettingsActions } from "./plugin-settings-actions.js";
 import { PluginProviderList, usePluginProviders } from "./models-settings.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
-import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs } from "./ui/index.js";
+import { Alert, Button, Checkbox, Dialog, Field, Input, Skeleton, Switch, Tabs, useContextMenu, type MenuEntry } from "./ui/index.js";
 
 // Plugins on the Plugins page. They are installed for the app; here each
 // one is turned on or off for every project it suits, and a project's
@@ -200,8 +200,10 @@ export function marketContributions({ adds }: MarketPlugin): PluginContribution[
   return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
 }
 
-export function StorePluginRow({ group, market, updates, selected, showEveryProject = false, updating = false, updateDisabled = false, onUpdate, onOpen }: {
+export function StorePluginRow({ group, market, updates, selected, showEveryProject = false, updating = false, updateDisabled = false, menu, onUpdate, onOpen }: {
   group: StorePluginGroup;
+  /** Its right-click menu. */
+  menu?: readonly MenuEntry[];
   market?: PluginMarketListing | undefined;
   updates?: readonly PluginSourceUpdate[] | undefined;
   selected: boolean;
@@ -226,7 +228,9 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
       : fromSource?.commit
         ? t("pluginStore.updateToCommit", { commit: fromSource.commit.slice(0, 7) })
         : undefined;
-  return <li className="installed-plugin-row">
+  const context = useContextMenu(menu ?? [], { disabled: !menu });
+  // The menu sits beside the row, so a click in it doesn't reach the row's handlers.
+  return <><li className="installed-plugin-row" onContextMenu={context.onContextMenu}>
     <button className="installed-plugin-open" type="button" aria-current={selected ? "true" : undefined}
       aria-labelledby={nameId} aria-describedby={metadataId} onClick={onOpen}>
       <StoreTile plugin={plugin} />
@@ -257,7 +261,60 @@ export function StorePluginRow({ group, market, updates, selected, showEveryProj
       aria-label={t("pluginStore.updateName", { name: plugin.displayName })} title={updateTitle}
       icon={updating ? <Spinner size="sm" /> : <RefreshCw size="sm" />}
       onClick={onUpdate}>{t("pluginStore.update")}</Button> : null}
-  </li>;
+  </li>{context.menu}</>;
+}
+
+/**
+ * The installed list's right-click menu: a plugin's update and what its page
+ * manages, with the log and uninstall dialogs they open.
+ */
+export function useInstalledPluginMenu({ market, updates, everyProject, busy = false, onUpdate, onChanged, onRemoved }: {
+  market?: PluginMarketListing | undefined;
+  updates?: readonly PluginSourceUpdate[] | undefined;
+  everyProject: ReturnType<typeof useEveryProjectSwitch>;
+  /** Updating, adding or removing a plugin is under way. */
+  busy?: boolean;
+  onUpdate: (plugin: StorePlugin) => void;
+  /** The store changed; reload it. */
+  onChanged: () => Promise<void>;
+  /** Its last version was uninstalled. */
+  onRemoved: (pluginId: string) => void;
+}): { menuFor: (group: StorePluginGroup) => MenuEntry[]; dialogs: ReactNode; error?: string } {
+  const [log, setLog] = useState<StorePlugin>();
+  const [removing, setRemoving] = useState<{ plugin: StorePlugin; version: StorePlugin; last: boolean }>();
+  const [error, setError] = useState<string>();
+  const run = (work: () => Promise<unknown> | undefined) => {
+    setError(undefined);
+    void Promise.resolve(work()).catch((cause: unknown) => setError(message(cause)));
+  };
+  const menuFor = ({ plugin, versions }: StorePluginGroup): MenuEntry[] => {
+    const personal = plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`);
+    // One version to remove takes the dialog here; several are chosen on its page.
+    const removable = versions.filter((version) => !version.bundled);
+    const hasUpdate = Boolean(marketUpdate(plugin, market) || sourceUpdate(plugin, market, updates));
+    const desktop = typeof window === "undefined" ? undefined : window.ohMyGameDesktop;
+    return [
+      ...(hasUpdate ? [{ label: t("pluginStore.update"), icon: <RefreshCw size="sm" />, disabled: busy, onSelect: () => onUpdate(plugin) }] : []),
+      ...(storePluginEnabled(plugin) ? [{ label: t("plugins.scopeEveryProject"), icon: <FolderWithFiles size="sm" />, checked: plugin.everyProject, disabled: busy || Boolean(everyProject.busy), onSelect: () => everyProject.toggle(plugin, !plugin.everyProject) }] : []),
+      { label: t("pluginLog.viewLog"), icon: <FileText size="sm" />, onSelect: () => setLog(plugin) },
+      ...(personal ? [{ label: t("plugins.editWithAi"), icon: <WandSparkles size="sm" />, onSelect: () => run(() => openPluginBuilder(plugin.id)) }] : []),
+      ...(desktop && !plugin.bundled ? [{ label: t("plugins.openFolder"), icon: <FolderOpen size="sm" />, onSelect: () => run(() => desktop.browsePluginDirectory(plugin.id)) }] : []),
+      ...(removable.length === 1 ? ["separator" as const, { label: t("pluginStore.uninstall"), icon: <Trash2 size="sm" />, danger: true, disabled: busy, onSelect: () => setRemoving({ plugin, version: removable[0]!, last: versions.length === 1 }) }] : []),
+    ];
+  };
+  const dialogs = <>
+    {log ? <PluginLogDialog plugin={log.id} displayName={log.displayName} onClose={() => setLog(undefined)} onChanged={() => void onChanged()} /> : null}
+    {removing ? <UninstallDialog plugin={removing.plugin} version={removing.version} onCancel={() => setRemoving(undefined)} onUninstall={(keepData) => {
+      const { plugin, version, last } = removing;
+      setRemoving(undefined);
+      run(async () => {
+        await uninstallStorePlugin(plugin.id, version.version, { keepData });
+        await onChanged();
+        if (last) onRemoved(plugin.id);
+      });
+    }} /> : null}
+  </>;
+  return { menuFor, dialogs, ...(error ? { error } : {}) };
 }
 
 type StoreDetailTab = "about" | "skills" | "settings";

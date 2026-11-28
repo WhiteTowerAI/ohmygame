@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
+import { ChevronDown, ChevronRight, CircleCheck, CirclePlus, Code2, ExternalLink, Spinner, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -50,7 +50,7 @@ import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { ChatModelDefaultRow, GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { useModelProviderAuth } from "./use-model-provider-auth.js";
 import { ExternalLinkFallback, useExternalLink } from "./external-link.js";
-import { Badge, Button, Dialog, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { Badge, Button, Dialog, Disclosure, IconButton, SearchInput, Switch, Tabs, type MenuEntry } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
@@ -129,7 +129,20 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
       setPending((current) => { const next = new Set(current); next.delete(provider.id); return next; });
     }
   }
-  const rowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void toggleProvider(provider, enabled), pending };
+  const [removing, setRemoving] = useState<{ provider: ProviderSummary; busy?: boolean }>();
+  async function removeFromList(provider: ProviderSummary): Promise<void> {
+    setRemoving({ provider, busy: true });
+    setError(undefined);
+    try {
+      await removeConnection(provider);
+      setProviders(await listProviders());
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setRemoving(undefined);
+    }
+  }
+  const rowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void toggleProvider(provider, enabled), onRemove: (provider: ProviderSummary) => setRemoving({ provider }), pending };
   const openProvider = (provider: ProviderSummary): void => {
     if (!provider.custom && isLocalModelProvider(provider)) setAdding(provider.preset);
     else onProvider(provider);
@@ -171,6 +184,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
+      {removing ? <Dialog open size="sm" title={removing.provider.name} onClose={() => { if (!removing.busy) setRemoving(undefined); }} footer={<>
+        <Button variant="ghost" disabled={removing.busy} onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
+        <Button variant="danger" disabled={removing.busy} onClick={() => void removeFromList(removing.provider)}>
+          {removing.busy ? t("common.deleting") : removing.provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}
+        </Button>
+      </>}>{deleteQuestion(removing.provider)}</Dialog> : null}
       {connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
       {pluginProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.plugins")} providers={pluginProviders} onProvider={openProvider} /> : null}
       {hasConnections ? <GlobalMediaModelDefaults leading={<ChatModelDefaultRow />} /> : null}
@@ -208,7 +227,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   );
 }
 
-type ProviderRowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void; pending: Set<string> };
+type ProviderRowActions = {
+  onToggle: (provider: ProviderSummary, enabled: boolean) => void;
+  pending: Set<string>;
+  /** Asks to delete a connection from its row's menu. */
+  onRemove?: (provider: ProviderSummary) => void;
+};
 
 function ProviderGroup({ detail, onProvider, providers, title, ...actions }: { detail?: string; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string } & ProviderRowActions) {
   return (
@@ -218,14 +242,24 @@ function ProviderGroup({ detail, onProvider, providers, title, ...actions }: { d
   );
 }
 
-function ProviderRow({ detail, featured = false, onProvider, provider, onToggle, pending }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary } & ProviderRowActions) {
+function ProviderRow({ detail, featured = false, onProvider, provider, onToggle, onRemove, pending }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary } & ProviderRowActions) {
   const combined = provider.id === "hyper3d";
   const actionLabel = combined ? t("providers.manageHyper3d") : t("providers.rowAction", { action: providerAction(provider), name: provider.name });
   const labels = [...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom && !isLocalModelProvider(provider) ? [t("providers.custom")] : [])];
   const busy = provider.status === "connecting" || pending.has(provider.id);
+  // A connection's right-click menu: what its switch and button do, and deleting it.
+  const menu: MenuEntry[] | undefined = combined || provider.configured ? [
+    { label: t("providers.action.manage"), icon: <SettingsMinimal size="sm" />, disabled: busy, onSelect: () => onProvider(provider) },
+    { label: t("common.enabled"), icon: <CircleCheck size="sm" />, checked: provider.enabled !== false, disabled: pending.has(provider.id), onSelect: () => onToggle(provider, provider.enabled === false) },
+    ...(onRemove && provider.configured && providerRemovable(provider) ? ["separator" as const, {
+      label: combined ? t("providers.delete.removeKey") : t("common.delete"), icon: <Trash2 size="sm" />, danger: true, disabled: busy,
+      onSelect: () => onRemove(provider),
+    }] : []),
+  ] : undefined;
   return (
     <SettingsRow
       className="settings-provider-row"
+      menu={menu}
       icon={<ProviderMark provider={provider} />}
       title={<><span className="settings-provider-name">{provider.name}</span>{featured && !provider.configured ? <Badge tone="outline">{t("providers.recommended")}</Badge> : null}</>}
       description={
@@ -991,6 +1025,25 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
+/**
+ * Its connection can be deleted from the list as from its page: not OhMyGame's
+ * free models or Codex's images, which use their sign-ins, nor a plugin's,
+ * whose key is the plugin's setting.
+ */
+function providerRemovable(provider: ProviderSummary): boolean {
+  return provider.managed !== "free_cloud" && provider.id !== "codex-cli" && !provider.plugin;
+}
+
+/** What deleting a provider's connection removes, as its page does it. */
+function removeConnection(provider: ProviderSummary): Promise<void> {
+  return provider.id === "elevenlabs" ? removeElevenLabsSettings() : removeProvider(provider.id);
+}
+
+/** What deleting it removes, asked before it goes. */
+function deleteQuestion(provider: ProviderSummary): string {
+  return `${provider.id === "hyper3d" ? t("providers.delete.hyper3d") : provider.custom ? t("providers.delete.custom") : t("providers.delete.builtIn")}${!provider.custom && provider.credentialType === "oauth" ? t("providers.delete.subscriptionKept") : ""}`;
+}
+
 function useProviderDeletion(providerId: string, onRemoved?: () => void, removeAction: () => Promise<void> = () => removeProvider(providerId)) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1020,7 +1073,7 @@ function ProviderDeleteButton({ deletion, disabled = false, label = t("providers
 function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { provider: ProviderSummary; deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
   if (!deletion.confirming) return null;
   return <div className="settings-note settings-provider-delete-confirmation" role="group" aria-label={t("providers.delete.confirmation")}>
-    <span>{provider.id === "hyper3d" ? t("providers.delete.hyper3d") : provider.custom ? t("providers.delete.custom") : t("providers.delete.builtIn")}{!provider.custom && provider.credentialType === "oauth" ? t("providers.delete.subscriptionKept") : null}</span>
+    <span>{deleteQuestion(provider)}</span>
     <span className="settings-actions">
       <Button size="sm" variant="ghost" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>{t("common.cancel")}</Button>
       <Button size="sm" variant="danger" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>

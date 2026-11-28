@@ -222,7 +222,7 @@ describe("chat link interactions", () => {
 
       const items = await rightClick(link);
       expect(document.querySelector(".markdown-file-preview")).toBeNull();
-      expect(items.map((item) => item.textContent)).toEqual(["Open", "Open in default app", "Show in Finder", "Copy relative path", "Copy full path"]);
+      expect(items.map((item) => item.textContent)).toEqual(["Open", "Open in default app", "Show in folder", "Copy relative path", "Copy full path"]);
       await act(async () => items[2]!.click());
       expect(openProjectFile).toHaveBeenCalledWith("p1", "assets/hero.png", "reveal");
       await act(async () => (await rightClick(link))[4]!.click());

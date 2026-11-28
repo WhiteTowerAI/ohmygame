@@ -154,7 +154,9 @@ providers**. In Settings, a plugin's providers stay under **From plugins**,
 connected or not. Unconnected providers follow as **Free cloud**, **Popular
 providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
-providers**.
+providers**. Right-clicking a connection offers **Manage**, **Enabled** and,
+except for OhMyGame's free models, Codex and plugins' providers, **Delete**,
+which asks what its page's delete asks and removes it from the list.
 
 Settings → Providers is ordered by what the person already has. Connected
 providers and **From plugins** come first, then **Default models**: the chat
@@ -701,8 +703,10 @@ Inside a project the sidebar becomes a rail: the logo (Home), the person's
 projects as covers, the list's options, **New project** (the new game dialog), Search, the
 desktop update and the account. The open project is marked; hovering a project
 lists its conversations, newest first, and the open project's list ends with
-**New conversation**. The title bar's toggle beside the window controls, or
-⌘B / Ctrl+B outside a text field, hides the rail; the choice is kept. There are
+**New conversation**. Right-clicking another project opens its card's menu;
+right-clicking the open one opens its title bar menu. The title bar's toggle
+beside the window controls, or ⌘B / Ctrl+B outside a text field, hides the
+rail; the choice is kept. There are
 no Back and Forward buttons: ⌘[ and ⌘] (Ctrl+[ and Ctrl+] elsewhere) go back
 and forward outside a text field. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
@@ -718,10 +722,11 @@ panel, usually Chat, shows no tab of its own. When the panels stack, or the
 area at the end is narrower than 560px, the title bar is a row of its own above
 the panels.
 The title bar holds the project's name as its menu (**Project settings**,
-**Plugins**, **Open in folder** in the desktop app, **Export project** and the
-plugins' own commands), a recording under way, which stops it, **Play** (an
-icon, named in its tooltip, so the row leaves room for the Windows window
-buttons) while the Game panel isn't on screen, which shows it, and the
+**Plugins**, **Open in folder** in the desktop app, **Export project**, the
+plugins' own commands, and **Remove from OhMyGame**, which asks first, then
+goes Home once the daemon has removed it), a recording under way, which
+stops it, **Play** (an icon, named in its tooltip, so the row leaves room
+for the Windows window buttons) while the Game panel isn't on screen, which shows it, and the
 **Publish** menu, which an asset
 canvas does not have and Godot and plugin projects show disabled. Publish sends the game to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
@@ -837,7 +842,9 @@ move it, a new project starts at the top, and dragging a project, or Alt with
 the up and down arrows, reorders it. The list's options set how many show (5,
 8, 12 or all; 8 by default), and the list scrolls when it outgrows the column.
 A project opened from past that count shows after the others until it is
-closed, or dragged into place. Home's **Recent projects** stays sorted by last
+closed, or dragged into place. Right-clicking a project there opens its card's
+menu; Home and Projects read the list again after a change made from it
+(`PROJECTS_CHANGED_EVENT`). Home's **Recent projects** stays sorted by last
 edit.
 
 The account's menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;

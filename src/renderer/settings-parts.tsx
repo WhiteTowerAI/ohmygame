@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ChevronLeft } from "./icons.js";
-import { IconButton } from "./ui/index.js";
+import { IconButton, useContextMenu, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 /** One setting: what it is on the left, the control on the right. */
@@ -9,6 +9,7 @@ export function SettingsRow({
   description,
   icon,
   onClick,
+  menu,
   className,
   children,
 }: {
@@ -20,13 +21,18 @@ export function SettingsRow({
    * still need a button for the keyboard; a click on them doesn't reach the row.
    */
   onClick?: () => void;
+  /** Its right-click menu. */
+  menu?: readonly MenuEntry[];
   className?: string;
   children?: ReactNode;
 }) {
+  const context = useContextMenu(menu ?? [], { disabled: !menu });
+  // The menu sits beside the row, so a click in it doesn't open the row.
   return (
-    <div
+    <><div
       className={`settings-row${onClick ? " is-link" : ""}${className ? ` ${className}` : ""}`}
       onClick={onClick}
+      onContextMenu={menu ? context.onContextMenu : undefined}
     >
       {icon ? <span className="settings-row-icon">{icon}</span> : null}
       <div className="settings-row-text">
@@ -41,7 +47,7 @@ export function SettingsRow({
           {children}
         </div>
       ) : null}
-    </div>
+    </div>{context.menu}</>
   );
 }
 
